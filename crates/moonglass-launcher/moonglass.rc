@@ -1,0 +1,2 @@
+// The program's icon. GPUI loads icon 1 for the window and the taskbar.
+1 ICON "../../assets/logo.ico"

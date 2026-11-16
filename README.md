@@ -1,5 +1,7 @@
 # Moonglass
 
+<img src="assets/logo.svg" alt="" width="96">
+
 A console-style, controller-first PC game launcher for Windows and Linux.
 The repository and workspace are named `moonglass-launcher`; the app and its
 executable are `Moonglass` / `moonglass`.
