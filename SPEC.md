@@ -118,7 +118,7 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
 * **Ambient Mode:** Dynamic Color Bloom, Full-Screen Hero Fanart, or Pure OLED Dark; glow (Off, Subtle, Normal, Bright); background blur strength (chosen from pre-computed levels).
 * **Card Metadata:** Art Only, Art + Title, or Art + Playtime & Source Badge, shown under each card. Favorites carry a star and hidden games (when shown) a "Hidden" tag.
 * **Startup Animation:** on by default; the wordmark, then the cards rise in one after another (about 1.5 s). Off skips it.
-* **Reduced Motion:** disables the glow pulse, the startup animation and transitions.
+* **Reduced Motion:** disables the glow pulse, the startup animation and every transition (highlights, panels, the on-screen keyboard, list changes).
 * **Clock:** 24-hour or 12-hour.
 
 All of these live in Settings → Appearance, apply immediately, and are saved.
@@ -144,7 +144,8 @@ GPUI renders through DirectX 11 on Windows and through `wgpu` (Vulkan, with an O
 | Blurred hero background | Blurred **at ingestion** on the CPU (downscale, Gaussian blur, save as a small texture), then stretched by the GPU. Three strengths are pre-computed |
 | Background tint | Two-stop linear gradient from the dominant color to near-black |
 | Color and art crossfade | Two stacked layers with animated opacity |
-| Frosted backdrop (Now Playing) | Each cover gets a tiny, heavily blurred copy **at ingestion**; behind the Now Playing screen the carousel is drawn with these copies over the strongest pre-blurred hero |
+| Blurred backdrop (Settings, launching, Now Playing) | The strongest pre-blurred hero of the focused game, tinted with its color, with no cards drawn, so the whole screen is one even surface. The carousel crossfades into it |
+| Interface motion | Highlights, panels, sheets, toggles and list changes glide on small critically-damped springs keyed by what is drawn; a value that is no longer drawn is forgotten |
 | Card motion | A small critically-damped spring implemented in Moonglass and stepped once per frame |
 
 GPUI is pre-1.0 and its API changes between releases. The dependency is pinned to an exact revision and upgraded deliberately.
@@ -228,7 +229,7 @@ Sources are tried in this order. The first hit wins per asset type (cover, hero,
 
 * Resize the cover to the largest size the carousel can display at the current resolution.
 * Extract dominant and accent colors. Both are clamped to a minimum saturation and a lightness band so that dark or grey covers still produce a visible glow.
-* Produce the three blurred hero variants and the frosted cover thumbnail.
+* Produce the three blurred hero variants.
 * Store paths and colors in SQLite.
 
 **At runtime:** only visible cards plus a few neighbors on each side are decoded and uploaded as GPU textures; others are released. Decoding happens off the UI thread.
@@ -274,7 +275,7 @@ Rules that make the folder signal reliable:
 
 * Windows: the window is minimized. Linux: the window stays fullscreen underneath the game. Wayland gives an application no way to un-minimize or raise itself, so Moonglass never minimizes there; when the game's window closes, the compositor returns focus to the fullscreen window beneath it.
 * On both platforms Moonglass renders zero frames in this state.
-* **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over a frosted view of the carousel, how long the game has been running, and two buttons: **Return to game** (`[A]`/`Enter`) and **Stop game** (`[X]`/`Del`). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
+* **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over the blurred backdrop (4.1), how long the game has been running, and two buttons: **Return to game** (`[A]`/`Enter`) and **Stop game** (`[X]`/`Del`). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
 * **Stop game.** The first press asks the game to close normally (a window close request on Windows, `SIGTERM` on Linux) so it can save. If it is still running after 8 seconds, the button becomes **Force stop**, which terminates it (the Job Object or process group for executables and ROMs; the detected processes for Steam and Epic games). Moonglass never stops a game without the player asking.
 * Polling drops to once per second. Gamepad navigation is suspended. The only input still observed is the restore hotkey (5.4).
 
@@ -311,7 +312,7 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 
 ### 5.5 Settings, File Browser, and Text Entry
 
-* **Settings** is a full-screen view, opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse: Appearance (section 3, Customization), Library (add a game, ROM directories and emulators, `Recent` window, show hidden games, rescan), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller, logs, version). `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
+* **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, ROM directories and emulators, `Recent` window, show hidden games, rescan), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller, logs, version, Exit Moonglass). `Ctrl+Q` also exits when no game is running. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
 * **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the drive list on Windows and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
 * **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
 * **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments and Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch. Remove asks for a second press.

@@ -9,6 +9,7 @@
 //! Playing overlay, Settings, a modal (on-screen keyboard, file browser or
 //! per-game options), and a toast. Input goes to the topmost layer.
 
+mod anim;
 mod browser;
 mod gamepad;
 mod home;
@@ -19,6 +20,7 @@ mod settings;
 pub mod spring;
 mod theme;
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::PathBuf;
@@ -44,6 +46,7 @@ use moonglass_platform::{
 
 use crate::launch::{self, Running};
 use crate::now_unix;
+use anim::Anims;
 use browser::{Browser, BrowserResult, Entry, Purpose};
 use gamepad::{ControllerStatus, NavAction, PadEvent};
 use options::{Opt, OptionsMenu};
@@ -51,7 +54,7 @@ use osk::{Osk, OskResult, TextTarget};
 use prefs::Prefs;
 use settings::{Item, SettingsCmd, SettingsInfo, SettingsState};
 use spring::Spring;
-use theme::hex_color;
+use theme::{hex_color, on};
 
 /// Mouse-wheel distance that moves the selection by one card.
 const WHEEL_STEP_PX: f32 = 60.0;
@@ -201,9 +204,16 @@ pub struct LauncherView {
     crossfade: f32,
     caret_epoch: Instant,
     repaint_pending: bool,
+    /// Every animated value except the carousel position (see [`anim`]).
+    /// In a cell because drawing code only has `&self`.
+    anims: RefCell<Anims>,
 
     screen: Screen,
+    /// Settings while it fades out after closing.
+    settings_leaving: Option<SettingsState>,
     modal: Modal,
+    /// The modal that was just closed, while it fades out.
+    modal_leaving: Option<Modal>,
     overlay: Overlay,
     toast: Option<(String, Instant)>,
     browser_generation: u64,
@@ -331,8 +341,11 @@ impl LauncherView {
             crossfade: 1.0,
             caret_epoch: Instant::now(),
             repaint_pending: false,
+            anims: RefCell::new(Anims::new()),
             screen: Screen::Home,
+            settings_leaving: None,
             modal: Modal::None,
+            modal_leaving: None,
             overlay: Overlay::None,
             toast: None,
             browser_generation: 0,
@@ -600,7 +613,7 @@ impl LauncherView {
     fn open_search_keyboard(&mut self) {
         self.begin_search();
         let text = self.query.clone().unwrap_or_default();
-        self.modal = Modal::Keyboard(Osk::new(TextTarget::Search, text));
+        self.set_modal(Modal::Keyboard(Osk::new(TextTarget::Search, text)));
     }
 
     // ------------------------------------------------------------- events
@@ -628,6 +641,12 @@ impl LauncherView {
                         self.intro_start = Some(Instant::now());
                     }
                     self.started = Instant::now();
+                    // Development: start on a given screen.
+                    match std::env::var("MOONGLASS_DEV_SCREEN").as_deref() {
+                        Ok("settings") => self.open_settings(),
+                        Ok("search") => self.open_search_keyboard(),
+                        _ => {}
+                    }
                 }
                 cx.notify();
             }
@@ -717,8 +736,12 @@ impl LauncherView {
             window.activate_window();
         }
         if let Some((_, at)) = &self.toast {
-            if at.elapsed() > Duration::from_secs(TOAST_SECS) {
+            // Past its time the toast fades out (see `render`), then goes.
+            let age = at.elapsed();
+            if age > Duration::from_secs(TOAST_SECS + 1) {
                 self.toast = None;
+            }
+            if age > Duration::from_secs(TOAST_SECS) {
                 cx.notify();
             }
         }
@@ -822,6 +845,10 @@ impl LauncherView {
         }
         if ctrl && key == "o" {
             return self.input_action(NavAction::Options, window, cx);
+        }
+        // Exit. Not while a game is tracked: its playtime would be lost.
+        if ctrl && key == "q" && self.session.is_none() {
+            return cx.quit();
         }
         let typing = self.text_target_active();
         // With a physical keyboard, Enter finishes the on-screen keyboard
@@ -1039,13 +1066,39 @@ impl LauncherView {
 
     // ------------------------------------------------------------- modals
 
+    /// Shows `modal` (or none). A modal that closes is kept while it fades
+    /// out; one that replaces another kind animates in afresh.
+    fn set_modal(&mut self, modal: Modal) {
+        let old = std::mem::replace(&mut self.modal, modal);
+        match (&old, &self.modal) {
+            (Modal::None, Modal::None) => {}
+            (_, Modal::None) => self.modal_leaving = Some(old),
+            (old, new) => {
+                self.modal_leaving = None;
+                if std::mem::discriminant(old) != std::mem::discriminant(new) {
+                    self.anims.borrow_mut().set("modal", 0.0);
+                }
+            }
+        }
+    }
+
+    /// An animated value gliding toward `target` (see [`anim`]).
+    fn glide(&self, key: impl std::hash::Hash, target: f32) -> f32 {
+        self.anims.borrow_mut().to(key, target)
+    }
+
+    /// 0 to 1 from the first frame `key` is drawn.
+    fn appear(&self, key: impl std::hash::Hash) -> f32 {
+        self.anims.borrow_mut().glide_from(key, 0.0, 1.0)
+    }
+
     fn close_modal(&mut self, cx: &mut Context<Self>) {
         if let Modal::Keyboard(k) = &self.modal {
             if k.target == TextTarget::Search {
                 self.finish_search();
             }
         }
-        self.modal = Modal::None;
+        self.set_modal(Modal::None);
         cx.notify();
     }
 
@@ -1081,16 +1134,16 @@ impl LauncherView {
             (OskResult::Edited, TextTarget::Search) => self.set_query(text),
             (OskResult::Edited, _) => self.caret_epoch = Instant::now(),
             (OskResult::Done, TextTarget::Search) => {
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.finish_search();
             }
             (OskResult::Cancel, TextTarget::Search) => {
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.clear_search();
             }
-            (OskResult::Cancel, _) => self.modal = Modal::None,
+            (OskResult::Cancel, _) => self.set_modal(Modal::None),
             (OskResult::Done, _) => {
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.apply_text(target, text);
             }
             (OskResult::Nothing, _) => {}
@@ -1152,7 +1205,7 @@ impl LauncherView {
     }
 
     fn open_browser(&mut self, purpose: Purpose) {
-        self.modal = Modal::Browser(Browser::new(purpose));
+        self.set_modal(Modal::Browser(Browser::new(purpose)));
         self.load_dir(None);
     }
 
@@ -1198,7 +1251,7 @@ impl LauncherView {
                     return;
                 };
                 let purpose = b.purpose.clone();
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.picked(purpose, path);
             }
         }
@@ -1255,7 +1308,7 @@ impl LauncherView {
             return;
         };
         if let Some(g) = self.stored(&id).cloned() {
-            self.modal = Modal::Options(Box::new(OptionsMenu::new(g)));
+            self.set_modal(Modal::Options(Box::new(OptionsMenu::new(g))));
         }
     }
 
@@ -1278,7 +1331,7 @@ impl LauncherView {
         let g = m.game.clone();
         match o {
             Opt::Play => {
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.play(window, cx);
             }
             Opt::Favorite => {
@@ -1290,7 +1343,7 @@ impl LauncherView {
             }
             Opt::Hide => {
                 let hide = !g.is_hidden;
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.db_task(move |db, _| async move {
                     db.set_hidden(&g.id, hide).await?;
                     Ok(Some(if hide {
@@ -1302,7 +1355,7 @@ impl LauncherView {
             }
             Opt::ChangeArt => self.open_browser(Purpose::Artwork(g.id)),
             Opt::ResetArt => {
-                self.modal = Modal::None;
+                self.set_modal(Modal::None);
                 self.db_task(move |db, cache| async move {
                     db.unlock_artwork(&g.id).await?;
                     crate::artwork::refresh(&db, &cache, false).await?;
@@ -1311,11 +1364,17 @@ impl LauncherView {
             }
             Opt::LaunchArgs => {
                 let text = g.launch_args.clone().unwrap_or_default();
-                self.modal = Modal::Keyboard(Osk::new(TextTarget::LaunchArgs(g.id), text));
+                self.set_modal(Modal::Keyboard(Osk::new(
+                    TextTarget::LaunchArgs(g.id),
+                    text,
+                )));
             }
             Opt::WatchProcess => {
                 let text = g.watch_process.clone().unwrap_or_default();
-                self.modal = Modal::Keyboard(Osk::new(TextTarget::WatchProcess(g.id), text));
+                self.set_modal(Modal::Keyboard(Osk::new(
+                    TextTarget::WatchProcess(g.id),
+                    text,
+                )));
             }
             Opt::WorkingDir => self.open_browser(Purpose::WorkingDir(g.id)),
             Opt::TrackByFolder => {
@@ -1335,7 +1394,7 @@ impl LauncherView {
                 if !m.confirm_remove {
                     m.confirm_remove = true;
                 } else {
-                    self.modal = Modal::None;
+                    self.set_modal(Modal::None);
                     self.db_task(move |db, _| async move {
                         db.remove_game(&g.id).await?;
                         Ok(Some(format!("Removed {}", g.title)))
@@ -1355,7 +1414,9 @@ impl LauncherView {
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
-        self.screen = Screen::Home;
+        if let Screen::Settings(st) = std::mem::replace(&mut self.screen, Screen::Home) {
+            self.settings_leaving = Some(st);
+        }
         cx.notify();
     }
 
@@ -1416,7 +1477,10 @@ impl LauncherView {
             SettingsCmd::Run(item) => match item {
                 Item::AddGame => self.open_browser(Purpose::AddExecutable),
                 Item::SgdbKey => {
-                    self.modal = Modal::Keyboard(Osk::new(TextTarget::SgdbKey, String::new()));
+                    self.set_modal(Modal::Keyboard(Osk::new(
+                        TextTarget::SgdbKey,
+                        String::new(),
+                    )));
                 }
                 Item::Rescan => {
                     self.toast("Rescanning…", cx);
@@ -1426,6 +1490,7 @@ impl LauncherView {
                         Ok(Some(s.lines.join(" · ")))
                     });
                 }
+                Item::Exit => cx.quit(),
                 Item::RefreshArt => {
                     self.toast("Refreshing artwork…", cx);
                     self.db_task(|db, cache| async move {
@@ -1683,7 +1748,9 @@ impl LauncherView {
         .detach();
     }
 
-    fn advance_animation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Start of a frame: moves every animation forward by the time since the
+    /// last one.
+    fn advance_animation(&mut self) {
         let now = Instant::now();
         let dt = self
             .last_frame
@@ -1691,24 +1758,34 @@ impl LauncherView {
             .unwrap_or(0.0);
         self.last_frame = Some(now);
         self.spring.step(dt);
+        let anims = self.anims.get_mut();
+        anims.enabled = self.prefs.animate();
+        anims.step(dt);
         if self.crossfade < 1.0 {
             self.crossfade = (self.crossfade + dt / CROSSFADE_SECS).min(1.0);
         }
         if self.intro_start.is_some() && self.intro_t().is_none() {
             self.intro_start = None;
         }
+    }
+
+    /// End of a frame: asks for the next one while anything is still moving.
+    fn schedule_next_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let home_idle =
             self.lifecycle.state() == State::Idle && matches!(self.overlay, Overlay::None);
-        let moving =
-            !self.spring.is_settled() || self.crossfade < 1.0 || self.intro_start.is_some();
+        // Spec 5.3: the carousel does not animate while launching, and no
+        // frames are drawn while a game runs. Overlays and panels settle in
+        // a fraction of a second and then stop asking for frames.
+        let carousel_moving = home_idle
+            && (!self.spring.is_settled() || self.crossfade < 1.0 || self.intro_start.is_some());
+        let moving = carousel_moving || self.anims.get_mut().is_moving();
         let pulsing = home_idle
             && matches!(self.screen, Screen::Home)
             && self.prefs.animate()
             && self.prefs.glow_brightness() > 0.0
             && !self.order.is_empty();
         let caret = self.text_target_active() && window.is_window_active();
-        // Spec 5.3: no animation while launching; zero frames while running.
-        if home_idle && moving {
+        if moving {
             window.request_animation_frame();
             return;
         }
@@ -1807,7 +1884,7 @@ async fn poll_game(
 
 impl Render for LauncherView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.advance_animation(window, cx);
+        self.advance_animation();
         let vp = window.viewport_size();
         let (w, h) = (f32::from(vp.width), f32::from(vp.height));
         let u = h / 1080.0; // 10-foot unit: 1 at 1080p
@@ -1827,35 +1904,80 @@ impl Render for LauncherView {
             .text_color(theme::white(0.95))
             .text_size(px(22.0 * u));
 
-        let frosted = matches!(
-            self.overlay,
-            Overlay::Launching { .. } | Overlay::Playing { .. }
-        );
-        root = self.render_home(root, frosted, w, h, u, cx);
+        // Settings and the launch / Now Playing screens sit on an even
+        // blurred backdrop, which the carousel crossfades into.
+        let settings_open = matches!(self.screen, Screen::Settings(_));
+        let frost_wanted = settings_open
+            || matches!(
+                self.overlay,
+                Overlay::Launching { .. } | Overlay::Playing { .. }
+            );
+        let frost = self.glide("frost", on(frost_wanted));
+        if frost < 0.997 {
+            root = self.render_home(root, w, h, u, cx);
+        }
+        if frost > 0.003 {
+            let layer = div()
+                .id("frost")
+                .absolute()
+                .size_full()
+                .bg(gpui::rgb(theme::OBSIDIAN))
+                .opacity(frost);
+            root = root.child(self.render_backdrop(layer));
+        }
         if let Some(o) = self.render_overlay(w, h, u, cx) {
             root = root.child(o);
         }
-        if let Screen::Settings(st) = &self.screen {
+
+        let settings = self.glide("settings", on(settings_open));
+        if !settings_open && settings < 0.005 {
+            self.settings_leaving = None;
+        }
+        let st = match &self.screen {
+            Screen::Settings(st) => Some(st),
+            Screen::Home => self.settings_leaving.as_ref(),
+        };
+        if let Some(st) = st.filter(|_| settings > 0.005) {
             let info = self.settings_info();
-            root = root.child(self.render_settings(st, &info, w, h, u, cx));
+            root = root.child(self.render_settings(st, &info, settings, w, h, u, cx));
         }
+
+        let modal_open = !matches!(self.modal, Modal::None);
+        let modal = self.glide("modal", on(modal_open));
+        if !modal_open && modal < 0.005 {
+            self.modal_leaving = None;
+        }
+        let shown = if modal_open {
+            Some(&self.modal)
+        } else {
+            self.modal_leaving.as_ref()
+        };
         let caret = self.caret_on();
-        match &self.modal {
-            Modal::None => {}
-            Modal::Keyboard(k) => root = root.child(self.render_osk(k, u, caret, cx)),
-            Modal::Browser(b) => root = root.child(self.render_browser(b, w, h, u, cx)),
-            Modal::Options(m) => {
-                let (x, y) = self.options_anchor(w, h, u);
-                root = root.child(self.render_options(m, x, y, u, cx));
+        match shown.filter(|_| modal > 0.005) {
+            Some(Modal::Keyboard(k)) => root = root.child(self.render_osk(k, u, caret, modal, cx)),
+            Some(Modal::Browser(b)) => {
+                root = root.child(self.render_browser(b, w, h, u, modal, cx))
             }
+            Some(Modal::Options(m)) => {
+                let (x, y) = self.options_anchor(w, h, u);
+                root = root.child(self.render_options(m, x, y, u, modal, cx));
+            }
+            Some(Modal::None) | None => {}
         }
-        if let Some((msg, _)) = &self.toast {
+
+        let toast_due = self
+            .toast
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() <= Duration::from_secs(TOAST_SECS));
+        let toast = self.glide("toast", on(toast_due));
+        if let Some((msg, _)) = self.toast.as_ref().filter(|_| toast > 0.005) {
             root = root.child(
                 div()
                     .absolute()
-                    .bottom(px(110.0 * u))
+                    .bottom(px((110.0 - 30.0 * (1.0 - toast)) * u))
                     .left_0()
                     .right_0()
+                    .opacity(toast)
                     .flex()
                     .justify_center()
                     .child(
@@ -1872,6 +1994,7 @@ impl Render for LauncherView {
                     ),
             );
         }
+        self.schedule_next_frame(window, cx);
         root
     }
 }

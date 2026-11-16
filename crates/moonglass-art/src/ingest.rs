@@ -21,12 +21,6 @@ pub const BLUR_WIDTH: u32 = 480;
 /// user-selectable strengths (Settings → Appearance).
 pub const BLUR_SIGMAS: [f32; 3] = [6.0, 12.0, 24.0];
 
-/// The Now Playing screen shows the carousel behind frosted glass. GPUI
-/// cannot blur, so each cover gets a tiny, heavily blurred copy that the GPU
-/// stretches back to card size.
-pub const FROST_WIDTH: u32 = 48;
-pub const FROST_SIGMA: f32 = 3.0;
-
 #[derive(Debug, Clone, Copy)]
 pub struct IngestConfig {
     /// Largest cover height the carousel can show at the current
@@ -52,11 +46,6 @@ pub struct Ingested {
     pub accent: String,
     /// The cover is a generated gradient: the UI must draw the title.
     pub is_placeholder: bool,
-}
-
-/// Path of the frosted cover used behind the Now Playing screen.
-pub fn frosted_cover_path(cover_path: &Path) -> PathBuf {
-    cover_path.with_file_name("cover_frost.jpg")
 }
 
 /// Path of a pre-blurred variant, derived from the hero path so the schema
@@ -116,13 +105,6 @@ pub fn ingest(
         }
     };
     let pal = palette_of(&cover_img);
-
-    let frost_h = ((cover_img.height() as u64 * FROST_WIDTH as u64)
-        / cover_img.width().max(1) as u64)
-        .max(1) as u32;
-    let frost = cover_img.resize_exact(FROST_WIDTH, frost_h, FilterType::Triangle);
-    let frost = DynamicImage::ImageRgb8(image::imageops::blur(&frost.to_rgb8(), FROST_SIGMA));
-    save_jpeg(&frost, &frosted_cover_path(&cover_path), 85)?;
 
     // Hero: the game's hero art, or the cover when there is none.
     let (hero_img, hero_path) = match &found.hero {
@@ -223,7 +205,6 @@ mod tests {
         assert!(r.is_placeholder);
         assert_eq!(r.hero_path, r.cover_path);
         assert!(blurred_hero_path(&r.hero_path, 2).is_file());
-        assert!(frosted_cover_path(&r.cover_path).is_file());
         assert_eq!(r.logo_path, None);
     }
 }

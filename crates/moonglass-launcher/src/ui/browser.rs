@@ -9,7 +9,7 @@ use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
 use moonglass_core::GameId;
 
 use super::gamepad::NavAction;
-use super::theme::{black, keycap, white, INK};
+use super::theme::{black, keycap, on, selected, white};
 use super::LauncherView;
 
 /// Rows shown at once; the list scrolls around the selection.
@@ -232,6 +232,7 @@ impl LauncherView {
         w: f32,
         h: f32,
         u: f32,
+        shown: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let start = b
@@ -251,9 +252,9 @@ impl LauncherView {
                 EntryKind::File => "•",
                 EntryKind::UseThisFolder => "✓",
             };
+            let lit = self.glide(("browse-row", i), on(sel));
             list = list.child(
-                div()
-                    .id(("browse-row", i))
+                selected(div().id(("browse-row", i)), lit)
                     .flex()
                     .items_center()
                     .gap(px(14.0 * u))
@@ -261,7 +262,6 @@ impl LauncherView {
                     .py(px(9.0 * u))
                     .rounded(px(10.0 * u))
                     .cursor_pointer()
-                    .when(sel, |d| d.bg(white(0.92)).text_color(rgb(INK)))
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.08))))
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.browser_click(i, window, cx)),
@@ -318,6 +318,7 @@ impl LauncherView {
             .absolute()
             .size_full()
             .bg(black(0.72))
+            .opacity(shown)
             .flex()
             .items_center()
             .justify_center()
@@ -333,6 +334,8 @@ impl LauncherView {
             }))
             .child(
                 div()
+                    .relative()
+                    .top(px((1.0 - shown) * 36.0 * u))
                     .w(px((w * 0.62).min(1100.0 * u)))
                     .h(px(h * 0.80))
                     .p(px(30.0 * u))

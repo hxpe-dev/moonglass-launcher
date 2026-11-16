@@ -1,6 +1,6 @@
 //! Shared drawing helpers: colors, easing, key caps and buttons.
 
-use gpui::{div, prelude::*, px, rgb, Div, Hsla};
+use gpui::{div, prelude::*, px, rgb, Div, Hsla, Rgba};
 
 pub const OBSIDIAN: u32 = 0x07080B;
 pub const INK: u32 = 0x101114;
@@ -19,6 +19,36 @@ pub fn hex_color(s: Option<&str>, fallback: u32) -> Hsla {
         .and_then(|h| u32::from_str_radix(h, 16).ok())
         .unwrap_or(fallback);
     rgb(v).into()
+}
+
+/// 1 or 0, as an animation target.
+pub fn on(b: bool) -> f32 {
+    if b {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+/// The color `t` of the way from `a` to `b`.
+pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
+    let (a, b) = (Rgba::from(a), Rgba::from(b));
+    let t = t.clamp(0.0, 1.0);
+    let lerp = |x: f32, y: f32| x + (y - x) * t;
+    Rgba {
+        r: lerp(a.r, b.r),
+        g: lerp(a.g, b.g),
+        b: lerp(a.b, b.b),
+        a: lerp(a.a, b.a),
+    }
+    .into()
+}
+
+/// The highlight of a selected row or key, `amount` of the way in: white
+/// with dark text.
+pub fn selected<E: Styled>(el: E, amount: f32) -> E {
+    el.bg(white(0.92 * amount))
+        .text_color(mix(white(0.95), rgb(INK).into(), amount))
 }
 
 pub fn ease_out_cubic(t: f32) -> f32 {

@@ -6,7 +6,7 @@ use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
 use moonglass_core::{Game, Source};
 
 use super::gamepad::NavAction;
-use super::theme::{black, white, INK};
+use super::theme::{black, on, selected, white};
 use super::LauncherView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,20 +116,20 @@ impl LauncherView {
         x: f32,
         y: f32,
         u: f32,
+        shown: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut list = div().flex().flex_col().gap(px(4.0 * u));
         for (i, o) in m.items.iter().copied().enumerate() {
             let sel = i == m.selected;
             let danger = o == Opt::Remove;
+            let lit = self.glide(("opt", i), on(sel));
             list = list.child(
-                div()
-                    .id(("opt", i))
+                selected(div().id(("opt", i)), lit)
                     .px(px(18.0 * u))
                     .py(px(10.0 * u))
                     .rounded(px(10.0 * u))
                     .cursor_pointer()
-                    .when(sel, |d| d.bg(white(0.92)).text_color(rgb(INK)))
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.08))))
                     .when(danger && !sel, |d| d.text_color(rgb(0xF08A88)))
                     .truncate()
@@ -145,13 +145,14 @@ impl LauncherView {
             .absolute()
             .size_full()
             .bg(black(0.35))
+            .opacity(shown)
             .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx)))
             .child(
                 div()
                     .id("options")
                     .occlude()
                     .absolute()
-                    .left(px(x))
+                    .left(px(x - (1.0 - shown) * 24.0 * u))
                     .top(px(y))
                     .w(px(460.0 * u))
                     .p(px(16.0 * u))

@@ -1,12 +1,12 @@
 //! Settings (spec 5.5): a full-screen, controller-navigable view with
-//! Library, Appearance, Artwork and System sections. Every change applies
-//! immediately and is saved.
+//! Library, Appearance, Artwork and System sections, drawn as glass panels
+//! over the blurred carousel. Every change applies immediately and is saved.
 
-use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
+use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedString};
 
 use super::gamepad::{Family, NavAction};
 use super::prefs::{Choice, Prefs};
-use super::theme::{black, keycap, white, INK};
+use super::theme::{black, keycap, mix, on, selected, white, INK};
 use super::LauncherView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +61,7 @@ pub enum Item {
     RestoreHotkey,
     Logs,
     Version,
+    Exit,
 }
 
 pub fn items(section: Section) -> &'static [Item] {
@@ -91,6 +92,7 @@ pub fn items(section: Section) -> &'static [Item] {
             Item::RestoreHotkey,
             Item::Logs,
             Item::Version,
+            Item::Exit,
         ],
     }
 }
@@ -120,7 +122,9 @@ impl Item {
             | Item::ShowHidden
             | Item::StartAtLogin
             | Item::DismissLauncher => Kind::Toggle,
-            Item::AddGame | Item::Rescan | Item::SgdbKey | Item::RefreshArt => Kind::Action,
+            Item::AddGame | Item::Rescan | Item::SgdbKey | Item::RefreshArt | Item::Exit => {
+                Kind::Action
+            }
             Item::LibraryInfo
             | Item::ArtInfo
             | Item::RestoreHotkey
@@ -154,6 +158,7 @@ impl Item {
             Item::RestoreHotkey => "Return to Moonglass during a game",
             Item::Logs => "Logs",
             Item::Version => "Version",
+            Item::Exit => "Exit Moonglass",
         }
     }
 }
@@ -187,11 +192,12 @@ pub enum SettingsCmd {
 }
 
 impl SettingsState {
+    /// Opens on the section list, so the first thing to do is choose one.
     pub fn new() -> Self {
         Self {
             section: 0,
             item: 0,
-            in_sections: false,
+            in_sections: true,
         }
     }
 
@@ -346,36 +352,57 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         }
         Item::Logs => info.logs.clone(),
         Item::Version => env!("CARGO_PKG_VERSION").into(),
+        Item::Exit => "Exit".into(),
     }
 }
 
 impl LauncherView {
+    /// `shown` (0 to 1) fades the view in and out; the carousel behind it is
+    /// already blurred by the caller.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_settings(
         &self,
         st: &SettingsState,
         info: &SettingsInfo,
+        shown: f32,
         w: f32,
         h: f32,
         u: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let prefs = &self.prefs;
-        let mut sections = div().flex().flex_col().gap(px(6.0 * u)).w(px(280.0 * u));
+        let ink: Hsla = rgb(INK).into();
+        // A dark glass panel: the blurred artwork shows through.
+        let glass = |d: Div| {
+            d.rounded(px(26.0 * u))
+                .bg(black(0.42))
+                .border_1()
+                .border_color(white(0.10))
+        };
+
+        let mut sections = glass(div())
+            .flex_none()
+            .w(px(300.0 * u))
+            .p(px(12.0 * u))
+            .flex()
+            .flex_col()
+            .gap(px(4.0 * u));
         for (i, s) in SECTIONS.iter().enumerate() {
             let active = i == st.section;
-            let focused = active && st.in_sections;
+            // The current section is tinted; it turns white while the
+            // section list itself has the focus.
+            let tint = self.glide(("settings-section", i), on(active));
+            let lit = self.glide(("settings-section-focus", i), on(active && st.in_sections));
             sections = sections.child(
                 div()
                     .id(("settings-section", i))
                     .px(px(20.0 * u))
-                    .py(px(12.0 * u))
-                    .rounded(px(12.0 * u))
+                    .py(px(13.0 * u))
+                    .rounded(px(16.0 * u))
                     .cursor_pointer()
-                    .when(focused, |d| d.bg(white(0.92)).text_color(rgb(INK)))
-                    .when(active && !focused, |d| d.bg(white(0.14)))
-                    .when(!active, |d| {
-                        d.text_color(white(0.7)).hover(|s| s.bg(white(0.08)))
-                    })
+                    .bg(white(0.14 * tint + 0.78 * lit))
+                    .text_color(mix(white(0.65 + 0.30 * tint), ink, lit))
+                    .when(!active, |d| d.hover(|s| s.bg(white(0.08))))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_click_section(i, cx);
                     }))
@@ -383,59 +410,65 @@ impl LauncherView {
             );
         }
 
-        let mut rows = div().flex().flex_col().gap(px(6.0 * u)).flex_1();
-        for (i, item) in items(SECTIONS[st.section]).iter().copied().enumerate() {
+        let section = SECTIONS[st.section];
+        let mut rows = div().flex().flex_col().gap(px(4.0 * u));
+        for (i, item) in items(section).iter().copied().enumerate() {
             let sel = i == st.item && !st.in_sections;
+            let lit = self.glide(("settings-row", st.section, i), on(sel));
             let kind = item.kind();
             let v = value(item, prefs, info);
             let value_el = match kind {
-                Kind::Choice => div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.0 * u))
-                    .child(div().opacity(0.6).child("‹"))
-                    .child(v)
-                    .child(div().opacity(0.6).child("›")),
-                Kind::Toggle => {
-                    let on = v == "On";
+                Kind::Choice => {
+                    // A new value fades in.
+                    let fresh = self.appear(("settings-value", st.section, i, v.as_str()));
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.0 * u))
+                        .child(div().opacity(0.55).child("‹"))
+                        .child(div().opacity(fresh).child(v))
+                        .child(div().opacity(0.55).child("›"))
+                }
+                Kind::Toggle => {
+                    // The knob slides and the track changes color.
+                    let t = self.glide(("settings-toggle", st.section, i), on(v == "On"));
+                    div()
+                        .flex_none()
                         .w(px(52.0 * u))
                         .h(px(28.0 * u))
                         .rounded_full()
                         .p(px(3.0 * u))
-                        .flex()
-                        .when(on, |d| d.justify_end().bg(rgb(0x5A8DEE)))
-                        .when(!on, |d| d.justify_start().bg(white(0.25)))
-                        .child(div().size(px(22.0 * u)).rounded_full().bg(gpui::white()))
+                        .bg(mix(white(0.25), rgb(0x5A8DEE).into(), t))
+                        .child(
+                            div()
+                                .ml(px(24.0 * u * t))
+                                .size(px(22.0 * u))
+                                .rounded_full()
+                                .bg(gpui::white()),
+                        )
                 }
                 Kind::Action => div()
                     .px(px(14.0 * u))
                     .py(px(4.0 * u))
                     .rounded_full()
-                    .when(sel, |d| d.bg(rgb(INK)).text_color(gpui::white()))
-                    .when(!sel, |d| d.bg(white(0.14)))
+                    .bg(mix(white(0.14), ink, lit))
+                    .text_color(mix(white(0.95), gpui::white(), lit))
                     .child(v),
                 Kind::Info => div()
-                    .text_color(if sel {
-                        rgb(0x3A3D45).into()
-                    } else {
-                        white(0.6)
-                    })
+                    .text_color(mix(white(0.6), rgb(0x3A3D45).into(), lit))
                     .truncate()
                     .child(v),
             };
             rows = rows.child(
-                div()
-                    .id(("settings-item", i))
+                selected(div().id(("settings-item", i)), lit)
                     .flex()
                     .items_center()
                     .justify_between()
                     .gap(px(24.0 * u))
                     .px(px(22.0 * u))
                     .py(px(14.0 * u))
-                    .rounded(px(12.0 * u))
+                    .rounded(px(16.0 * u))
                     .when(kind != Kind::Info, |d| d.cursor_pointer())
-                    .when(sel, |d| d.bg(white(0.92)).text_color(rgb(INK)))
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.07))))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.settings_click_item(i, window, cx);
@@ -444,6 +477,31 @@ impl LauncherView {
                     .child(div().min_w_0().flex().justify_end().child(value_el)),
             );
         }
+        // The rows of a newly chosen section slide in from the right.
+        let entered = self.appear(("settings-rows", st.section));
+        let panel = glass(div())
+            .flex_1()
+            .min_w_0()
+            .p(px(14.0 * u))
+            .flex()
+            .flex_col()
+            .gap(px(8.0 * u))
+            .child(
+                div()
+                    .px(px(22.0 * u))
+                    .pt(px(10.0 * u))
+                    .pb(px(4.0 * u))
+                    .text_size(px(15.0 * u))
+                    .text_color(white(0.5))
+                    .child(section.label().to_uppercase()),
+            )
+            .child(
+                div()
+                    .relative()
+                    .left(px((1.0 - entered) * 32.0 * u))
+                    .opacity(entered)
+                    .child(rows),
+            );
 
         let hint = |k: &str, l: &str| {
             div()
@@ -478,12 +536,14 @@ impl LauncherView {
             .occlude()
             .absolute()
             .size_full()
-            .bg(black(0.93))
-            .px(px(w * 0.06))
-            .py(px(h * 0.06))
+            // A light scrim: the blur behind does most of the separation.
+            .bg(black(0.30))
+            .opacity(shown)
+            .px(px(w * 0.08))
+            .py(px(h * 0.07))
             .flex()
             .flex_col()
-            .gap(px(28.0 * u))
+            .gap(px(26.0 * u))
             .child(
                 div()
                     .flex()
@@ -502,25 +562,29 @@ impl LauncherView {
                             .px(px(18.0 * u))
                             .py(px(8.0 * u))
                             .rounded_full()
-                            .bg(white(0.12))
-                            .hover(|s| s.bg(white(0.24)))
+                            .bg(white(0.14))
+                            .hover(|s| s.bg(white(0.26)))
                             .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx)))
                             .child("Close"),
                     ),
             )
             .child(
+                // The panels rise into place as the view opens.
                 div()
                     .flex_1()
-                    .flex()
-                    .gap(px(36.0 * u))
                     .min_h_0()
+                    .relative()
+                    .top(px((1.0 - shown) * 28.0 * u))
+                    .flex()
+                    .items_start()
+                    .gap(px(28.0 * u))
                     .child(sections)
-                    .child(rows),
+                    .child(panel),
             )
             .child(
                 div()
                     .text_size(px(16.0 * u))
-                    .text_color(white(0.75))
+                    .text_color(white(0.8))
                     .child(footer),
             )
             .into_any_element()
@@ -535,6 +599,7 @@ mod tests {
     fn choices_change_with_left_right() {
         let mut st = SettingsState::new();
         let mut p = Prefs::default();
+        st.nav(NavAction::Confirm, &mut p); // into Appearance
         let before = p.card_shape;
         assert!(matches!(
             st.nav(NavAction::Right, &mut p),
@@ -549,6 +614,9 @@ mod tests {
     fn back_goes_to_sections_then_closes() {
         let mut st = SettingsState::new();
         let mut p = Prefs::default();
+        assert!(st.in_sections, "opens on the section list");
+        st.nav(NavAction::Right, &mut p);
+        assert!(!st.in_sections);
         assert!(matches!(st.nav(NavAction::Back, &mut p), SettingsCmd::None));
         assert!(st.in_sections);
         st.nav(NavAction::Down, &mut p);
@@ -564,6 +632,7 @@ mod tests {
         let mut st = SettingsState::new();
         let mut p = Prefs::default();
         st.nav(NavAction::FilterNext, &mut p); // Library
+        st.nav(NavAction::Confirm, &mut p); // into its rows
         assert!(matches!(
             st.nav(NavAction::Confirm, &mut p),
             SettingsCmd::Run(Item::AddGame)

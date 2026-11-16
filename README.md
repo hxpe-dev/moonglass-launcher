@@ -16,13 +16,14 @@ Windows; the Linux code compiles but has not been run yet. Running
 | Core: database, migrations, logs, single instance, scanners, reconciliation | Done |
 | Launch state machine, detection (Job Object / process group / folder / `SteamAppId`) | Done; launch, exit and focus return confirmed on Windows |
 | File-system watchers, 2 s debounce | Done |
-| Artwork (5.2): Steam local cache, SteamGridDB, placeholder, palette, blurred heroes, frosted covers | Done |
+| Artwork (5.2): Steam local cache, SteamGridDB, placeholder, palette, blurred heroes | Done |
 | Carousel: spring motion, focus styling, glow, ambient modes, hero zone, startup animation | Done |
 | Gamepad (`gilrs`), keyboard and mouse, input-aware hints | Done; gamepad confirmed with a real controller |
 | Controller battery (gilrs, XInput on Windows) | Done; XInput reading not yet seen on a real pad |
 | Restore hotkey and Now Playing screen with Stop / Force stop | Done; the controller combination is untested |
 | Search box (top right, caret), on-screen keyboard | Done |
-| Settings (Appearance, Library, Artwork, System), saved preferences | Done |
+| Settings (Appearance, Library, Artwork, System) on a blurred backdrop, saved preferences, Exit | Done |
+| Animated highlights, panels, sheets, search and list changes (off with Reduced Motion) | Done |
 | File browser, Add a game (executable), per-game Options menu | Done |
 | Emulator profiles and presets, ROM directory setup in Settings | Not yet (CLI only: `add-emulator`, `add-rom-dir`) |
 | First-run flow, packaging, section 7 performance checks | Not yet |
@@ -48,6 +49,7 @@ Not done yet:
 `MOONGLASS_WINDOWED=1` opens a window instead of full screen.
 `MOONGLASS_DEV_SECOND_INSTANCE=1` lets a test window run next to a normal
 one (it shares the database).
+`MOONGLASS_DEV_SCREEN=settings` (or `search`) opens on that screen.
 
 ## Layout
 

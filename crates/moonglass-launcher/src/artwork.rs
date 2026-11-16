@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moonglass_art::ingest::{frosted_cover_path, ingest, IngestConfig, Ingested};
+use moonglass_art::ingest::{ingest, IngestConfig, Ingested};
 use moonglass_art::steamgriddb::{Client, Lookup};
 use moonglass_art::{cache_folder_name, steam_cache, FoundArt};
 use moonglass_core::{Game, GameId, Source};
@@ -24,11 +24,10 @@ pub struct ArtSummary {
 fn needs_art(g: &Game) -> bool {
     g.is_installed
         && !g.artwork_locked
-        // Art made before the frosted cover existed is redone once.
-        && !g.cover_path.as_deref().is_some_and(|p| {
-            let p = Path::new(p);
-            p.is_file() && frosted_cover_path(p).is_file()
-        })
+        && !g
+            .cover_path
+            .as_deref()
+            .is_some_and(|p| Path::new(p).is_file())
 }
 
 /// Stores ingested artwork; `user_override` also locks it.

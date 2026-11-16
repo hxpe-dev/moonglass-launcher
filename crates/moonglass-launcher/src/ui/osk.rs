@@ -5,11 +5,11 @@
 //! Gamepad: D-pad moves, A types the key, X deletes, Y types a space,
 //! Menu (Start) is Done, B cancels.
 
-use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
+use gpui::{div, prelude::*, px, AnyElement, Context, SharedString};
 use moonglass_core::GameId;
 
 use super::gamepad::NavAction;
-use super::theme::{keycap, white, INK};
+use super::theme::{keycap, on, selected, white};
 use super::LauncherView;
 
 const ROWS: [&str; 4] = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"];
@@ -191,21 +191,24 @@ impl Osk {
 }
 
 impl LauncherView {
-    /// The keyboard as a bottom sheet. `caret` is the blink state.
+    /// The keyboard as a bottom sheet. `caret` is the blink state; `shown`
+    /// (0 to 1) slides the sheet up from the bottom edge.
     pub(super) fn render_osk(
         &self,
         osk: &Osk,
         u: f32,
         caret: bool,
+        shown: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let key_w = 64.0 * u;
         let key_h = 56.0 * u;
-        let selected = |r: usize, c: usize| osk.row == r && osk.col == c;
+        // How far the highlight has moved onto each key.
+        let lit =
+            |r: usize, c: usize| self.glide(("osk-key", r, c), on(osk.row == r && osk.col == c));
 
-        let key = |id: (&'static str, usize), label: String, w: f32, sel: bool| {
-            div()
-                .id(id)
+        let key = |id: (&'static str, usize), label: String, w: f32, lit: f32| {
+            selected(div().id(id), lit)
                 .w(px(w))
                 .h(px(key_h))
                 .rounded(px(10.0 * u))
@@ -213,8 +216,8 @@ impl LauncherView {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .when(sel, |d| d.bg(white(0.92)).text_color(rgb(INK)))
-                .when(!sel, |d| d.bg(white(0.10)).hover(|s| s.bg(white(0.2))))
+                .bg(white(0.10 + 0.82 * lit))
+                .when(lit < 0.5, |d| d.hover(|s| s.bg(white(0.2))))
                 .child(label)
         };
 
@@ -228,13 +231,7 @@ impl LauncherView {
                     ch
                 };
                 row = row.child(
-                    key(
-                        ("osk-key", r * 100 + c),
-                        ch.to_string(),
-                        key_w,
-                        selected(r, c),
-                    )
-                    .on_click(
+                    key(("osk-key", r * 100 + c), ch.to_string(), key_w, lit(r, c)).on_click(
                         cx.listener(move |this, _, window, cx| this.osk_click(r, c, window, cx)),
                     ),
                 );
@@ -251,7 +248,7 @@ impl LauncherView {
             };
             let r = ROWS.len();
             specials = specials.child(
-                key(("osk-special", c), label.to_string(), w, selected(r, c)).on_click(
+                key(("osk-special", c), label.to_string(), w, lit(r, c)).on_click(
                     cx.listener(move |this, _, window, cx| this.osk_click(r, c, window, cx)),
                 ),
             );
@@ -319,7 +316,8 @@ impl LauncherView {
             .absolute()
             .left_0()
             .right_0()
-            .bottom_0()
+            .bottom(px(-(1.0 - shown) * 420.0 * u))
+            .opacity(shown)
             .pt(px(22.0 * u))
             .pb(px(26.0 * u))
             .bg(super::theme::black(0.86))

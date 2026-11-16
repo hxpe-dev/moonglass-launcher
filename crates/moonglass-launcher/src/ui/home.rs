@@ -7,12 +7,12 @@ use gpui::{
     div, img, linear_color_stop, linear_gradient, point, prelude::*, px, rgb, AnyElement,
     BoxShadow, Context, Div, MouseButton, ObjectFit, SharedString, Stateful,
 };
-use moonglass_art::ingest::{blurred_hero_path, frosted_cover_path};
+use moonglass_art::ingest::blurred_hero_path;
 use moonglass_core::{Game, Source};
 
 use super::prefs::{Ambient as AmbientMode, CardDetails, CardShape, Clock};
 use super::theme::{
-    battery, black, ease_out_cubic, hex_color, keycap, pill, segment, white, INK, OBSIDIAN,
+    battery, black, ease_out_cubic, hex_color, keycap, mix, on, pill, segment, white, INK, OBSIDIAN,
 };
 use super::{Hint, InputMode, LauncherView, Overlay, OverlayButton, StopState};
 
@@ -94,13 +94,8 @@ impl LauncherView {
         (x, l.focus_top)
     }
 
-    fn image_for_card(&self, g: &Game, frosted: bool) -> Option<PathBuf> {
+    fn image_for_card(&self, g: &Game) -> Option<PathBuf> {
         let cover = g.cover_path.as_deref().map(PathBuf::from);
-        if frosted {
-            return cover
-                .map(|c| frosted_cover_path(&c))
-                .filter(|p| p.is_file());
-        }
         match self.prefs.card_shape {
             CardShape::Banner => g.hero_path.as_deref().map(PathBuf::from).or(cover),
             _ => cover,
@@ -110,7 +105,6 @@ impl LauncherView {
     pub(super) fn render_home(
         &mut self,
         mut root: Stateful<Div>,
-        frosted: bool,
         w: f32,
         h: f32,
         u: f32,
@@ -121,7 +115,7 @@ impl LauncherView {
         // cards from 0.6 (staggered), chrome 0.8–1.25.
         let chrome_alpha = intro.map_or(1.0, |t| ease_out_cubic(segment(t, 0.8, 0.45)));
 
-        root = self.render_background(root, frosted);
+        root = self.render_background(root, false);
 
         let l = self.layout(w, h, u);
         let pulse = self.pulse();
@@ -160,17 +154,13 @@ impl LauncherView {
                     .child(msg),
             );
         } else {
-            root = self.render_cards(root, &l, frosted, pulse, intro, w, u, cx);
-            if !frosted {
-                root = self.render_hero_zone(root, &l, w, h, u, chrome_alpha);
-            }
+            root = self.render_cards(root, &l, pulse, intro, w, u, cx);
+            root = self.render_hero_zone(root, &l, w, h, u, chrome_alpha);
         }
 
-        if !frosted {
-            root = root.child(self.render_top_bar(w, u, chrome_alpha, cx));
-            if matches!(self.screen, super::Screen::Home) {
-                root = root.child(self.render_action_bar(u, chrome_alpha, cx));
-            }
+        root = root.child(self.render_top_bar(w, u, chrome_alpha, cx));
+        if matches!(self.screen, super::Screen::Home) {
+            root = root.child(self.render_action_bar(u, chrome_alpha, cx));
         }
 
         // Startup: the wordmark over black, then the screen fades in.
@@ -202,6 +192,13 @@ impl LauncherView {
         root
     }
 
+    /// What Settings and the launch / Now Playing screens sit on: only the
+    /// focused game's most blurred artwork and its color, with no cards, so
+    /// the whole screen is one even surface.
+    pub(super) fn render_backdrop(&self, layer: Stateful<Div>) -> Stateful<Div> {
+        self.render_background(layer, true)
+    }
+
     fn render_background(&self, mut root: Stateful<Div>, frosted: bool) -> Stateful<Div> {
         let mode = if frosted {
             AmbientMode::Bloom
@@ -221,7 +218,7 @@ impl LauncherView {
             }
             let image = match mode {
                 AmbientMode::Fanart => amb.fanart.clone(),
-                // Behind the Now Playing screen: always the strongest blur.
+                // The backdrop: always the strongest blur.
                 _ if frosted => amb.fanart.as_ref().map(|h| blurred_hero_path(h, 2)),
                 _ => amb.background.clone(),
             };
@@ -270,7 +267,6 @@ impl LauncherView {
         &mut self,
         mut root: Stateful<Div>,
         l: &Layout,
-        frosted: bool,
         pulse: f32,
         intro: Option<f32>,
         w: f32,
@@ -285,7 +281,12 @@ impl LauncherView {
         let hi = (self.selected + TEXTURE_NEIGHBORS + 1).min(self.order.len());
         for slot in lo..hi {
             let g = self.shown[self.order[slot]].clone();
-            let d = slot as f32 - pos;
+            // A card glides to its new place when the list changes (filter,
+            // search) and fades in when it is new to the row.
+            let id = g.id.as_str();
+            let place = self.glide(("card-place", id), slot as f32);
+            let entered = self.appear(("card", id));
+            let d = place - pos;
             // 1 when focused, 0 one card away or further.
             let c = (1.0 - d.abs()).max(0.0);
             let cw = l.base_w + (l.focus_w - l.base_w) * c;
@@ -304,15 +305,19 @@ impl LauncherView {
                 }
                 None => (0.0, 1.0),
             };
+            let rise = rise + (1.0 - entered) * 36.0 * u;
+            let appear = appear * entered;
             let y = l.center_y - ch / 2.0 + rise;
-            let active = slot == self.selected;
+            // The border and glow follow the focus continuously: `c` is 1 on
+            // the focused card and falls to 0 one card away.
+            let focus = c;
             let accent = hex_color(g.accent_color.as_deref(), 0x5A78C8);
             let dominant = hex_color(g.dominant_color.as_deref(), 0x2A3550);
             let radius_f = 14.0 * u * (cw / l.focus_w).max(0.7);
             let radius = px(radius_f);
             // The focused card's 2 px border sits inside it, so its content
             // uses the border's inner radius to stay concentric.
-            let content_radius = px(if active && !frosted {
+            let content_radius = px(if focus > 0.01 {
                 (radius_f - 2.0).max(0.0)
             } else {
                 radius_f
@@ -333,8 +338,9 @@ impl LauncherView {
                     MouseButton::Right,
                     cx.listener(move |this, _, _, cx| this.right_click_card(slot, cx)),
                 );
-            if active && !frosted {
-                card = card.border_2().border_color(white(0.92));
+            if focus > 0.01 {
+                card = card.border_2().border_color(white(0.92 * focus));
+                let glow = glow * focus;
                 if glow > 0.0 {
                     // Glow: stacked box shadows in the accent and dominant
                     // colors; the pulse animates their opacity and spread.
@@ -360,7 +366,7 @@ impl LauncherView {
                         },
                     ]);
                 }
-            } else if !frosted {
+            } else {
                 card = card.hover(|s| s.border_1().border_color(white(0.45)));
             }
 
@@ -369,30 +375,18 @@ impl LauncherView {
                 .rounded(content_radius)
                 .overflow_hidden()
                 .relative();
-            match self.image_for_card(&g, frosted) {
-                Some(path) => {
-                    // The image is rounded itself: clipping by the parent is
-                    // rectangular, so the corners would show past the border.
-                    inner = inner.child(
-                        img(path)
-                            .absolute()
-                            .size_full()
-                            .rounded(content_radius)
-                            .object_fit(ObjectFit::Cover),
-                    );
-                }
-                None if frosted => {
-                    inner = inner.child(
-                        div()
-                            .absolute()
-                            .size_full()
-                            .rounded(content_radius)
-                            .bg(white(0.08)),
-                    );
-                }
-                None => {}
+            if let Some(path) = self.image_for_card(&g) {
+                // The image is rounded itself: clipping by the parent is
+                // rectangular, so the corners would show past the border.
+                inner = inner.child(
+                    img(path)
+                        .absolute()
+                        .size_full()
+                        .rounded(content_radius)
+                        .object_fit(ObjectFit::Cover),
+                );
             }
-            if !frosted && is_placeholder_cover(&g) && self.prefs.card_shape != CardShape::Banner {
+            if is_placeholder_cover(&g) && self.prefs.card_shape != CardShape::Banner {
                 inner = inner.child(
                     div()
                         .absolute()
@@ -405,7 +399,7 @@ impl LauncherView {
                 );
             }
             // Corner badges: favorite, hidden.
-            if !frosted && (g.is_favorite || self.hidden_ids.contains(&g.id)) {
+            if g.is_favorite || self.hidden_ids.contains(&g.id) {
                 let mut badges = div()
                     .absolute()
                     .top(px(8.0 * u))
@@ -437,16 +431,12 @@ impl LauncherView {
                 }
                 inner = inner.child(badges);
             }
-            let dim = if frosted {
-                0.25
-            } else {
-                INACTIVE_DIM * (1.0 - c)
-                    + if self.hidden_ids.contains(&g.id) {
-                        0.25
-                    } else {
-                        0.0
-                    }
-            };
+            let dim = INACTIVE_DIM * (1.0 - c)
+                + if self.hidden_ids.contains(&g.id) {
+                    0.25
+                } else {
+                    0.0
+                };
             if dim > 0.001 {
                 // Dim with a black layer rather than transparency, so the
                 // background never shows through the card.
@@ -461,7 +451,7 @@ impl LauncherView {
             root = root.child(card.child(inner));
 
             // Card details under the card.
-            if !frosted && details != CardDetails::ArtOnly {
+            if details != CardDetails::ArtOnly {
                 let mut label = div()
                     .absolute()
                     .left(px(x))
@@ -514,13 +504,15 @@ impl LauncherView {
         let Some(g) = self.current().cloned() else {
             return root;
         };
+        // The title slides in when the focus moves to another game.
+        let shown = self.appear(("hero", g.id.as_str()));
         let zone_top = h * 0.16;
         let mut hero = div()
             .absolute()
-            .left(px(l.left))
+            .left(px(l.left - (1.0 - shown) * 28.0 * u))
             .top(px(zone_top))
             .h(px((l.focus_top - zone_top - 16.0 * u).max(40.0 * u)))
-            .opacity(alpha)
+            .opacity(alpha * shown)
             .flex()
             .flex_col()
             .items_start()
@@ -569,6 +561,7 @@ impl LauncherView {
         let mut pills = div().flex().gap(px(6.0 * u));
         for (i, f) in self.filters.iter().copied().enumerate() {
             let active = f == self.filter && self.query.is_none();
+            let a = self.glide(("pill", f.label()), on(active));
             pills = pills.child(
                 div()
                     .id(("pill", i))
@@ -576,10 +569,10 @@ impl LauncherView {
                     .py(px(6.0 * u))
                     .rounded_full()
                     .cursor_pointer()
-                    .when(active, |d| d.bg(white(0.92)).text_color(rgb(INK)))
+                    .bg(white(0.92 * a))
+                    .text_color(mix(white(0.62), rgb(INK).into(), a))
                     .when(!active, |d| {
-                        d.text_color(white(0.62))
-                            .hover(|s| s.bg(white(0.12)).text_color(white(0.95)))
+                        d.hover(|s| s.bg(white(0.12)).text_color(white(0.95)))
                     })
                     .on_click(cx.listener(move |this, _, _, cx| this.click_filter(f, cx)))
                     .child(f.label()),
@@ -587,12 +580,21 @@ impl LauncherView {
         }
 
         // Search box, top right.
-        let focused = self.search_focused && self.is_home_idle();
+        // Focused while typing, on a physical keyboard or the on-screen one.
+        let on_screen_keyboard = matches!(
+            &self.modal,
+            super::Modal::Keyboard(k) if k.target == super::TextTarget::Search
+        );
+        let focused = self.search_focused && (self.is_home_idle() || on_screen_keyboard);
         let query = self.query.clone().unwrap_or_default();
         let caret = focused && self.caret_on();
+        // The box widens and lights up as it takes focus.
+        let lit = self.glide("search-focus", on(focused));
         let search = div()
             .id("search-box")
-            .w(px((w * 0.22).clamp(260.0 * u, 420.0 * u)))
+            .w(px(
+                (w * 0.22).clamp(260.0 * u, 420.0 * u) * (1.0 + 0.3 * lit)
+            ))
             .h(px(42.0 * u))
             .px(px(16.0 * u))
             .rounded_full()
@@ -600,10 +602,10 @@ impl LauncherView {
             .items_center()
             .gap(px(10.0 * u))
             .cursor_text()
-            .when(focused, |d| {
-                d.bg(white(0.18)).border_1().border_color(white(0.65))
-            })
-            .when(!focused, |d| d.bg(white(0.09)).hover(|s| s.bg(white(0.14))))
+            .bg(white(0.09 + 0.09 * lit))
+            .border_1()
+            .border_color(white(0.65 * lit))
+            .when(!focused, |d| d.hover(|s| s.bg(white(0.14))))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.set_input(InputMode::Mouse, cx);
                 this.click_search_box(cx);
@@ -1012,13 +1014,16 @@ impl LauncherView {
             self.overlay,
             Overlay::Launching { .. } | Overlay::Playing { .. }
         );
+        // Each kind of overlay fades in and settles upward.
+        let shown = self.appear(("overlay", std::mem::discriminant(&self.overlay)));
         Some(
             div()
                 .id("overlay")
                 .occlude()
                 .absolute()
                 .size_full()
-                // Over the frosted carousel only a light scrim is needed;
+                .opacity(shown)
+                // Over the blurred backdrop only a light scrim is needed;
                 // the content sits on its own soft panel to stay readable.
                 .bg(black(if frosted { 0.45 } else { 0.82 }))
                 .flex()
@@ -1026,6 +1031,8 @@ impl LauncherView {
                 .justify_center()
                 .child(
                     content
+                        .relative()
+                        .top(px((1.0 - shown) * 30.0 * u))
                         .px(px(64.0 * u))
                         .py(px(44.0 * u))
                         .rounded(px(32.0 * u))
