@@ -12,7 +12,14 @@ use super::gamepad::NavAction;
 use super::theme::{keycap, on, selected, white};
 use super::LauncherView;
 
-const ROWS: [&str; 4] = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"];
+/// The last row has what launch arguments and paths need.
+const ROWS: [&str; 5] = [
+    "1234567890",
+    "qwertyuiop",
+    "asdfghjkl'",
+    "zxcvbnm,.-",
+    "{}\"/\\:_=+@",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Special {
@@ -33,8 +40,17 @@ const SPECIALS: [Special; 4] = [
 pub enum TextTarget {
     Search,
     SgdbKey,
+    SteamApiKey,
     LaunchArgs(GameId),
     WatchProcess(GameId),
+    /// By emulator profile ID.
+    EmulatorArguments(String),
+    EmulatorFileTypes(String),
+    /// The platform label for a ROM folder being added.
+    RomPlatform {
+        emulator: String,
+        path: std::path::PathBuf,
+    },
 }
 
 impl TextTarget {
@@ -42,13 +58,27 @@ impl TextTarget {
         match self {
             TextTarget::Search => "Search",
             TextTarget::SgdbKey => "SteamGridDB API key",
+            TextTarget::SteamApiKey => "Steam Web API key (steamcommunity.com/dev/apikey)",
             TextTarget::LaunchArgs(_) => "Launch arguments",
             TextTarget::WatchProcess(_) => "Process to watch (for example Game.exe)",
+            TextTarget::EmulatorArguments(_) => "Arguments ({rom} is the game's file)",
+            TextTarget::EmulatorFileTypes(_) => "File types (for example .iso,.rvz)",
+            TextTarget::RomPlatform { .. } => "Platform name (for example GameCube)",
+        }
+    }
+
+    /// The emulator profile this text belongs to, if any.
+    pub fn emulator(&self) -> Option<&str> {
+        match self {
+            TextTarget::EmulatorArguments(id)
+            | TextTarget::EmulatorFileTypes(id)
+            | TextTarget::RomPlatform { emulator: id, .. } => Some(id),
+            _ => None,
         }
     }
 
     fn secret(&self) -> bool {
-        matches!(self, TextTarget::SgdbKey)
+        matches!(self, TextTarget::SgdbKey | TextTarget::SteamApiKey)
     }
 }
 
@@ -316,7 +346,7 @@ impl LauncherView {
             .absolute()
             .left_0()
             .right_0()
-            .bottom(px(-(1.0 - shown) * 420.0 * u))
+            .bottom(px(-(1.0 - shown) * 490.0 * u))
             .opacity(shown)
             .pt(px(22.0 * u))
             .pb(px(26.0 * u))

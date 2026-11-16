@@ -1,6 +1,5 @@
-//! Per-game Options menu, `[Y]` (spec 5.5): Favorite, Hide, Change Artwork,
-//! Launch Arguments, Working Directory, Process to Watch, Remove (for
-//! standalone executables and ROM entries).
+//! Per-game Options menu, `[Y]` (spec 5.5). Which rows appear depends on
+//! where the game comes from (see [`OptionsMenu::new`]).
 
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
 use moonglass_core::{Game, Source};
@@ -8,10 +7,13 @@ use moonglass_core::{Game, Source};
 use super::gamepad::NavAction;
 use super::theme::{black, on, selected, white};
 use super::LauncherView;
+use crate::friends::Friend;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opt {
     Play,
+    /// Join the friend at this position in [`OptionsMenu::joinable`].
+    Join(usize),
     Favorite,
     Hide,
     ChangeArt,
@@ -25,6 +27,8 @@ pub enum Opt {
 
 pub struct OptionsMenu {
     pub game: Game,
+    /// Friends playing this game in a session that can be joined.
+    pub joinable: Vec<Friend>,
     pub items: Vec<Opt>,
     pub selected: usize,
     /// Remove asks for a second press.
@@ -32,13 +36,17 @@ pub struct OptionsMenu {
 }
 
 impl OptionsMenu {
-    pub fn new(game: Game) -> Self {
+    pub fn new(game: Game, joinable: Vec<Friend>) -> Self {
         let own = matches!(game.source, Source::Exe | Source::Rom);
-        let mut items = vec![Opt::Play, Opt::Favorite, Opt::Hide, Opt::ChangeArt];
+        let mut items = vec![Opt::Play];
+        items.extend((0..joinable.len()).map(Opt::Join));
+        items.extend([Opt::Favorite, Opt::Hide, Opt::ChangeArt]);
         if game.artwork_locked {
             items.push(Opt::ResetArt);
         }
-        if own {
+        // Steam accepts launch options on its command line; the Epic
+        // launcher has no way to pass any.
+        if own || game.source == Source::Steam {
             items.push(Opt::LaunchArgs);
         }
         if game.source == Source::Exe {
@@ -53,6 +61,7 @@ impl OptionsMenu {
         }
         Self {
             game,
+            joinable,
             items,
             selected: 0,
             confirm_remove: false,
@@ -63,6 +72,10 @@ impl OptionsMenu {
         let g = &self.game;
         match o {
             Opt::Play => "Play".into(),
+            Opt::Join(i) => format!(
+                "Join {}",
+                self.joinable.get(i).map_or("", |f| f.name.as_str())
+            ),
             Opt::Favorite if g.is_favorite => "Remove from favorites".into(),
             Opt::Favorite => "Add to favorites".into(),
             Opt::Hide if g.is_hidden => "Show in library".into(),
@@ -70,7 +83,9 @@ impl OptionsMenu {
             Opt::ChangeArt => "Change artwork…".into(),
             Opt::ResetArt => "Use automatic artwork".into(),
             Opt::LaunchArgs => match g.launch_args.as_deref().filter(|s| !s.is_empty()) {
+                Some(a) if g.source == Source::Steam => format!("Launch options: {a}"),
                 Some(a) => format!("Launch arguments: {a}"),
+                None if g.source == Source::Steam => "Launch options…".into(),
                 None => "Launch arguments…".into(),
             },
             Opt::WorkingDir => match g.working_dir.as_deref() {
@@ -217,21 +232,36 @@ mod tests {
 
     #[test]
     fn items_depend_on_source() {
-        let steam = OptionsMenu::new(game(Source::Steam));
+        let steam = OptionsMenu::new(game(Source::Steam), Vec::new());
         assert!(!steam.items.contains(&Opt::Remove));
-        assert!(!steam.items.contains(&Opt::LaunchArgs));
-        let exe = OptionsMenu::new(game(Source::Exe));
+        assert!(steam.items.contains(&Opt::LaunchArgs));
+        assert!(!steam.items.contains(&Opt::WorkingDir));
+        let epic = OptionsMenu::new(game(Source::Epic), Vec::new());
+        assert!(!epic.items.contains(&Opt::LaunchArgs));
+        let exe = OptionsMenu::new(game(Source::Exe), Vec::new());
         assert!(exe.items.contains(&Opt::Remove));
         assert!(exe.items.contains(&Opt::WorkingDir));
         assert!(exe.items.contains(&Opt::TrackByFolder));
-        let rom = OptionsMenu::new(game(Source::Rom));
+        let rom = OptionsMenu::new(game(Source::Rom), Vec::new());
         assert!(rom.items.contains(&Opt::LaunchArgs));
         assert!(!rom.items.contains(&Opt::WorkingDir));
     }
 
     #[test]
+    fn joinable_friends_come_right_after_play() {
+        let friend = |name: &str| Friend {
+            steam_id: "1".into(),
+            name: name.into(),
+            lobby: Some("2".into()),
+        };
+        let m = OptionsMenu::new(game(Source::Steam), vec![friend("Alex"), friend("Sam")]);
+        assert_eq!(m.items[..3], [Opt::Play, Opt::Join(0), Opt::Join(1)]);
+        assert_eq!(m.label(Opt::Join(1)), "Join Sam");
+    }
+
+    #[test]
     fn wraps_and_confirms() {
-        let mut m = OptionsMenu::new(game(Source::Steam));
+        let mut m = OptionsMenu::new(game(Source::Steam), Vec::new());
         m.nav(NavAction::Up);
         assert_eq!(m.selected, m.items.len() - 1);
         m.nav(NavAction::Down);

@@ -26,6 +26,8 @@ notify-debouncer-mini = "0.6"
 # GPUI is pre-1.0; pinned to an exact version and upgraded deliberately (spec 4.1).
 gpui = "=0.2.2"
 futures = "0.3"
+# The same HTTP stack as moonglass-art, for Steam's Web API (friends).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 raw-window-handle = "0.6"
 gilrs = "0.11"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

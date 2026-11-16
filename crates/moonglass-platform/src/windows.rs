@@ -48,11 +48,9 @@ fn last_error(what: &str) -> PlatformError {
 pub fn app_paths() -> Result<AppPaths> {
     let base = directories::BaseDirs::new().ok_or(PlatformError::NoHome)?;
     // %APPDATA%\Moonglass and %LOCALAPPDATA%\Moonglass (spec 4.4).
-    let roaming = base.config_dir().join("Moonglass");
     let local = base.data_local_dir().join("Moonglass");
     Ok(AppPaths {
-        data_dir: roaming.clone(),
-        config_dir: roaming,
+        data_dir: base.config_dir().join("Moonglass"),
         cache_dir: local.join("cache"),
         log_dir: local.join("logs"),
     })
@@ -180,8 +178,28 @@ pub fn open_uri(uri: &str) -> Result<()> {
     }
 }
 
-pub fn launch_steam(app_id: &str) -> Result<()> {
-    open_uri(&format!("steam://rungameid/{app_id}"))
+pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return open_uri(&format!("steam://rungameid/{app_id}"));
+    }
+    let exe = reg_get_string(r"Software\Valve\Steam", "SteamExe")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| {
+            steam_root()
+                .map(|r| r.join("steam.exe"))
+                .filter(|p| p.is_file())
+        })
+        .ok_or_else(|| {
+            PlatformError::Os("steam.exe was not found, and launch options need it".into())
+        })?;
+    // Steam is already running: this hands the request over and exits.
+    Command::new(exe)
+        .arg("-applaunch")
+        .arg(app_id)
+        .args(args)
+        .spawn()?;
+    Ok(())
 }
 
 pub fn launch_epic(source: &EpicSource, app_name: &str, fallback_uri: Option<&str>) -> Result<()> {
@@ -489,8 +507,9 @@ impl Drop for Instance {
 pub mod window {
     use std::time::Duration;
 
-    use windows::core::BOOL;
-    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
+    use windows::core::{w, BOOL};
+    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Graphics::Gdi::{GetStockObject, UpdateWindow, BLACK_BRUSH, HBRUSH};
     use windows::Win32::System::Threading::{
         AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -499,14 +518,69 @@ pub mod window {
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_MENU,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, EnumWindows, FlashWindowEx, GetForegroundWindow, GetWindow,
-        GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW,
+        BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows,
+        FlashWindowEx, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindowVisible, PostMessageW, RegisterClassW,
         SetForegroundWindow, ShowWindow, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GW_OWNER,
-        SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
+        SM_CXSCREEN, SM_CYSCREEN, SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WNDCLASSW, WS_EX_TOOLWINDOW,
+        WS_POPUP, WS_VISIBLE,
     };
 
     fn hwnd(raw: isize) -> HWND {
         HWND(raw as *mut _)
+    }
+
+    /// A plain black window over the main screen, up the moment Moonglass
+    /// starts and until its real window has drawn. The UI toolkit needs
+    /// most of a second (graphics device, fonts) before it can open one;
+    /// the startup animation begins on black, so one runs into the other.
+    pub struct Splash(isize);
+
+    unsafe extern "system" fn splash_proc(w: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+        DefWindowProcW(w, msg, wp, lp)
+    }
+
+    impl Splash {
+        /// Call on the thread that will run the UI, and drop it there: the
+        /// window belongs to that thread.
+        pub fn show() -> Option<Self> {
+            unsafe {
+                let class = WNDCLASSW {
+                    lpfnWndProc: Some(splash_proc),
+                    hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                    lpszClassName: w!("MoonglassSplash"),
+                    ..Default::default()
+                };
+                RegisterClassW(&class);
+                let window = CreateWindowExW(
+                    // No taskbar button of its own.
+                    WS_EX_TOOLWINDOW,
+                    class.lpszClassName,
+                    None,
+                    WS_POPUP | WS_VISIBLE,
+                    0,
+                    0,
+                    GetSystemMetrics(SM_CXSCREEN),
+                    GetSystemMetrics(SM_CYSCREEN),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .ok()?;
+                // Painted now: nothing runs this thread's messages for a while.
+                let _ = UpdateWindow(window);
+                Some(Self(window.0 as isize))
+            }
+        }
+    }
+
+    impl Drop for Splash {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = DestroyWindow(hwnd(self.0));
+            }
+        }
     }
 
     /// While a game runs, Moonglass's window is minimized.
@@ -583,7 +657,7 @@ pub mod window {
     }
 
     /// Taskbar flash until Moonglass is focused.
-    pub fn request_attention(raw: isize) {
+    fn request_attention(raw: isize) {
         let info = FLASHWINFO {
             cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
             hwnd: hwnd(raw),

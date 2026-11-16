@@ -1,7 +1,7 @@
 //! Steam: `libraryfolders.vdf` and `appmanifest_*.acf` (identical on both
 //! platforms).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use keyvalues_parser::{Obj, Value};
@@ -104,6 +104,9 @@ pub struct AppManifest {
     pub install_dir: String,
     pub state_flags: u64,
     pub last_played: Option<i64>,
+    /// SteamID64 of the account whose license the install uses: the
+    /// player's own, or a family member's for a borrowed game.
+    pub last_owner: Option<String>,
 }
 
 impl AppManifest {
@@ -129,7 +132,61 @@ pub fn parse_app_manifest(path: &Path, text: &str) -> Result<AppManifest, ScanEr
         last_played: get_str(&obj, "LastPlayed")
             .and_then(|s| s.parse().ok())
             .filter(|&t: &i64| t > 0),
+        last_owner: get_str(&obj, "LastOwner")
+            .filter(|s| !s.is_empty() && *s != "0")
+            .map(str::to_string),
     })
+}
+
+/// The owning account of every installed app, by AppID (see
+/// [`AppManifest::last_owner`]). Unreadable libraries and manifests are
+/// skipped.
+pub fn app_owners(steam_root: &Path) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for lib in library_paths(steam_root).unwrap_or_default() {
+        let Ok(entries) = std::fs::read_dir(lib.join("steamapps")) else {
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            let is_manifest = path.extension().is_some_and(|e| e == "acf");
+            let manifest = is_manifest
+                .then(|| read_to_string(&path).ok())
+                .flatten()
+                .and_then(|t| parse_app_manifest(&path, &t).ok());
+            if let Some((m, owner)) = manifest.and_then(|m| Some((m.app_id, m.last_owner?))) {
+                out.insert(m.to_string(), owner);
+            }
+        }
+    }
+    out
+}
+
+/// SteamID64 of the account signed in on this computer, from
+/// `config/loginusers.vdf`: the one marked most recent, else the one that
+/// signs in automatically, else the one used last.
+pub fn current_user(steam_root: &Path) -> Option<String> {
+    let path = steam_root.join("config").join("loginusers.vdf");
+    let users = parse_vdf(&path, &read_to_string(&path).ok()?).ok()?;
+    let accounts: Vec<(&str, &Obj<'_>)> = users
+        .iter()
+        .filter_map(|(id, values)| Some((id.as_ref(), values.first()?.get_obj()?)))
+        .collect();
+    let flagged = |key: &str| {
+        accounts
+            .iter()
+            .find(|(_, o)| get_str(o, key) == Some("1"))
+            .map(|(id, _)| *id)
+    };
+    let latest = || {
+        accounts
+            .iter()
+            .max_by_key(|(_, o)| get_str(o, "timestamp").and_then(|t| t.parse::<i64>().ok()))
+            .map(|(id, _)| *id)
+    };
+    flagged("MostRecent")
+        .or_else(|| flagged("AutoLogin"))
+        .or_else(latest)
+        .map(str::to_string)
 }
 
 fn is_denied(m: &AppManifest, extra_deny: &HashSet<u32>) -> bool {
@@ -320,6 +377,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(library_paths(&root).unwrap(), [root.clone(), lib]);
+    }
+
+    #[test]
+    fn owners_and_current_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("steamapps")).unwrap();
+        fs::create_dir_all(root.join("config")).unwrap();
+        let with_owner = |appid: u32, owner: &str| {
+            manifest(appid, "Game", "Game", 4, 0).replace(
+                "\"LastPlayed\"",
+                &format!("\"LastOwner\"\t\t\"{owner}\"\n\t\"LastPlayed\""),
+            )
+        };
+        fs::write(
+            root.join("steamapps/appmanifest_10.acf"),
+            with_owner(10, "76561190000000001"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("steamapps/appmanifest_20.acf"),
+            with_owner(20, "76561190000000002"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("steamapps/appmanifest_30.acf"),
+            manifest(30, "No owner", "x", 4, 0),
+        )
+        .unwrap();
+        let owners = app_owners(root);
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners["20"], "76561190000000002");
+
+        let users = |extra_first: &str| {
+            format!(
+                "\"users\"\n{{\n\t\"76561190000000001\"\n\t{{\n\t\t\"timestamp\"\t\"100\"\n{extra_first}\t}}\n\t\"76561190000000002\"\n\t{{\n\t\t\"timestamp\"\t\"200\"\n\t}}\n}}\n"
+            )
+        };
+        assert_eq!(current_user(root), None, "no file");
+        fs::write(root.join("config/loginusers.vdf"), users("")).unwrap();
+        assert_eq!(
+            current_user(root).as_deref(),
+            Some("76561190000000002"),
+            "used last"
+        );
+        fs::write(
+            root.join("config/loginusers.vdf"),
+            users("\t\t\"AutoLogin\"\t\"1\"\n"),
+        )
+        .unwrap();
+        assert_eq!(current_user(root).as_deref(), Some("76561190000000001"));
     }
 
     #[test]

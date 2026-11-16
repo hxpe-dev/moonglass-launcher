@@ -1,6 +1,7 @@
 //! Ingestion, once per asset (spec 5.2): resize the cover, extract colors,
-//! produce the three pre-blurred hero variants, and copy everything into
-//! Moonglass's cache so later changes in a launcher's cache cannot break it.
+//! crop one image per card shape, produce the three pre-blurred hero
+//! variants, and copy everything into Moonglass's cache so that changes in a
+//! launcher's own cache cannot break it.
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -23,14 +24,13 @@ pub const BLUR_SIGMAS: [f32; 3] = [6.0, 12.0, 24.0];
 
 #[derive(Debug, Clone, Copy)]
 pub struct IngestConfig {
-    /// Largest cover height the carousel can show at the current
-    /// resolution (active card included).
+    /// Largest image height the carousel can show (the focused card on a
+    /// 2160p screen).
     pub cover_max_height: u32,
 }
 
 impl Default for IngestConfig {
     fn default() -> Self {
-        // A 2:3 card at 45% of a 2160p screen, scaled by 1.12 when active.
         Self {
             cover_max_height: 1100,
         }
@@ -46,6 +46,73 @@ pub struct Ingested {
     pub accent: String,
     /// The cover is a generated gradient: the UI must draw the title.
     pub is_placeholder: bool,
+}
+
+/// The card shapes of the carousel. A card's image is cropped to its shape
+/// here, at ingestion: the renderer rounds an image's own corners, so an
+/// image wider or taller than its card would show square corners past the
+/// card's outline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardCrop {
+    /// 2:3, from the cover.
+    Poster,
+    /// 1:1, from the cover.
+    Square,
+    /// 16:9, from the hero art.
+    Banner,
+}
+
+impl CardCrop {
+    const ALL: [CardCrop; 3] = [CardCrop::Poster, CardCrop::Square, CardCrop::Banner];
+
+    fn aspect(self) -> (u32, u32) {
+        match self {
+            CardCrop::Poster => (2, 3),
+            CardCrop::Square => (1, 1),
+            CardCrop::Banner => (16, 9),
+        }
+    }
+
+    fn file_name(self) -> &'static str {
+        match self {
+            CardCrop::Poster => "card_poster.jpg",
+            CardCrop::Square => "card_square.jpg",
+            CardCrop::Banner => "card_banner.jpg",
+        }
+    }
+}
+
+/// Path of the image for a card shape, derived from the cover path so the
+/// schema needs no extra columns.
+pub fn card_image_path(cover_path: &Path, crop: CardCrop) -> PathBuf {
+    cover_path.with_file_name(crop.file_name())
+}
+
+/// The largest centered `aspect` rectangle of `img`.
+fn center_crop(img: &DynamicImage, (aw, ah): (u32, u32)) -> DynamicImage {
+    let (w, h) = img.dimensions();
+    let (cw, ch) = if w as u64 * ah as u64 > h as u64 * aw as u64 {
+        ((h as u64 * aw as u64 / ah as u64) as u32, h)
+    } else {
+        (w, (w as u64 * ah as u64 / aw as u64) as u32)
+    };
+    let (cw, ch) = (cw.clamp(1, w), ch.clamp(1, h));
+    img.crop_imm((w - cw) / 2, (h - ch) / 2, cw, ch)
+}
+
+/// Scales `img` down to `max_height` if it is taller.
+fn fit_height(img: DynamicImage, max_height: u32) -> DynamicImage {
+    if img.height() <= max_height {
+        return img;
+    }
+    let w = (img.width() as u64 * max_height as u64 / img.height() as u64) as u32;
+    img.resize_exact(w.max(1), max_height, FilterType::Lanczos3)
+}
+
+/// Whether a stored cover is the generated placeholder (the only cover
+/// saved as `cover.png`), on which the UI draws the title.
+pub fn is_placeholder_cover(cover_path: &Path) -> bool {
+    cover_path.file_name().is_some_and(|n| n == "cover.png")
 }
 
 /// Path of a pre-blurred variant, derived from the hero path so the schema
@@ -86,14 +153,7 @@ pub fn ingest(
     // Cover: resized to what the carousel can display, or a placeholder.
     let (cover_img, cover_path, is_placeholder) = match &found.cover {
         Some(src) => {
-            let img = open(src)?;
-            let img = if img.height() > cfg.cover_max_height {
-                let w =
-                    (img.width() as u64 * cfg.cover_max_height as u64 / img.height() as u64) as u32;
-                img.resize_exact(w.max(1), cfg.cover_max_height, FilterType::Lanczos3)
-            } else {
-                img
-            };
+            let img = fit_height(open(src)?, cfg.cover_max_height);
             let path = out_dir.join("cover.jpg");
             save_jpeg(&img, &path, 90)?;
             (img, path, false)
@@ -116,6 +176,17 @@ pub fn ingest(
         }
         None => (cover_img.clone(), cover_path.clone()),
     };
+    // One image per card shape, cropped to fit it exactly.
+    for crop in CardCrop::ALL {
+        let source = if crop == CardCrop::Banner {
+            &hero_img
+        } else {
+            &cover_img
+        };
+        let card = fit_height(center_crop(source, crop.aspect()), cfg.cover_max_height);
+        save_jpeg(&card, &card_image_path(&cover_path, crop), 90)?;
+    }
+
     let (w, h) = hero_img.dimensions();
     let small_h = ((h as u64 * BLUR_WIDTH as u64) / w.max(1) as u64).max(1) as u32;
     let small = hero_img.resize_exact(BLUR_WIDTH, small_h, FilterType::Triangle);
@@ -182,6 +253,14 @@ mod tests {
         assert!(!r.is_placeholder);
         let cover = image::open(&r.cover_path).unwrap();
         assert_eq!((cover.width(), cover.height()), (300, 900));
+        // Each card image has exactly its shape, whatever the source's.
+        let size = |crop| {
+            let i = image::open(card_image_path(&r.cover_path, crop)).unwrap();
+            (i.width(), i.height())
+        };
+        assert_eq!(size(CardCrop::Poster), (300, 450));
+        assert_eq!(size(CardCrop::Square), (300, 300));
+        assert_eq!(size(CardCrop::Banner), (1102, 620));
         for level in 0..3 {
             let b = image::open(blurred_hero_path(&r.hero_path, level)).unwrap();
             assert_eq!(b.width(), BLUR_WIDTH);

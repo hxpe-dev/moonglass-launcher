@@ -46,8 +46,21 @@ pub fn rom_command(
     Ok((PathBuf::from(executable), args))
 }
 
-/// Starts `game` and says how to watch it.
-pub async fn start(db: &Db, game: &Game, epic_fallback: bool) -> anyhow::Result<Running> {
+/// A friend's Steam session to join instead of starting the game alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SteamJoin {
+    pub lobby: String,
+    pub friend: String,
+}
+
+/// Starts `game` (or joins `join`, for a Steam game) and says how to watch
+/// it.
+pub async fn start(
+    db: &Db,
+    game: &Game,
+    epic_fallback: bool,
+    join: Option<&SteamJoin>,
+) -> anyhow::Result<Running> {
     let override_matcher = game
         .watch_process
         .as_deref()
@@ -60,7 +73,14 @@ pub async fn start(db: &Db, game: &Game, epic_fallback: bool) -> anyhow::Result<
                 .source_id
                 .as_deref()
                 .ok_or_else(|| anyhow!("Steam game without AppID"))?;
-            moonglass_platform::launch_steam(app_id)?;
+            let args = match game.launch_args.as_deref() {
+                Some(a) if !a.trim().is_empty() => split_args(a).context("launch options")?,
+                _ => Vec::new(),
+            };
+            match join {
+                Some(j) => moonglass_platform::join_steam_lobby(app_id, &j.lobby, &j.friend)?,
+                None => moonglass_platform::launch_steam(app_id, &args)?,
+            }
             Ok(Running {
                 child: None,
                 matcher: Some(override_matcher.unwrap_or(GameMatcher::Steam {
@@ -178,7 +198,7 @@ pub async fn run_to_completion(
     for e in lc.launch(origin.elapsed()) {
         report(game, e);
     }
-    let mut running = match start(db, game, epic_fallback).await {
+    let mut running = match start(db, game, epic_fallback, None).await {
         Ok(r) => r,
         Err(e) => {
             lc.cancel();

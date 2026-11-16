@@ -7,7 +7,7 @@
 //!
 //! | Capability | Here |
 //! | --- | --- |
-//! | Open a launcher URI / start a store game | [`launch_steam`], [`launch_epic`], [`open_uri`] |
+//! | Start a store game | [`launch_steam`], [`launch_epic`] |
 //! | Track and kill a spawned game | [`TrackedChild`] |
 //! | Detect a launcher-started game | [`ProcessWatcher`] + [`GameMatcher`] |
 //! | Hide Moonglass / regain focus / dismiss the launcher window | [`window`] |
@@ -57,10 +57,8 @@ pub type Result<T> = std::result::Result<T, PlatformError>;
 /// Where Moonglass keeps its files (spec 4.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPaths {
-    /// Holds `moonglass.db`.
+    /// Holds `moonglass.db`, which also stores the settings.
     pub data_dir: PathBuf,
-    /// Settings-adjacent files (the DB stores settings itself).
-    pub config_dir: PathBuf,
     /// Artwork and derived textures.
     pub cache_dir: PathBuf,
     pub log_dir: PathBuf,
@@ -76,12 +74,7 @@ impl AppPaths {
     }
 
     pub fn create_all(&self) -> io::Result<()> {
-        for d in [
-            &self.data_dir,
-            &self.config_dir,
-            &self.cache_dir,
-            &self.log_dir,
-        ] {
+        for d in [&self.data_dir, &self.cache_dir, &self.log_dir] {
             std::fs::create_dir_all(d)?;
         }
         Ok(())
@@ -119,10 +112,6 @@ fn lexical_clean(path: &Path) -> PathBuf {
 }
 
 /// Whether `child` is `dir` or inside it, using platform path identity.
-pub fn path_is_within(child: &Path, dir: &Path) -> bool {
-    within_normalized(child, &normalize_path(dir))
-}
-
 /// `dir` must already be a [`normalize_path`] result. `child` is a path
 /// reported by the OS (already absolute and resolved), so only case is
 /// folded, which keeps per-process checks free of file-system calls.
@@ -214,14 +203,24 @@ pub enum FocusResult {
 
 // ---------------------------------------------------------------- launching
 
-/// Hands a URI to the OS handler (`ShellExecuteW` / `xdg-open`).
-pub fn open_uri(uri: &str) -> Result<()> {
-    imp::open_uri(uri)
+/// Starts a Steam game through the Steam client. `args` are extra launch
+/// options for this start, passed on Steam's command line (`-applaunch`),
+/// because the `steam://` URI cannot carry them without Steam asking the
+/// player to confirm.
+pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
+    imp::launch_steam(app_id, args)
 }
 
-/// Starts a Steam game through the Steam client.
-pub fn launch_steam(app_id: &str) -> Result<()> {
-    imp::launch_steam(app_id)
+/// Joins a friend's Steam session: `lobby` and `friend` are the lobby's and
+/// the friend's SteamID64, as Steam's Web API reports them. Steam starts
+/// the game if needed and connects it.
+pub fn join_steam_lobby(app_id: &str, lobby: &str, friend: &str) -> Result<()> {
+    // The values come from the network and end up in a URI: digits only.
+    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !(numeric(app_id) && numeric(lobby) && numeric(friend)) {
+        return Err(PlatformError::Os("not a Steam lobby".into()));
+    }
+    imp::open_uri(&format!("steam://joinlobby/{app_id}/{lobby}/{friend}"))
 }
 
 /// Starts an Epic game through the Epic client (Windows) or Heroic (Linux).
@@ -558,13 +557,11 @@ mod tests {
     #[test]
     fn within() {
         let base = std::env::temp_dir().join("moonglass-within");
-        assert!(path_is_within(&base.join("a").join("b.exe"), &base));
-        assert!(path_is_within(&base, &base));
-        assert!(!path_is_within(
-            &PathBuf::from(format!("{}x", base.display())),
-            &base
-        ));
-        assert!(!path_is_within(&std::env::temp_dir(), &base));
+        let within = |child: &Path| within_normalized(child, &normalize_path(&base));
+        assert!(within(&base.join("a").join("b.exe")));
+        assert!(within(&base));
+        assert!(!within(&PathBuf::from(format!("{}x", base.display()))));
+        assert!(!within(&std::env::temp_dir()));
     }
 
     #[test]
@@ -595,6 +592,12 @@ mod tests {
         let n = normalize_path(&f);
         assert!(!n.starts_with(r"\\?\"));
         assert_eq!(n, normalize_path(&dir.path().join(".").join("Game.EXE")));
+    }
+
+    #[test]
+    fn lobby_ids_must_be_numeric() {
+        assert!(join_steam_lobby("620", "109775241", "7656119 & calc").is_err());
+        assert!(join_steam_lobby("620", "", "76561190000000001").is_err());
     }
 
     #[test]

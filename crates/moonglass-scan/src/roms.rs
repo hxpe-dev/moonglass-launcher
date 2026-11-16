@@ -70,6 +70,47 @@ fn referenced_files(sheet: &Path, kind: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The text of each `[tag]` in a file name.
+fn bracket_tags(stem: &str) -> impl Iterator<Item = &str> {
+    stem.split('[')
+        .skip(1)
+        .filter_map(|s| s.split_once(']'))
+        .map(|(tag, _)| tag.trim())
+}
+
+/// Whether a Switch `.nsp` is an update or add-on content rather than a
+/// game. Dumps carry the title ID in brackets: a game's ends in `000`.
+fn is_switch_addon(stem: &str) -> bool {
+    bracket_tags(stem).any(|tag| {
+        let is_title_id = tag.len() == 16 && tag.bytes().all(|b| b.is_ascii_hexdigit());
+        (is_title_id && !tag.ends_with("000"))
+            || ["UPD", "UPDATE", "DLC"]
+                .iter()
+                .any(|t| tag.eq_ignore_ascii_case(t))
+    })
+}
+
+/// A title from a file name: the tags at its end are dropped, as in
+/// "Hades [0100535012974000][v0]" or "Chrono Trigger (USA) (Rev 1)". Disc
+/// numbers stay, so the discs of one game can be told apart.
+fn clean_title(stem: &str) -> String {
+    let mut title = stem.trim_end();
+    loop {
+        let open = match title.chars().last() {
+            Some(']') => '[',
+            Some(')') => '(',
+            _ => break,
+        };
+        let Some(at) = title.rfind(open) else { break };
+        let tag = title[at + 1..title.len() - 1].trim().to_ascii_lowercase();
+        if tag.starts_with("disc") || tag.starts_with("disk") {
+            break;
+        }
+        title = title[..at].trim_end();
+    }
+    if title.is_empty() { stem } else { title }.to_string()
+}
+
 pub fn scan(dir: &RomDirectory, normalize: Normalizer<'_>) -> Result<Vec<ScannedGame>, ScanError> {
     std::fs::read_dir(&dir.path).map_err(|e| ScanError::io(&dir.path, e))?;
 
@@ -106,7 +147,8 @@ pub fn scan(dir: &RomDirectory, normalize: Normalizer<'_>) -> Result<Vec<Scanned
                 hidden.insert(normalize(&f));
             }
         }
-        if dir.extensions.contains(&ext) {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        if dir.extensions.contains(&ext) && !(ext == "nsp" && is_switch_addon(&stem)) {
             candidates.push(path.to_path_buf());
         }
     }
@@ -130,21 +172,13 @@ pub fn scan(dir: &RomDirectory, normalize: Normalizer<'_>) -> Result<Vec<Scanned
         .iter()
         .filter(|p| !hidden.contains(&normalize(p)))
         .map(|p| {
-            let title = p
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            make(p, title)
+            let stem = p.file_stem().unwrap_or_default().to_string_lossy();
+            make(p, clean_title(&stem))
         })
         .collect();
     games.extend(folders.iter().map(|p| {
-        let title = p
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
-        make(p, title)
+        let name = p.file_name().unwrap_or_default().to_string_lossy();
+        make(p, clean_title(&name))
     }));
     Ok(games)
 }
@@ -251,7 +285,43 @@ mod tests {
             folder_marker: Some("PS3_GAME/USRDIR/EBOOT.BIN".into()),
         };
         // The game folder is one entry; files inside it are not scanned.
-        assert_eq!(titles(&dir), ["Demon's Souls [BLUS30443]", "thing"]);
+        assert_eq!(titles(&dir), ["Demon's Souls", "thing"]);
+    }
+
+    #[test]
+    fn switch_games_without_their_updates_and_add_ons() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = tmp.path();
+        for name in [
+            "Hades [0100535012974000][v0].nsp",
+            "Hades [0100535012974800][v196608].nsp",
+            "Hades [0100535012975001][v0].nsp",
+            "Celeste [UPD].nsp",
+            "Celeste.xci",
+            "Tetris (World) (En,Ja).nsp",
+        ] {
+            touch(&r.join(name), "");
+        }
+        let dir = RomDirectory {
+            id: "d3".into(),
+            path: r.to_path_buf(),
+            platform: "Switch".into(),
+            recursive: true,
+            extensions: parse_extensions(".nsp,.xci,.nro"),
+            folder_marker: None,
+        };
+        assert_eq!(titles(&dir), ["Celeste", "Hades", "Tetris"]);
+    }
+
+    #[test]
+    fn titles_lose_their_trailing_tags() {
+        assert_eq!(
+            clean_title("Chrono Trigger (USA) (Rev 1)"),
+            "Chrono Trigger"
+        );
+        assert_eq!(clean_title("FF7 (Disc 1)"), "FF7 (Disc 1)");
+        assert_eq!(clean_title("[BLUS30443]"), "[BLUS30443]");
+        assert_eq!(clean_title("Odd ) name"), "Odd ) name");
     }
 
     #[test]

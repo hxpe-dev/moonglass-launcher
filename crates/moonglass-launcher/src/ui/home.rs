@@ -1,5 +1,5 @@
-//! Drawing the home screen (carousel), the startup animation, and the
-//! launch / Now Playing overlays.
+//! Drawing the home screen (carousel), the startup animation, the blurred
+//! backdrop, and the launch / Now Playing overlays.
 
 use std::path::{Path, PathBuf};
 
@@ -7,7 +7,7 @@ use gpui::{
     div, img, linear_color_stop, linear_gradient, point, prelude::*, px, rgb, AnyElement,
     BoxShadow, Context, Div, MouseButton, ObjectFit, SharedString, Stateful,
 };
-use moonglass_art::ingest::blurred_hero_path;
+use moonglass_art::ingest::{blurred_hero_path, card_image_path, CardCrop};
 use moonglass_core::{Game, Source};
 
 use super::prefs::{Ambient as AmbientMode, CardDetails, CardShape, Clock};
@@ -15,6 +15,11 @@ use super::theme::{
     battery, black, ease_out_cubic, hex_color, keycap, mix, on, pill, segment, white, INK, OBSIDIAN,
 };
 use super::{Hint, InputMode, LauncherView, Overlay, OverlayButton, StopState};
+use crate::friends::playing_line;
+
+/// Friends in a game, and a borrowed copy that is taken.
+const ONLINE: u32 = 0x7BD88F;
+const IN_USE: u32 = 0xF2C14E;
 
 /// Unfocused cards relative to the focused one.
 const INACTIVE_SCALE: f32 = 0.68;
@@ -49,7 +54,7 @@ fn source_label(g: &Game) -> String {
 fn is_placeholder_cover(g: &Game) -> bool {
     g.cover_path
         .as_deref()
-        .is_none_or(|p| p.ends_with("cover.png"))
+        .is_none_or(|p| moonglass_art::ingest::is_placeholder_cover(Path::new(p)))
 }
 
 fn playtime(g: &Game) -> Option<String> {
@@ -94,12 +99,17 @@ impl LauncherView {
         (x, l.focus_top)
     }
 
+    /// The image cropped for the current card shape. Artwork chosen before
+    /// those existed falls back to the uncropped cover.
     fn image_for_card(&self, g: &Game) -> Option<PathBuf> {
-        let cover = g.cover_path.as_deref().map(PathBuf::from);
-        match self.prefs.card_shape {
-            CardShape::Banner => g.hero_path.as_deref().map(PathBuf::from).or(cover),
-            _ => cover,
-        }
+        let cover = PathBuf::from(g.cover_path.as_deref()?);
+        let crop = match self.prefs.card_shape {
+            CardShape::Poster => CardCrop::Poster,
+            CardShape::Square => CardCrop::Square,
+            CardShape::Banner => CardCrop::Banner,
+        };
+        let card = card_image_path(&cover, crop);
+        Some(if card.is_file() { card } else { cover })
     }
 
     pub(super) fn render_home(
@@ -199,13 +209,13 @@ impl LauncherView {
         self.render_background(layer, true)
     }
 
-    fn render_background(&self, mut root: Stateful<Div>, frosted: bool) -> Stateful<Div> {
-        let mode = if frosted {
+    fn render_background(&self, mut root: Stateful<Div>, backdrop: bool) -> Stateful<Div> {
+        let mode = if backdrop {
             AmbientMode::Bloom
         } else {
             self.prefs.ambient
         };
-        if mode == AmbientMode::Oled && !frosted {
+        if mode == AmbientMode::Oled && !backdrop {
             return root;
         }
         for (amb, opacity) in [
@@ -219,7 +229,7 @@ impl LauncherView {
             let image = match mode {
                 AmbientMode::Fanart => amb.fanart.clone(),
                 // The backdrop: always the strongest blur.
-                _ if frosted => amb.fanart.as_ref().map(|h| blurred_hero_path(h, 2)),
+                _ if backdrop => amb.fanart.as_ref().map(|h| blurred_hero_path(h, 2)),
                 _ => amb.background.clone(),
             };
             if let Some(bg) = image.filter(|p| p.is_file()) {
@@ -376,8 +386,9 @@ impl LauncherView {
                 .overflow_hidden()
                 .relative();
             if let Some(path) = self.image_for_card(&g) {
-                // The image is rounded itself: clipping by the parent is
-                // rectangular, so the corners would show past the border.
+                // The image is rounded itself (clipping by the parent is
+                // rectangular) and already has the card's shape, so its
+                // corners are the card's corners.
                 inner = inner.child(
                     img(path)
                         .absolute()
@@ -397,6 +408,34 @@ impl LauncherView {
                         .text_size(px(26.0 * u * (cw / l.focus_w)))
                         .child(SharedString::from(g.title.clone())),
                 );
+            }
+            // Friends playing this game, and a borrowed copy in use.
+            let friends = self.friends.playing(&g).len();
+            let in_use = self.friends.in_use_by(&g).is_some();
+            if friends > 0 || in_use {
+                let tag = |text: String, color: u32| {
+                    div()
+                        .px(px(8.0 * u))
+                        .py(px(2.0 * u))
+                        .rounded(px(6.0 * u))
+                        .bg(black(0.7))
+                        .text_color(rgb(color))
+                        .text_size(px(13.0 * u))
+                        .child(text)
+                };
+                let mut tags = div()
+                    .absolute()
+                    .top(px(8.0 * u))
+                    .left(px(8.0 * u))
+                    .flex()
+                    .gap(px(6.0 * u));
+                if friends > 0 {
+                    tags = tags.child(tag(format!("● {friends}"), ONLINE));
+                }
+                if in_use {
+                    tags = tags.child(tag("In use".into(), IN_USE));
+                }
+                inner = inner.child(tags);
             }
             // Corner badges: favorite, hidden.
             if g.is_favorite || self.hidden_ids.contains(&g.id) {
@@ -552,6 +591,18 @@ impl LauncherView {
                     .text_color(white(0.7))
                     .child(format!("{p} in Moonglass")),
             );
+        }
+        let note = |text: String, color: u32| {
+            div()
+                .text_size(px(18.0 * u))
+                .text_color(rgb(color))
+                .child(text)
+        };
+        if let Some(line) = playing_line(self.friends.playing(&g)) {
+            meta = meta.child(note(line, ONLINE));
+        }
+        if let Some(owner) = self.friends.in_use_by(&g) {
+            meta = meta.child(note(format!("In use by {}", owner.name), IN_USE));
         }
         root.child(hero.child(meta))
     }
@@ -1010,7 +1061,7 @@ impl LauncherView {
                 )),
         };
 
-        let frosted = matches!(
+        let backdrop = matches!(
             self.overlay,
             Overlay::Launching { .. } | Overlay::Playing { .. }
         );
@@ -1025,7 +1076,7 @@ impl LauncherView {
                 .opacity(shown)
                 // Over the blurred backdrop only a light scrim is needed;
                 // the content sits on its own soft panel to stay readable.
-                .bg(black(if frosted { 0.45 } else { 0.82 }))
+                .bg(black(if backdrop { 0.45 } else { 0.82 }))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1036,7 +1087,7 @@ impl LauncherView {
                         .px(px(64.0 * u))
                         .py(px(44.0 * u))
                         .rounded(px(32.0 * u))
-                        .when(frosted, |d| {
+                        .when(backdrop, |d| {
                             d.bg(black(0.42)).border_1().border_color(white(0.08))
                         }),
                 )

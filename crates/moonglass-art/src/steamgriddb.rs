@@ -2,11 +2,11 @@
 //! search for everything else. Requires the user's own API key; the key is
 //! never logged.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::{ArtError, FoundArt};
+use crate::{net, ArtError, FoundArt};
 
 const API: &str = "https://www.steamgriddb.com/api/v2";
 
@@ -84,12 +84,8 @@ impl std::fmt::Debug for Client {
 
 impl Client {
     pub fn new(api_key: &str) -> Result<Self, ArtError> {
-        let http = reqwest::Client::builder()
-            .user_agent(concat!("Moonglass/", env!("CARGO_PKG_VERSION")))
-            .timeout(std::time::Duration::from_secs(20))
-            .build()?;
         Ok(Self {
-            http,
+            http: net::client()?,
             key: api_key.trim().to_string(),
         })
     }
@@ -151,7 +147,8 @@ impl Client {
             let Some(asset) = assets.and_then(|a| a.into_iter().next()) else {
                 continue;
             };
-            let saved = self.download(&asset.url, dir, kind).await?;
+            // The image host gets no API key.
+            let saved = net::download(&self.http, &asset.url, dir, kind.file_stem()).await?;
             match kind {
                 Kind::Cover => out.cover = Some(saved),
                 Kind::Hero => out.hero = Some(saved),
@@ -159,30 +156,6 @@ impl Client {
             }
         }
         Ok(out)
-    }
-
-    async fn download(&self, url: &str, dir: &Path, kind: Kind) -> Result<PathBuf, ArtError> {
-        let bytes = self
-            .http
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
-        let ext = url
-            .rsplit('.')
-            .next()
-            .filter(|e| {
-                matches!(
-                    e.to_ascii_lowercase().as_str(),
-                    "png" | "jpg" | "jpeg" | "webp"
-                )
-            })
-            .unwrap_or("png");
-        let path = dir.join(format!("{}.{ext}", kind.file_stem()));
-        std::fs::write(&path, &bytes).map_err(|e| ArtError::io(&path, e))?;
-        Ok(path)
     }
 }
 

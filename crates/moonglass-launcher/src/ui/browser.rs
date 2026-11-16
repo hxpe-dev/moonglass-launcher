@@ -20,6 +20,13 @@ pub enum Purpose {
     AddExecutable,
     Artwork(GameId),
     WorkingDir(GameId),
+    /// The program of a new emulator (from a preset) or of an existing one.
+    EmulatorProgram {
+        preset: Option<usize>,
+        emulator: Option<String>,
+    },
+    /// A ROM folder for this emulator profile.
+    RomFolder(String),
 }
 
 impl Purpose {
@@ -28,18 +35,27 @@ impl Purpose {
             Purpose::AddExecutable => "Add a game: choose its executable",
             Purpose::Artwork(_) => "Change artwork: choose an image",
             Purpose::WorkingDir(_) => "Working directory: choose a folder",
+            Purpose::EmulatorProgram { .. } => "Emulator: choose its program",
+            Purpose::RomFolder(_) => "ROM folder: choose the folder with the games",
         }
+    }
+
+    /// Picks a folder rather than a file.
+    fn picks_folder(&self) -> bool {
+        matches!(self, Purpose::WorkingDir(_) | Purpose::RomFolder(_))
     }
 
     fn wants_file(&self, path: &Path) -> bool {
         match self {
-            Purpose::AddExecutable => moonglass_platform::is_launchable(path),
+            Purpose::AddExecutable | Purpose::EmulatorProgram { .. } => {
+                moonglass_platform::is_launchable(path)
+            }
             Purpose::Artwork(_) => path.extension().is_some_and(|e| {
                 ["png", "jpg", "jpeg", "webp"]
                     .iter()
                     .any(|x| e.eq_ignore_ascii_case(x))
             }),
-            Purpose::WorkingDir(_) => false,
+            Purpose::WorkingDir(_) | Purpose::RomFolder(_) => false,
         }
     }
 }
@@ -124,7 +140,7 @@ pub fn read_entries(purpose: &Purpose, dir: Option<&Path>) -> Result<Vec<Entry>,
         path: dir.parent().map(Path::to_path_buf).unwrap_or_default(),
         kind: EntryKind::Up,
     }];
-    if matches!(purpose, Purpose::WorkingDir(_)) {
+    if purpose.picks_folder() {
         out.push(Entry {
             label: "Use this folder".into(),
             path: dir.to_path_buf(),

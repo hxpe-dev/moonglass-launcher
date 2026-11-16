@@ -1,11 +1,14 @@
 //! Artwork orchestration (spec 5.2): for each game without artwork, try
-//! Steam's local cache, then SteamGridDB (with a key), then a placeholder,
-//! ingest the result, and store it. Locked (user-chosen) artwork is never
+//! Steam's local cache, then the Epic launcher's catalog, then SteamGridDB
+//! (with a key), then a placeholder, ingest the result, and store it. Locked (user-chosen) artwork is never
 //! replaced.
 
 use std::path::{Path, PathBuf};
 
-use moonglass_art::ingest::{ingest, IngestConfig, Ingested};
+use moonglass_art::epic_catalog::{self, Catalog};
+use moonglass_art::ingest::{
+    card_image_path, ingest, is_placeholder_cover, CardCrop, IngestConfig, Ingested,
+};
 use moonglass_art::steamgriddb::{Client, Lookup};
 use moonglass_art::{cache_folder_name, steam_cache, FoundArt};
 use moonglass_core::{Game, GameId, Source};
@@ -16,18 +19,59 @@ pub const SETTING_SGDB_KEY: &str = "steamgriddb_api_key";
 #[derive(Debug, Default)]
 pub struct ArtSummary {
     pub from_steam: usize,
+    pub from_epic: usize,
     pub from_sgdb: usize,
     pub placeholders: usize,
     pub failed: usize,
 }
 
+impl std::fmt::Display for ArtSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Artwork: {} from Steam, {} from Epic, {} from SteamGridDB, {} placeholders",
+            self.from_steam, self.from_epic, self.from_sgdb, self.placeholders
+        )?;
+        if self.failed > 0 {
+            write!(f, ", {} failed", self.failed)?;
+        }
+        Ok(())
+    }
+}
+
+/// The Epic Games Launcher's catalog cache, next to its manifests folder.
+/// `None` where Epic games come from Heroic, or the file cannot be read.
+fn epic_catalog() -> Option<Catalog> {
+    let moonglass_platform::EpicSource::EpicManifests(manifests) =
+        moonglass_platform::epic_source()?
+    else {
+        return None;
+    };
+    let path = manifests.parent()?.join("Catalog").join("catcache.bin");
+    match Catalog::load(&path) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            tracing::warn!(error = %e, "Epic artwork unavailable");
+            None
+        }
+    }
+}
+
+/// A game whose stored cover is the generated placeholder.
+fn has_placeholder(g: &Game) -> bool {
+    g.cover_path
+        .as_deref()
+        .is_some_and(|p| is_placeholder_cover(Path::new(p)) && Path::new(p).is_file())
+}
+
 fn needs_art(g: &Game) -> bool {
     g.is_installed
         && !g.artwork_locked
-        && !g
-            .cover_path
-            .as_deref()
-            .is_some_and(|p| Path::new(p).is_file())
+        // Art made before the per-shape card images existed is redone once.
+        && !g.cover_path.as_deref().is_some_and(|p| {
+            let p = Path::new(p);
+            p.is_file() && card_image_path(p, CardCrop::Poster).is_file()
+        })
 }
 
 /// Stores ingested artwork; `user_override` also locks it.
@@ -60,9 +104,22 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
 
     let mut summary = ArtSummary::default();
     let games = db.games().await?;
+    let unlocked = |g: &Game| g.is_installed && !g.artwork_locked;
+    let epic = if games
+        .iter()
+        .any(|g| g.source == Source::Epic && unlocked(g))
+    {
+        epic_catalog()
+    } else {
+        None
+    };
+    let http = moonglass_art::http_client()?;
+    // An Epic game left with a placeholder is tried again: the catalog may
+    // have gained it, or the last download may have failed.
+    let retry = |g: &Game| g.source == Source::Epic && epic.is_some() && has_placeholder(g);
     for g in games
         .iter()
-        .filter(|g| force && g.is_installed && !g.artwork_locked || needs_art(g))
+        .filter(|g| unlocked(g) && (force || needs_art(g) || retry(g)))
     {
         let dir = cache_dir.join("art").join(cache_folder_name(g.id.as_str()));
         let mut found = FoundArt::default();
@@ -70,6 +127,20 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
         if let (Source::Steam, Some(root), Some(app)) = (g.source, &steam_root, &g.source_id) {
             found = steam_cache::find(root, app);
             steam_hit = found.cover.is_some();
+        }
+        let mut epic_hit = false;
+        if let (Source::Epic, Some(catalog), Some(app)) = (g.source, &epic, &g.source_id) {
+            if let Some(images) = catalog.images(app) {
+                match epic_catalog::fetch(&http, &images, &found, &dir).await {
+                    Ok(more) => {
+                        epic_hit = more.cover.is_some();
+                        found.fill_from(more);
+                    }
+                    Err(e) => {
+                        tracing::warn!(game = %g.id, error = %e, "Epic artwork download failed")
+                    }
+                }
+            }
         }
         let mut sgdb_hit = false;
         if let Some(client) = &sgdb {
@@ -88,6 +159,11 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
             }
         }
 
+        // Nothing better than the placeholder it already has.
+        if found.cover.is_none() && has_placeholder(g) && !force {
+            continue;
+        }
+
         let title = g.title.clone();
         let out = dir.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -101,6 +177,8 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
                     summary.placeholders += 1;
                 } else if steam_hit {
                     summary.from_steam += 1;
+                } else if epic_hit {
+                    summary.from_epic += 1;
                 } else if sgdb_hit {
                     summary.from_sgdb += 1;
                 }

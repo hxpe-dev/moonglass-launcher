@@ -5,6 +5,7 @@
 //! without the window.
 
 mod artwork;
+mod friends;
 mod launch;
 mod library;
 mod ui;
@@ -46,6 +47,17 @@ USAGE:
 
 Pills: all, recent, favorites, steam, epic, apps, emulators.
 <number> is the position shown by `moonglass list`.";
+
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Logs how long after the process started a startup stage was reached.
+pub(crate) fn startup_mark(stage: &str) {
+    let ms = STARTED
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64;
+    tracing::info!(ms, "startup: {stage}");
+}
 
 pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -179,7 +191,10 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         "starting"
     );
 
-    let cmd = args.first().map(String::as_str).unwrap_or("list");
+    let Some((cmd, rest)) = args.split_first() else {
+        bail!("{USAGE}");
+    };
+    let cmd = cmd.as_str();
     if matches!(cmd, "-h" | "--help" | "help") {
         println!("{USAGE}");
         return Ok(());
@@ -212,7 +227,6 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     let db = Db::open(&paths.database())
         .await
         .context("opening database")?;
-    let rest = &args[args.len().min(1)..];
 
     match cmd {
         "list" => {
@@ -348,10 +362,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         "artwork" => {
             let s = artwork::refresh(&db, &paths.cache_dir, rest.iter().any(|a| a == "--force"))
                 .await?;
-            println!(
-                "Artwork: {} from Steam, {} from SteamGridDB, {} placeholders, {} failed",
-                s.from_steam, s.from_sgdb, s.placeholders, s.failed
-            );
+            println!("{s}");
         }
         "set-art" => {
             let game = resolve(&db, rest.first().ok_or_else(|| anyhow!("needs a game"))?).await?;
@@ -441,6 +452,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
 }
 
 fn main() {
+    STARTED.get_or_init(std::time::Instant::now);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -489,14 +501,31 @@ fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
             }
         }
     };
-    let db = rt
-        .block_on(Db::open(&paths.database()))
-        .context("opening database")?;
-    ui::run(ui::Backend {
-        db,
-        rt: rt.handle().clone(),
-        paths,
-        instance,
+    // On screen at once: the UI toolkit takes most of a second to start.
+    let splash = std::env::var_os("MOONGLASS_WINDOWED")
+        .is_none()
+        .then(moonglass_platform::window::Splash::show)
+        .flatten();
+    // Read meanwhile, so the first frame already has the library.
+    let database = paths.database();
+    let loading = rt.spawn(async move {
+        let db = Db::open(&database).await.context("opening database")?;
+        let loaded = ui::Loaded::read(&db).await;
+        startup_mark("library read");
+        anyhow::Ok((db, loaded))
     });
-    Ok(())
+    let rt = rt.handle().clone();
+    ui::run(
+        move || {
+            let (db, loaded) = rt.block_on(loading)??;
+            let backend = ui::Backend {
+                db,
+                rt,
+                paths,
+                instance,
+            };
+            Ok((backend, loaded))
+        },
+        splash,
+    )
 }

@@ -1,6 +1,6 @@
 //! Settings (spec 5.5): a full-screen, controller-navigable view with
-//! Library, Appearance, Artwork and System sections, drawn as glass panels
-//! over the blurred carousel. Every change applies immediately and is saved.
+//! Appearance, Library, Emulators, Artwork and System sections, drawn as
+//! glass panels over the blurred backdrop. Every change applies immediately and is saved.
 
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedString};
 
@@ -13,13 +13,15 @@ use super::LauncherView;
 pub enum Section {
     Appearance,
     Library,
+    Emulation,
     Artwork,
     System,
 }
 
-pub const SECTIONS: [Section; 4] = [
+pub const SECTIONS: [Section; 5] = [
     Section::Appearance,
     Section::Library,
+    Section::Emulation,
     Section::Artwork,
     Section::System,
 ];
@@ -29,6 +31,7 @@ impl Section {
         match self {
             Section::Appearance => "Appearance",
             Section::Library => "Library",
+            Section::Emulation => "Emulators",
             Section::Artwork => "Artwork",
             Section::System => "System",
         }
@@ -53,6 +56,11 @@ pub enum Item {
     ShowHidden,
     Rescan,
     LibraryInfo,
+    SteamKey,
+    FriendsInfo,
+    /// An emulator profile, by its position in the list.
+    Emulator(usize),
+    AddEmulator,
     SgdbKey,
     RefreshArt,
     ArtInfo,
@@ -64,8 +72,16 @@ pub enum Item {
     Exit,
 }
 
-pub fn items(section: Section) -> &'static [Item] {
-    match section {
+/// The rows of a section. `emulators` is how many profiles exist: the
+/// Emulators section has one row for each.
+pub fn items(section: Section, emulators: usize) -> Vec<Item> {
+    let rows: &[Item] = match section {
+        Section::Emulation => {
+            return (0..emulators)
+                .map(Item::Emulator)
+                .chain([Item::AddEmulator])
+                .collect()
+        }
         Section::Appearance => &[
             Item::CardShape,
             Item::FocusSize,
@@ -84,6 +100,8 @@ pub fn items(section: Section) -> &'static [Item] {
             Item::ShowHidden,
             Item::Rescan,
             Item::LibraryInfo,
+            Item::SteamKey,
+            Item::FriendsInfo,
         ],
         Section::Artwork => &[Item::SgdbKey, Item::RefreshArt, Item::ArtInfo],
         Section::System => &[
@@ -94,7 +112,8 @@ pub fn items(section: Section) -> &'static [Item] {
             Item::Version,
             Item::Exit,
         ],
-    }
+    };
+    rows.to_vec()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,10 +141,16 @@ impl Item {
             | Item::ShowHidden
             | Item::StartAtLogin
             | Item::DismissLauncher => Kind::Toggle,
-            Item::AddGame | Item::Rescan | Item::SgdbKey | Item::RefreshArt | Item::Exit => {
-                Kind::Action
-            }
+            Item::AddGame
+            | Item::Rescan
+            | Item::Emulator(_)
+            | Item::AddEmulator
+            | Item::SteamKey
+            | Item::SgdbKey
+            | Item::RefreshArt
+            | Item::Exit => Kind::Action,
             Item::LibraryInfo
+            | Item::FriendsInfo
             | Item::ArtInfo
             | Item::RestoreHotkey
             | Item::Logs
@@ -150,6 +175,11 @@ impl Item {
             Item::ShowHidden => "Show hidden games",
             Item::Rescan => "Rescan library now",
             Item::LibraryInfo => "Library",
+            Item::SteamKey => "Steam friends: Web API key",
+            Item::FriendsInfo => "Friends",
+            // Drawn with the profile's own name.
+            Item::Emulator(_) => "Emulator",
+            Item::AddEmulator => "Add an emulator",
             Item::SgdbKey => "SteamGridDB API key",
             Item::RefreshArt => "Refresh all artwork",
             Item::ArtInfo => "Sources",
@@ -168,7 +198,12 @@ pub struct SettingsInfo {
     pub games: usize,
     pub hidden: usize,
     pub sgdb_key_set: bool,
+    pub steam_key_set: bool,
+    /// What the friends feature last reported.
+    pub friends: String,
     pub start_at_login: bool,
+    /// Name and summary of each emulator profile.
+    pub emulators: Vec<(String, String)>,
     pub family: Family,
     pub keyboard_hotkey: bool,
     pub logs: String,
@@ -179,6 +214,8 @@ pub struct SettingsState {
     pub item: usize,
     /// Focus is on the section list rather than the items.
     pub in_sections: bool,
+    /// How many emulator profiles exist (rows of the Emulators section).
+    emulators: usize,
 }
 
 /// What Settings asks the view to do.
@@ -193,16 +230,27 @@ pub enum SettingsCmd {
 
 impl SettingsState {
     /// Opens on the section list, so the first thing to do is choose one.
-    pub fn new() -> Self {
+    pub fn new(emulators: usize) -> Self {
         Self {
             section: 0,
             item: 0,
             in_sections: true,
+            emulators,
         }
     }
 
+    pub fn items(&self) -> Vec<Item> {
+        items(SECTIONS[self.section], self.emulators)
+    }
+
     pub fn current(&self) -> Item {
-        items(SECTIONS[self.section])[self.item]
+        self.items()[self.item]
+    }
+
+    /// The list of emulator profiles changed length.
+    pub fn set_emulators(&mut self, emulators: usize) {
+        self.emulators = emulators;
+        self.item = self.item.min(self.items().len() - 1);
     }
 
     fn set_section(&mut self, s: usize) {
@@ -249,7 +297,7 @@ impl SettingsState {
     }
 
     pub fn nav(&mut self, a: NavAction, prefs: &mut Prefs) -> SettingsCmd {
-        let n_items = items(SECTIONS[self.section]).len();
+        let n_items = self.items().len();
         match a {
             NavAction::FilterPrev => self.set_section(self.section + SECTIONS.len() - 1),
             NavAction::FilterNext => self.set_section(self.section + 1),
@@ -316,6 +364,14 @@ pub fn restore_combo(f: Family) -> &'static str {
     }
 }
 
+fn key_state(set: bool) -> &'static str {
+    if set {
+        "Set · change…"
+    } else {
+        "Not set · enter…"
+    }
+}
+
 fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
     match item {
         Item::CardShape => prefs.card_shape.label().into(),
@@ -333,12 +389,15 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::ShowHidden => on_off(prefs.show_hidden).into(),
         Item::Rescan => "Rescan".into(),
         Item::LibraryInfo => format!("{} games, {} hidden", info.games, info.hidden),
-        Item::SgdbKey => if info.sgdb_key_set {
-            "Set · change…"
-        } else {
-            "Not set · enter…"
-        }
-        .into(),
+        Item::Emulator(i) => info
+            .emulators
+            .get(i)
+            .map(|(_, summary)| summary.clone())
+            .unwrap_or_default(),
+        Item::AddEmulator => "Choose…".into(),
+        Item::SgdbKey => key_state(info.sgdb_key_set).into(),
+        Item::SteamKey => key_state(info.steam_key_set).into(),
+        Item::FriendsInfo => info.friends.clone(),
         Item::RefreshArt => "Refresh".into(),
         Item::ArtInfo => "Steam's local cache, then SteamGridDB, then a placeholder".into(),
         Item::StartAtLogin => on_off(info.start_at_login).into(),
@@ -412,10 +471,18 @@ impl LauncherView {
 
         let section = SECTIONS[st.section];
         let mut rows = div().flex().flex_col().gap(px(4.0 * u));
-        for (i, item) in items(section).iter().copied().enumerate() {
+        for (i, item) in st.items().into_iter().enumerate() {
             let sel = i == st.item && !st.in_sections;
             let lit = self.glide(("settings-row", st.section, i), on(sel));
             let kind = item.kind();
+            let label = match item {
+                Item::Emulator(n) => info
+                    .emulators
+                    .get(n)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default(),
+                _ => item.label().to_string(),
+            };
             let v = value(item, prefs, info);
             let value_el = match kind {
                 Kind::Choice => {
@@ -473,7 +540,7 @@ impl LauncherView {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.settings_click_item(i, window, cx);
                     }))
-                    .child(div().flex_none().child(SharedString::from(item.label())))
+                    .child(div().flex_none().child(SharedString::from(label)))
                     .child(div().min_w_0().flex().justify_end().child(value_el)),
             );
         }
@@ -597,7 +664,7 @@ mod tests {
 
     #[test]
     fn choices_change_with_left_right() {
-        let mut st = SettingsState::new();
+        let mut st = SettingsState::new(0);
         let mut p = Prefs::default();
         st.nav(NavAction::Confirm, &mut p); // into Appearance
         let before = p.card_shape;
@@ -612,7 +679,7 @@ mod tests {
 
     #[test]
     fn back_goes_to_sections_then_closes() {
-        let mut st = SettingsState::new();
+        let mut st = SettingsState::new(0);
         let mut p = Prefs::default();
         assert!(st.in_sections, "opens on the section list");
         st.nav(NavAction::Right, &mut p);
@@ -629,7 +696,7 @@ mod tests {
 
     #[test]
     fn actions_and_toggles() {
-        let mut st = SettingsState::new();
+        let mut st = SettingsState::new(0);
         let mut p = Prefs::default();
         st.nav(NavAction::FilterNext, &mut p); // Library
         st.nav(NavAction::Confirm, &mut p); // into its rows
@@ -646,7 +713,25 @@ mod tests {
     #[test]
     fn every_section_has_items() {
         for s in SECTIONS {
-            assert!(!items(s).is_empty());
+            assert!(!items(s, 0).is_empty());
         }
+    }
+
+    #[test]
+    fn emulators_section_lists_profiles_then_add() {
+        assert_eq!(
+            items(Section::Emulation, 2),
+            [Item::Emulator(0), Item::Emulator(1), Item::AddEmulator]
+        );
+        let mut st = SettingsState::new(2);
+        let mut p = Prefs::default();
+        st.nav(NavAction::FilterNext, &mut p);
+        st.nav(NavAction::FilterNext, &mut p); // Emulators
+        st.nav(NavAction::Confirm, &mut p);
+        st.nav(NavAction::Up, &mut p); // wraps to "Add an emulator"
+        assert_eq!(st.current(), Item::AddEmulator);
+        // A profile was removed while the last row was selected.
+        st.set_emulators(0);
+        assert_eq!(st.current(), Item::AddEmulator);
     }
 }

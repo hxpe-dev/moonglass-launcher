@@ -1,6 +1,6 @@
 # Project Specification: **Moonglass** (Console-Style PC Game Launcher)
 
-*Spec revision 1.4.*
+*Spec revision 1.5.*
 
 ## 1. Vision & Core Philosophy
 
@@ -46,6 +46,7 @@ Deferred to post-1.0: UI sound effects and ambient audio, animated cover art, im
    * A game's folder is `<library>/steamapps/common/<installdir>`. `installdir` in the manifest is a folder name, not a full path.
    * Only fully installed apps are listed. Tools and runtimes (Steamworks Common Redistributables, Proton, Steam Linux Runtime, and similar) are excluded by a built-in AppID deny-list that the user can extend.
    * Launched via `steam://rungameid/<AppID>`, handed to the OS URI handler. On Linux this covers native and Proton games alike; Steam chooses the runtime.
+   * Optional per-game launch options. When a game has them it is started with Steam's own command line instead (`steam -applaunch <AppID> <options>`), because the URI cannot carry options without Steam asking the player to confirm. They are added to whatever launch options the game has inside Steam.
 2. **Epic Games Store**
    * **On Linux:** Epic has no official client, so this source is backed by **Heroic Games Launcher**. Games are read from the installed-games list Heroic keeps for its Epic backend (Legendary), in either the native or the Flatpak config location. Launch is `heroic --no-gui "heroic://launch?appName=<AppName>&runner=legendary"` (or the Flatpak equivalent). If Heroic is not installed, the Epic source and its filter pill do not appear. The rest of this item describes Windows.
    * Discovered from `.item` manifests in `C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests`.
@@ -58,8 +59,8 @@ Deferred to post-1.0: UI sound effects and ambient audio, animated cover art, im
    * Optional launch arguments.
 4. **Emulated ROMs**
    * The user registers ROM directories. Each directory is bound to one emulator profile and one platform label (for example "GameCube"). This removes ambiguity when several emulators accept the same extension, such as `.iso`.
-   * Emulator profiles hold an executable path, an argument template, and accepted extensions. Presets ship for RetroArch, Dolphin, PCSX2, and RPCS3; any emulator with a command-line interface can be added. On Linux an emulator installed as a Flatpak is supported by setting the executable to `flatpak` and starting the template with `run <app-id>`; presets detect this automatically.
-   * Scanning rules: one entry per `.m3u` playlist when present (its discs are hidden); `.cue` hides its `.bin` files; folder-based games are matched by a marker file defined in the profile (for example `EBOOT.BIN` for RPCS3).
+   * Emulator profiles hold an executable path, an argument template, and accepted extensions. Presets ship for RetroArch, Dolphin, PCSX2, RPCS3, Ryujinx, and the yuzu family (Eden, Citron); any emulator with a command-line interface can be added. On Linux an emulator installed as a Flatpak is supported by setting the executable to `flatpak` and starting the template with `run <app-id>`; presets detect this automatically.
+   * Scanning rules: one entry per `.m3u` playlist when present (its discs are hidden); `.cue` hides its `.bin` files; folder-based games are matched by a marker file defined in the profile (for example `EBOOT.BIN` for RPCS3); Switch updates and add-on content (`.nsp` files whose title ID does not end in `000`, or tagged `[UPD]` / `[DLC]`) are not games and are left out. A title is the file name without the tags at its end ("Hades [0100535012974000][v0]" is "Hades"); disc numbers are kept.
 
 ### Launch Template Syntax
 
@@ -90,7 +91,7 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
   * **Default view and ordering:** the `All` pill, sorted by `last_played` descending, then `date_added` descending, then title. Recently played games are therefore first, and the screen is never empty on first run. `Recent` shows games played within a time window: the last 30 days by default, adjustable in Settings to 7, 30, or 90 days. The pill is hidden when nothing falls inside the window.
   * **Active card:** clearly the focus of the screen: about half the screen height, roughly `1.45x` the size of the other cards. It gains a crisp border and the glow, and shows the game's transparent logo (or its title in text) with a small source badge in the hero zone above it.
   * **Inactive cards:** smaller and slightly darkened, so attention goes to the active card while every other game stays recognizable. Covers are not blurred. Size and darkening transition smoothly as focus moves.
-  * **Corners:** every card, its cover image included, has rounded corners; the image is clipped to the card's radius (inside the border on the active card) so no corner shows past the outline.
+  * **Corners:** every card, its cover image included, has rounded corners (inside the border on the active card). The renderer rounds an image's own corners and cannot clip one to a rounded shape, so each card shape has its own image, cropped to that shape at ingestion (5.2); no corner shows past the outline whatever the source artwork's proportions.
   * **Empty state:** if no games exist at all, the carousel is replaced by a single "Add your games" card that opens setup.
 
 * **Ambient Background & Lighting**
@@ -159,9 +160,9 @@ GPUI is pre-1.0 and its API changes between releases. The dependency is pinned t
 * **Gamepad (background hotkey):**
   * Windows: a separate minimal XInput poller via `windows-rs`. This exists because the default `gilrs` backend there (Windows Gaming Input) delivers input only to a focused window, and the restore hotkey is needed precisely when Moonglass is not focused.
   * Linux: the same `gilrs` thread. Its Linux backend reads controllers through evdev, which does not depend on window focus, so no second poller is needed.
-* **OS integration:** `sysinfo` for process enumeration on both platforms. Windows: `windows` (`windows-rs`) for `ShellExecuteW`, window focus, Job Objects, registry, and global hotkeys. Linux: `rustix` or `nix` for process groups and signals, `/proc` for process environment, and `xdg-open` for URIs.
+* **OS integration:** `sysinfo` for process enumeration on both platforms. Windows: `windows` (`windows-rs`) for `ShellExecuteW`, window focus, Job Objects, registry, and global hotkeys. Linux: `rustix` for process groups and signals, `/proc` for process environment, and `xdg-open` for URIs.
 * **Paths:** the `directories` crate, so each platform's conventions are followed.
-* **Images and color:** `image` for decoding, resizing, and blurring; a k-means palette extractor (the `kmeans_colors` crate or equivalent) for dominant and accent colors.
+* **Images and color:** `image` for decoding, resizing, and blurring; a small k-means palette extractor of Moonglass's own for dominant and accent colors.
 * **Parsing and scanning:** `keyvalues-parser` (Steam VDF/ACF), `serde_json` (Epic), `walkdir` and `notify` (directories).
 * **HTTP:** `reqwest`.
 * **Diagnostics:** `tracing` with a rotating log file.
@@ -186,7 +187,7 @@ Everything OS-specific is behind one internal interface with a Windows and a Lin
 
 | | Windows | Linux |
 | --- | --- | --- |
-| Database and settings | `%APPDATA%\Moonglass\` | `~/.config/moonglass/` and `~/.local/share/moonglass/` |
+| Database (which holds the settings) | `%APPDATA%\Moonglass\` | `~/.local/share/moonglass/` |
 | Artwork and derived textures | `%LOCALAPPDATA%\Moonglass\cache\` | `~/.cache/moonglass/` |
 | Logs | `%LOCALAPPDATA%\Moonglass\logs\` | `~/.local/state/moonglass/` |
 
@@ -205,7 +206,7 @@ Moonglass is single-instance. A second launch brings the existing window forward
 
 **When scans run**
 
-* At startup.
+* At startup, behind the startup animation: the library as stored is read while the UI toolkit starts, so the first frame already shows it, and the scan then brings it up to date.
 * When Moonglass resumes after a game exits.
 * On file-system events (debounced by 2 seconds) from watchers on every Steam `steamapps` folder, the Epic manifests folder, and every ROM directory.
 * On demand from Settings.
@@ -222,17 +223,19 @@ Sources are tried in this order. The first hit wins per asset type (cover, hero,
 
 1. **User override.** Chosen through `[Y] → Change Artwork`. Overrides are flagged and never replaced by a rescan.
 2. **Steam's local library cache** (Steam games only). Steam already stores cover, hero, and logo images on disk; using them needs no network and no API key.
-3. **SteamGridDB**, queried by Steam AppID for Steam games and by title search for everything else. Requires the user's own free API key, entered in Settings. Without a key this step is skipped.
-4. **Generated placeholder.** A title card with the game's name on a gradient derived from a hash of the title.
+3. **The Epic Games Launcher's catalog cache** (Epic games on Windows). The launcher keeps a list of the player's library with links to each game's artwork on Epic's image host (`Data\Catalog\catcache.bin`, next to the manifests folder); the cover and hero are downloaded from there, with no API key. A game left with a placeholder is tried again on later refreshes.
+4. **SteamGridDB**, queried by Steam AppID for Steam games and by title search for everything else. Requires the user's own free API key, entered in Settings. Without a key this step is skipped.
+5. **Generated placeholder.** A title card with the game's name on a gradient derived from a hash of the title.
 
 **On ingestion, once per asset:**
 
-* Resize the cover to the largest size the carousel can display at the current resolution.
+* Resize the cover to the largest size the carousel can display (the focused card on a 2160p screen).
+* Crop one image per card shape: 2:3 and 1:1 from the cover, 16:9 from the hero art.
 * Extract dominant and accent colors. Both are clamped to a minimum saturation and a lightness band so that dark or grey covers still produce a visible glow.
 * Produce the three blurred hero variants.
 * Store paths and colors in SQLite.
 
-**At runtime:** only visible cards plus a few neighbors on each side are decoded and uploaded as GPU textures; others are released. Decoding happens off the UI thread.
+**At runtime:** only visible cards plus a few neighbors on each side are drawn. Decoding happens off the UI thread. Releasing the textures of cards that are far away is still to do (GPUI's image cache keeps what it has decoded).
 
 v1.0 uses static images only.
 
@@ -248,7 +251,7 @@ Idle → Launching → Running → Exiting → Idle
 
 **Launching**
 
-* Show the "Launching *Game*…" overlay and stop all animation.
+* Show the "Launching *Game*…" overlay and stop the carousel's animation. (The overlay itself fades in and then draws no more frames.)
 * Start the game (below) and wait for evidence that it is running.
 * After 20 seconds the overlay adds "Still waiting… `[B]` Cancel". After 3 minutes (configurable) Moonglass gives up and returns to Idle. A long wait is normal when Steam updates a game first.
 
@@ -295,7 +298,7 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 
 * A dedicated thread blocks on controller events and sends typed actions (`NavLeft`, `NavRight`, `NavUp`, `NavDown`, `Confirm`, `Back`, `Options`, `Search`, `FilterPrev`, `FilterNext`, `OpenSettings`) to GPUI through a channel.
 * The left stick uses a radial deadzone. Holding a direction repeats with acceleration.
-* Dispatch is suspended whenever the state is not Idle, and whenever Moonglass's window is not focused.
+* Carousel navigation is suspended whenever the state is not Idle; the Launching and Now Playing screens take only their own buttons. Nothing is dispatched while Moonglass's window is not focused.
 
 **Restore hotkey**
 
@@ -312,11 +315,21 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 
 ### 5.5 Settings, File Browser, and Text Entry
 
-* **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, ROM directories and emulators, `Recent` window, show hidden games, rescan), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller, logs, version, Exit Moonglass). `Ctrl+Q` also exits when no game is running. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
-* **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the drive list on Windows and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
-* **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
-* **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments and Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch. Remove asks for a second press.
+* **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, `Recent` window, show hidden games, rescan, the Steam Web API key for friends, 5.6), Emulators (one row per emulator profile, and "Add an emulator" which offers the presets and then asks for the program; a profile's menu changes its program, arguments and file types, adds a ROM folder with its platform name, and removes folders or the profile, each removal asking for a second press), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller, logs, version, Exit Moonglass). `Ctrl+Q` also exits when no game is running. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
+* **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the home folder plus the drive list on Windows, and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
+* **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch, emulator arguments and file types, platform name). Its last row has the characters arguments and paths need (`{ } " / \ : _ = + @`). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
+* **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments (standalone executables, ROM entries, and Steam games as launch options; the Epic launcher accepts none), Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch. Remove asks for a second press.
 * **Start at login:** a toggle. Windows: writes or removes a value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Linux: writes or removes `~/.config/autostart/moonglass.desktop`.
+
+### 5.6 Steam Friends
+
+Optional, and off until the player enters their own Steam Web API key in Settings → Library (created at `steamcommunity.com/dev/apikey`). Epic has no public friends API, so this covers Steam games only.
+
+* **Source.** Once a minute while no game is running, Moonglass asks Steam's Web API for the player's friends list and for which game each friend is in. The player's own account comes from Steam's `config/loginusers.vdf`; nothing but the key is entered. The key is stored like the SteamGridDB key, sent only to `api.steampowered.com`, and never logged.
+* **In the carousel.** A card shows a green dot with the number of friends playing that game; the hero zone names them ("Alex and Sam are playing").
+* **Join.** When a friend's session can be joined (Steam reports a lobby), the game's Options menu has "Join *Name*" after Play. It opens `steam://joinlobby/<AppID>/<lobby>/<friend>` and the launch is tracked like any other.
+* **Borrowed games.** A game's install manifest records the account whose license it uses (`LastOwner`). When that is not the player's account and its owner is playing the game, the card is tagged "In use" and the hero zone says "In use by *Name*". The first press of Play explains this; a second press starts the game anyway, because the family may hold another copy, which Moonglass cannot see. Who belongs to the player's Steam Family is not available through the official API, so only owners who are also friends are noticed.
+* Friends who appear offline or keep their profile private are not shown. Settings shows how many friends were found and how many are in a game, or why the request failed.
 
 ## 6. Data Schema (SQLite)
 
@@ -402,7 +415,7 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
 
 | Measure | Target |
 | --- | --- |
-| Cold start to interactive carousel | Under 2 seconds |
+| Cold start to interactive carousel | Under 2 seconds. On Windows a plain black window covers the screen from the first moment, and the startup animation, which begins on black, continues from it. |
 | Carousel scrolling | No dropped frames at the display's refresh rate |
 | Frames rendered while a game is running | Zero |
 | CPU while a game is running | Under 0.5% of one core on average |

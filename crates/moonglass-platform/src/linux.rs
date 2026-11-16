@@ -40,7 +40,6 @@ pub fn app_paths() -> Result<AppPaths> {
         .unwrap_or_else(|| base.home_dir().join(".local/state"));
     Ok(AppPaths {
         data_dir: base.data_dir().join("moonglass"),
-        config_dir: base.config_dir().join("moonglass"),
         cache_dir: base.cache_dir().join("moonglass"),
         log_dir: state.join("moonglass"),
     })
@@ -175,8 +174,17 @@ pub fn open_uri(uri: &str) -> Result<()> {
 /// Uses Steam's own command when available so that `-silent` keeps Steam's
 /// window in the tray if Moonglass is the one starting it (Moonglass cannot close
 /// another app's window on Wayland). Falls back to `xdg-open`.
-pub fn launch_steam(app_id: &str) -> Result<()> {
+pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
     let uri = format!("steam://rungameid/{app_id}");
+    // What Steam is asked to do: the URI, or `-applaunch` with the game's
+    // launch options.
+    let mut request = vec!["-silent".to_string()];
+    if args.is_empty() {
+        request.push(uri.clone());
+    } else {
+        request.extend(["-applaunch".to_string(), app_id.to_string()]);
+        request.extend(args.iter().cloned());
+    }
     let home = home()?;
     let root = steam_root();
     let is_flatpak = root
@@ -187,12 +195,19 @@ pub fn launch_steam(app_id: &str) -> Result<()> {
         .is_some_and(|r| r.starts_with(home.join("snap")));
 
     if is_flatpak {
-        spawn_detached(Command::new("flatpak").args(["run", STEAM_FLATPAK_ID, "-silent", &uri]))
+        spawn_detached(
+            Command::new("flatpak")
+                .args(["run", STEAM_FLATPAK_ID])
+                .args(&request),
+        )
     } else if is_snap {
-        spawn_detached(Command::new("snap").args(["run", "steam", "-silent", &uri]))
+        spawn_detached(Command::new("snap").args(["run", "steam"]).args(&request))
     } else if let Some(steam) = on_path("steam") {
-        spawn_detached(Command::new(steam).args(["-silent", &uri]))
+        spawn_detached(Command::new(steam).args(&request))
     } else {
+        if !args.is_empty() {
+            tracing::warn!("the steam command was not found; starting without launch options");
+        }
         open_uri(&uri)
     }
 }
@@ -456,6 +471,15 @@ pub mod window {
     use crate::FocusResult;
     pub use crate::Launcher;
 
+    /// Windows only for now: nothing is shown before the real window.
+    pub struct Splash;
+
+    impl Splash {
+        pub fn show() -> Option<Self> {
+            None
+        }
+    }
+
     /// No-op: Moonglass stays fullscreen underneath the game.
     pub fn hide_for_game(_raw: isize) {}
 
@@ -463,9 +487,6 @@ pub mod window {
     pub fn regain_focus(_raw: isize) -> FocusResult {
         FocusResult::UseToolkit
     }
-
-    /// The "demands attention" hint is set through the toolkit as well.
-    pub fn request_attention(_raw: isize) {}
 
     /// Launcher windows are kept from appearing instead (`heroic --no-gui`,
     /// `steam -silent`), because Wayland gives no way to close another

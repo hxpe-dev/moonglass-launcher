@@ -3489,6 +3489,7 @@ dependencies = [
 name = "moonglass-art"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "image",
  "moonglass-core",
  "reqwest",
@@ -3496,8 +3497,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -3520,7 +3519,6 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -3539,6 +3537,7 @@ dependencies = [
  "moonglass-scan",
  "notify-debouncer-mini",
  "raw-window-handle",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

@@ -65,6 +65,15 @@ pub struct Emulator {
     pub folder_marker: Option<String>,
 }
 
+/// A registered ROM directory as Settings lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RomFolder {
+    pub id: String,
+    pub path: String,
+    pub emulator_id: String,
+    pub platform: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -95,10 +104,6 @@ impl Db {
             .await?;
         MIGRATOR.run(&pool).await?;
         Ok(Self { pool })
-    }
-
-    pub fn pool(&self) -> &SqlitePool {
-        &self.pool
     }
 
     // ---------------------------------------------------------------- games
@@ -438,6 +443,41 @@ impl Db {
         )
         .fetch_optional(&self.pool)
         .await?)
+    }
+
+    pub async fn emulators(&self) -> Result<Vec<Emulator>> {
+        Ok(sqlx::query_as!(
+            Emulator,
+            "SELECT id, name, executable_path, launch_template, file_extensions, folder_marker
+             FROM emulators ORDER BY name COLLATE NOCASE, id"
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Removes a profile with its ROM directories and their games.
+    pub async fn remove_emulator(&self, id: &str) -> Result<()> {
+        sqlx::query!("DELETE FROM emulators WHERE id = ?", id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn rom_folders(&self) -> Result<Vec<RomFolder>> {
+        Ok(sqlx::query_as!(
+            RomFolder,
+            "SELECT id, path, emulator_id, platform FROM rom_directories ORDER BY path"
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Removes a ROM directory and the games found in it.
+    pub async fn remove_rom_directory(&self, id: &str) -> Result<()> {
+        sqlx::query!("DELETE FROM rom_directories WHERE id = ?", id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn add_rom_directory(

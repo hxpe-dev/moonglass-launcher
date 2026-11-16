@@ -7,42 +7,43 @@ The full design is in [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1 and 2 are implemented, and Phase 3 is under way. Everything runs on
-Windows; the Linux code compiles but has not been run yet. Running
+Phases 1 and 2 are implemented and Phase 3 is nearly complete. Everything
+runs on Windows; the Linux code compiles but has not been run yet. Running
 `moonglass` with no arguments opens the carousel.
 
-| Spec area | State |
+| Area | State |
 | --- | --- |
-| Core: database, migrations, logs, single instance, scanners, reconciliation | Done |
-| Launch state machine, detection (Job Object / process group / folder / `SteamAppId`) | Done; launch, exit and focus return confirmed on Windows |
-| File-system watchers, 2 s debounce | Done |
-| Artwork (5.2): Steam local cache, SteamGridDB, placeholder, palette, blurred heroes | Done |
-| Carousel: spring motion, focus styling, glow, ambient modes, hero zone, startup animation | Done |
-| Gamepad (`gilrs`), keyboard and mouse, input-aware hints | Done; gamepad confirmed with a real controller |
-| Controller battery (gilrs, XInput on Windows) | Done; XInput reading not yet seen on a real pad |
-| Restore hotkey and Now Playing screen with Stop / Force stop | Done; the controller combination is untested |
-| Search box (top right, caret), on-screen keyboard | Done |
-| Settings (Appearance, Library, Artwork, System) on a blurred backdrop, saved preferences, Exit | Done |
-| Animated highlights, panels, sheets, search and list changes (off with Reduced Motion) | Done |
-| File browser, Add a game (executable), per-game Options menu | Done |
-| Emulator profiles and presets, ROM directory setup in Settings | Not yet (CLI only: `add-emulator`, `add-rom-dir`) |
-| First-run flow, packaging, section 7 performance checks | Not yet |
-
-Measured on Windows (1616×909 window, 32 games, release build): the window
-appears in 1.85 s and uses about 89 MB. While idle on the carousel it uses
-about 8% of one core: the slow glow pulse is redrawn at about 30 Hz, and
-scrolling and crossfades run at the display rate.
+| Database, logs, single instance, scanners, file watchers | Done |
+| Launch, exit detection, focus return, Now Playing with Stop / Force stop | Done on Windows |
+| Restore hotkey (controller hold, `Ctrl+Alt+Home`) | Done; the controller hold is untested |
+| Artwork: Steam's cache, Epic's catalog (Windows), SteamGridDB, placeholder | Done |
+| Carousel, ambient lighting, startup animation, interface animations | Done |
+| Gamepad, keyboard and mouse, with hints that follow the device | Done |
+| Search and on-screen keyboard | Done |
+| Settings: Appearance, Library, Emulators, Artwork, System | Done |
+| File browser, Add a game, per-game Options | Done |
+| Emulator profiles, presets (Switch included) and ROM folders | Done; not yet tried with a real emulator |
+| Launch options for Steam games | Done; not yet tried with a game |
+| Steam friends in your games, Join, borrowed-game warning (5.6) | Done; not yet tried with a key |
+| First-run flow, packaging, performance checks (spec 7) | Not yet |
 
 Not done yet:
 
-* Phase 0 checks that need hardware: Linux X11/Wayland, focus on GNOME/KDE,
-  Proton detection, Steam's registry running-state signal (use
+* Checks that need hardware: Linux X11 and Wayland, focus on GNOME and KDE,
+  Proton detection, and Steam's registry running-state signal (use
   `moonglass steam-signal <game>` while playing).
-* Linux keyboard restore hotkey (X11 grab / Wayland portal), X11
-  launcher-window close request, desktop notification when focus fails.
-* GPU textures far from the focused card are not released yet. Only nearby
-  cards are drawn, but GPUI's image cache keeps decoded images.
-* Epic's namespaced-URI fallback is manual (`--epic-fallback`).
+* Linux: the keyboard restore hotkey, the X11 launcher-window close request,
+  the desktop notification when focus cannot be regained, Epic artwork
+  without a SteamGridDB key, and Flatpak detection in the emulator presets.
+* Settings for the manual Steam folder, extra Steam apps to leave out, extra
+  helper processes to ignore, and the launch timeout. The values are read
+  but nothing in the interface writes them.
+* A ROM folder added in Settings is scanned at once but only watched for
+  changes from the next start.
+* Images far from the focused card are not released: only nearby cards are
+  drawn, but GPUI's image cache keeps what it decoded.
+* Epic's namespaced-URI fallback is manual (`moonglass launch --epic-fallback`).
+* Drag-and-drop to add a game, and the "Add your games" card opening setup.
 
 ### Development
 
@@ -50,6 +51,7 @@ Not done yet:
 `MOONGLASS_DEV_SECOND_INSTANCE=1` lets a test window run next to a normal
 one (it shares the database).
 `MOONGLASS_DEV_SCREEN=settings` (or `search`) opens on that screen.
+The log records how long startup took (`startup: first frame ms=…`).
 
 ## Layout
 

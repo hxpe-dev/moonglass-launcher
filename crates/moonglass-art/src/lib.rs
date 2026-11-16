@@ -3,19 +3,23 @@
 //! Sources, first hit wins per asset type (cover, hero, logo):
 //! 1. user override (handled by the caller: locked artwork is never replaced),
 //! 2. Steam's local library cache ([`steam_cache`]),
-//! 3. SteamGridDB, with the user's API key ([`steamgriddb`]),
-//! 4. a generated placeholder ([`placeholder`]).
+//! 3. the Epic Games Launcher's local catalog, for Epic games ([`epic_catalog`]),
+//! 4. SteamGridDB, with the user's API key ([`steamgriddb`]),
+//! 5. a generated placeholder ([`placeholder`]).
 //!
 //! [`ingest`] then prepares what the carousel needs once per asset: a
-//! resized cover, dominant and accent colors, and three pre-blurred hero
-//! textures (GPUI has no blur filter, spec 4.1).
+//! resized cover, one image cropped to each card shape, dominant and accent
+//! colors, and three pre-blurred hero textures (GPUI has no blur filter,
+//! spec 4.1).
 
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
 pub mod color;
+pub mod epic_catalog;
 pub mod ingest;
+mod net;
 pub mod placeholder;
 pub mod steam_cache;
 pub mod steamgriddb;
@@ -34,10 +38,19 @@ pub enum ArtError {
         #[source]
         source: image::ImageError,
     },
-    #[error("SteamGridDB: {0}")]
+    #[error("artwork download: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("artwork download: {0} is too large")]
+    TooLarge(String),
     #[error("SteamGridDB: {0}")]
     Api(String),
+    #[error("Epic catalog {path}: {message}")]
+    Catalog { path: PathBuf, message: String },
+}
+
+/// The HTTP client used for artwork downloads.
+pub fn http_client() -> Result<reqwest::Client, ArtError> {
+    net::client()
 }
 
 impl ArtError {

@@ -5,14 +5,17 @@
 //! report back through one channel ([`UiEvent`]), the same bridge pattern as
 //! Zed's `gpui_tokio`.
 //!
-//! Layers, bottom to top: the home screen (carousel), the launch / Now
-//! Playing overlay, Settings, a modal (on-screen keyboard, file browser or
-//! per-game options), and a toast. Input goes to the topmost layer.
+//! Layers, bottom to top: the home screen (carousel) or the blurred
+//! backdrop it crossfades into, the launch / Now Playing overlay, Settings,
+//! a modal (on-screen keyboard, file browser, per-game options or an
+//! emulator menu), and a toast. Input goes to the topmost layer.
 
 mod anim;
 mod browser;
+mod emulators;
 mod gamepad;
 mod home;
+mod menu;
 mod options;
 mod osk;
 pub mod prefs;
@@ -40,15 +43,19 @@ use moonglass_core::lifecycle::{AbandonReason, Effect, Lifecycle, State, Timing}
 use moonglass_core::{Game, GameId, Source};
 use moonglass_db::Db;
 use moonglass_platform::hotkey::RestoreHotkey;
+use moonglass_platform::window::Splash;
 use moonglass_platform::{
     AppPaths, FocusResult, InstanceGuard, PadPower, ProcessWatcher, TrackedChild,
 };
 
-use crate::launch::{self, Running};
+use crate::friends::{self, Friend};
+use crate::launch::{self, Running, SteamJoin};
 use crate::now_unix;
 use anim::Anims;
 use browser::{Browser, BrowserResult, Entry, Purpose};
+use emulators::EmulatorInfo;
 use gamepad::{ControllerStatus, NavAction, PadEvent};
+use menu::Menu;
 use options::{Opt, OptionsMenu};
 use osk::{Osk, OskResult, TextTarget};
 use prefs::Prefs;
@@ -79,10 +86,37 @@ pub struct Backend {
     pub instance: Option<InstanceGuard>,
 }
 
+/// What the first frame shows, read while the UI toolkit starts.
+pub struct Loaded {
+    prefs: Prefs,
+    sgdb_key_set: bool,
+    emulators: Vec<EmulatorInfo>,
+    games: Vec<Game>,
+}
+
+impl Loaded {
+    /// Anything that cannot be read is left at its default; the scan that
+    /// follows the first frame reports real trouble.
+    pub async fn read(db: &Db) -> Self {
+        let key = db.setting::<String>(crate::artwork::SETTING_SGDB_KEY).await;
+        Self {
+            prefs: db
+                .setting(prefs::PREFS_KEY)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            sgdb_key_set: key.ok().flatten().is_some_and(|k| !k.trim().is_empty()),
+            emulators: emulators::load(db).await.unwrap_or_default(),
+            games: db.games().await.unwrap_or_default(),
+        }
+    }
+}
+
 enum UiEvent {
     Library(Vec<Game>),
-    Prefs(Prefs),
-    SgdbKeySet(bool),
+    Emulators(Vec<EmulatorInfo>),
+    Friends(friends::Snapshot, friends::Status),
     Pad(PadEvent),
     Power(Option<PadPower>),
     Restore,
@@ -154,6 +188,7 @@ enum Modal {
     Keyboard(Osk),
     Browser(Browser),
     Options(Box<OptionsMenu>),
+    Menu(Menu),
 }
 
 enum Screen {
@@ -183,6 +218,18 @@ pub struct LauncherView {
 
     /// As stored.
     games: Vec<Game>,
+    /// Emulator profiles with their ROM folders, for Settings.
+    emulators: Vec<EmulatorInfo>,
+    /// An emulator whose menu opens once the database has it.
+    pending_emulator_menu: Option<String>,
+    /// Steam friends in a game right now (empty without an API key).
+    friends: friends::Snapshot,
+    friends_status: friends::Status,
+    /// Wakes the friends poll when the key changes.
+    friends_wake: Arc<tokio::sync::Notify>,
+    /// A game whose borrowed copy is in use and whose Play was pressed
+    /// once: the second press starts it anyway.
+    play_anyway: Option<GameId>,
     /// What the carousel shows: `games`, with hidden games un-hidden when
     /// "Show hidden games" is on.
     shown: Vec<Game>,
@@ -228,6 +275,10 @@ pub struct LauncherView {
     sgdb_key_set: bool,
     start_at_login: bool,
 
+    /// The black window shown since the program started, until the first
+    /// frame is on screen.
+    splash: Option<Splash>,
+    drawn: bool,
     loaded: bool,
     /// Logo sizes, so the logo can be laid out left-aligned at its own
     /// aspect ratio (an image box with Contain would center it).
@@ -249,7 +300,13 @@ fn raw_window(window: &Window) -> isize {
 }
 
 impl LauncherView {
-    fn new(backend: Arc<Backend>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        backend: Arc<Backend>,
+        loaded: Loaded,
+        splash: Option<Splash>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let (tx, mut rx) = unbounded::<UiEvent>();
 
         // Event pump: everything from other threads arrives here.
@@ -302,6 +359,21 @@ impl LauncherView {
             }
         });
 
+        // Steam friends, paused while a game is tracked.
+        let friends_wake = Arc::new(tokio::sync::Notify::new());
+        let friends_tx = tx.clone();
+        friends::spawn_poll(
+            &backend.rt,
+            backend.db.clone(),
+            restore_armed.clone(),
+            friends_wake.clone(),
+            move |snapshot, status| {
+                friends_tx
+                    .unbounded_send(UiEvent::Friends(snapshot, status))
+                    .is_ok()
+            },
+        );
+
         // Controller battery where gilrs cannot read it (XInput on Windows).
         let power_tx = tx.clone();
         backend.rt.spawn(async move {
@@ -317,12 +389,18 @@ impl LauncherView {
             }
         });
 
-        let view = Self {
+        let mut view = Self {
             backend,
             tx,
             focus: cx.focus_handle(),
-            prefs: Prefs::default(),
+            prefs: loaded.prefs,
             games: Vec::new(),
+            emulators: loaded.emulators,
+            pending_emulator_menu: None,
+            friends: friends::Snapshot::default(),
+            friends_status: friends::Status::default(),
+            friends_wake,
+            play_anyway: None,
             shown: Vec::new(),
             hidden_ids: HashSet::new(),
             filters: vec![Filter::All],
@@ -356,14 +434,17 @@ impl LauncherView {
             xinput_power: None,
             restore_armed,
             hotkey,
-            sgdb_key_set: false,
+            sgdb_key_set: loaded.sgdb_key_set,
             start_at_login: moonglass_platform::start_at_login().unwrap_or(false),
+            splash,
+            drawn: false,
             loaded: false,
             logo_sizes: Default::default(),
             user_moved: false,
             input: InputMode::Keyboard,
             wheel_accum: 0.0,
         };
+        view.handle(UiEvent::Library(loaded.games), window, cx);
         view.startup();
         window.focus(&view.focus);
         view
@@ -371,36 +452,20 @@ impl LauncherView {
 
     // ------------------------------------------------------------ backend
 
-    /// Preferences first (they shape the first frame), then the library as
-    /// stored (cold start), then scan, artwork, and file watching.
+    /// The library as stored is already on screen ([`Loaded`]); this brings
+    /// it up to date behind the startup animation: scan, artwork, then file
+    /// watching.
     fn startup(&self) {
         let db = self.backend.db.clone();
         let tx = self.tx.clone();
         let cache = self.backend.paths.cache_dir.clone();
         let rt = self.backend.rt.clone();
         self.backend.rt.spawn(async move {
-            let prefs = db
-                .setting::<Prefs>(prefs::PREFS_KEY)
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let _ = tx.unbounded_send(UiEvent::Prefs(prefs));
-            let key = db
-                .setting::<String>(crate::artwork::SETTING_SGDB_KEY)
-                .await
-                .ok()
-                .flatten();
-            let _ = tx.unbounded_send(UiEvent::SgdbKeySet(
-                key.is_some_and(|k| !k.trim().is_empty()),
-            ));
-
             let send = |db: Db, tx: UnboundedSender<UiEvent>| async move {
                 if let Ok(g) = db.games().await {
                     let _ = tx.unbounded_send(UiEvent::Library(g));
                 }
             };
-            send(db.clone(), tx.clone()).await;
             if let Err(e) = crate::library::scan_all(&db, now_unix()).await {
                 tracing::error!("scan failed: {e:#}");
             }
@@ -456,6 +521,9 @@ impl LauncherView {
             }
             if let Ok(g) = db.games().await {
                 let _ = tx.unbounded_send(UiEvent::Library(g));
+            }
+            if let Ok(e) = emulators::load(&db).await {
+                let _ = tx.unbounded_send(UiEvent::Emulators(e));
             }
         });
     }
@@ -632,7 +700,7 @@ impl LauncherView {
                 if let Modal::Options(m) = &mut self.modal {
                     if let Some(g) = self.games.iter().find(|g| g.id == m.game.id) {
                         let sel = m.selected;
-                        **m = OptionsMenu::new(g.clone());
+                        **m = OptionsMenu::new(g.clone(), std::mem::take(&mut m.joinable));
                         m.selected = sel.min(m.items.len() - 1);
                     }
                 }
@@ -650,12 +718,17 @@ impl LauncherView {
                 }
                 cx.notify();
             }
-            UiEvent::Prefs(p) => {
-                self.prefs = p;
-                self.apply_prefs();
+            UiEvent::Emulators(list) => {
+                self.emulators_changed(list);
                 cx.notify();
             }
-            UiEvent::SgdbKeySet(b) => self.sgdb_key_set = b,
+            UiEvent::Friends(snapshot, status) => {
+                if self.friends != snapshot || self.friends_status != status {
+                    self.friends = snapshot;
+                    self.friends_status = status;
+                    cx.notify();
+                }
+            }
             UiEvent::Pad(PadEvent::Status(s)) => {
                 self.controller = s;
                 cx.notify();
@@ -783,6 +856,13 @@ impl LauncherView {
                     self.close_modal(cx);
                 } else if let Some(o) = m.nav(a) {
                     self.run_option(o, window, cx);
+                }
+            }
+            Modal::Menu(m) => {
+                if a == NavAction::Back {
+                    self.close_modal(cx);
+                } else if let Some(action) = m.nav(a) {
+                    self.run_menu_action(action, cx);
                 }
             }
             Modal::None => {
@@ -936,7 +1016,7 @@ impl LauncherView {
                     b.jump_to(c);
                 }
             }
-            Modal::Options(_) => {}
+            Modal::Options(_) | Modal::Menu(_) => {}
             Modal::None => {
                 // Typing on a physical keyboard searches (spec 3, Search).
                 if self.is_home_idle() {
@@ -1141,7 +1221,13 @@ impl LauncherView {
                 self.set_modal(Modal::None);
                 self.clear_search();
             }
-            (OskResult::Cancel, _) => self.set_modal(Modal::None),
+            (OskResult::Cancel, _) => {
+                self.set_modal(Modal::None);
+                // Back to the emulator's menu the field was opened from.
+                if let Some(id) = target.emulator() {
+                    self.open_emulator_menu(id);
+                }
+            }
             (OskResult::Done, _) => {
                 self.set_modal(Modal::None);
                 self.apply_text(target, text);
@@ -1156,6 +1242,26 @@ impl LauncherView {
         let text = text.trim().to_string();
         match target {
             TextTarget::Search => {}
+            TextTarget::EmulatorArguments(ref id) => self.save_emulator_arguments(id, text),
+            TextTarget::EmulatorFileTypes(ref id) => self.save_emulator_file_types(id, text),
+            TextTarget::RomPlatform {
+                ref emulator,
+                ref path,
+            } => self.add_rom_folder(emulator, path, text),
+            TextTarget::SteamApiKey => {
+                let wake = self.friends_wake.clone();
+                self.db_task(move |db, _| async move {
+                    db.set_setting(friends::SETTING_STEAM_API_KEY, &text)
+                        .await?;
+                    // Asks Steam now rather than at the next minute.
+                    wake.notify_one();
+                    Ok(Some(if text.is_empty() {
+                        "Steam key removed".to_string()
+                    } else {
+                        "Steam key saved".to_string()
+                    }))
+                });
+            }
             TextTarget::SgdbKey => {
                 self.sgdb_key_set = !text.is_empty();
                 self.db_task(move |db, cache| async move {
@@ -1283,6 +1389,10 @@ impl LauncherView {
                     Ok(Some(format!("New artwork for {}", g.title)))
                 });
             }
+            Purpose::EmulatorProgram { preset, emulator } => {
+                self.picked_emulator_program(preset, emulator, path)
+            }
+            Purpose::RomFolder(emulator) => self.picked_rom_folder(emulator, path),
             Purpose::WorkingDir(id) => {
                 let Some(g) = self.stored(&id).cloned() else {
                     return;
@@ -1308,7 +1418,14 @@ impl LauncherView {
             return;
         };
         if let Some(g) = self.stored(&id).cloned() {
-            self.set_modal(Modal::Options(Box::new(OptionsMenu::new(g))));
+            let joinable: Vec<Friend> = self
+                .friends
+                .playing(&g)
+                .iter()
+                .filter(|f| f.lobby.is_some())
+                .cloned()
+                .collect();
+            self.set_modal(Modal::Options(Box::new(OptionsMenu::new(g, joinable))));
         }
     }
 
@@ -1333,6 +1450,18 @@ impl LauncherView {
             Opt::Play => {
                 self.set_modal(Modal::None);
                 self.play(window, cx);
+            }
+            Opt::Join(i) => {
+                let join = m.joinable.get(i).and_then(|f| {
+                    Some(SteamJoin {
+                        lobby: f.lobby.clone()?,
+                        friend: f.steam_id.clone(),
+                    })
+                });
+                self.set_modal(Modal::None);
+                if join.is_some() {
+                    self.start_game(join, window, cx);
+                }
             }
             Opt::Favorite => {
                 let fav = !g.is_favorite;
@@ -1410,7 +1539,7 @@ impl LauncherView {
     fn open_settings(&mut self) {
         self.search_focused = false;
         self.start_at_login = moonglass_platform::start_at_login().unwrap_or(false);
-        self.screen = Screen::Settings(SettingsState::new());
+        self.screen = Screen::Settings(SettingsState::new(self.emulators.len()));
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
@@ -1426,7 +1555,14 @@ impl LauncherView {
             games: installed.clone().count(),
             hidden: installed.filter(|g| g.is_hidden).count(),
             sgdb_key_set: self.sgdb_key_set,
+            steam_key_set: self.friends_status != friends::Status::Off,
+            friends: self.friends_status.text(),
             start_at_login: self.start_at_login,
+            emulators: self
+                .emulators
+                .iter()
+                .map(|e| (e.emulator.name.clone(), e.summary()))
+                .collect(),
             family: self.controller.family,
             keyboard_hotkey: self.hotkey.availability().keyboard,
             logs: self.backend.paths.log_dir.display().to_string(),
@@ -1476,6 +1612,12 @@ impl LauncherView {
             }
             SettingsCmd::Run(item) => match item {
                 Item::AddGame => self.open_browser(Purpose::AddExecutable),
+                Item::SteamKey => {
+                    self.set_modal(Modal::Keyboard(Osk::new(
+                        TextTarget::SteamApiKey,
+                        String::new(),
+                    )));
+                }
                 Item::SgdbKey => {
                     self.set_modal(Modal::Keyboard(Osk::new(
                         TextTarget::SgdbKey,
@@ -1491,14 +1633,17 @@ impl LauncherView {
                     });
                 }
                 Item::Exit => cx.quit(),
+                Item::AddEmulator => self.open_preset_menu(),
+                Item::Emulator(i) => {
+                    if let Some(id) = self.emulators.get(i).map(|e| e.emulator.id.clone()) {
+                        self.open_emulator_menu(&id);
+                    }
+                }
                 Item::RefreshArt => {
                     self.toast("Refreshing artwork…", cx);
                     self.db_task(|db, cache| async move {
                         let s = crate::artwork::refresh(&db, &cache, true).await?;
-                        Ok(Some(format!(
-                            "Artwork: {} from Steam, {} from SteamGridDB, {} placeholders",
-                            s.from_steam, s.from_sgdb, s.placeholders
-                        )))
+                        Ok(Some(s.to_string()))
                     });
                 }
                 _ => {}
@@ -1510,6 +1655,11 @@ impl LauncherView {
     // ------------------------------------------------------------- launch
 
     fn play(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_game(None, window, cx);
+    }
+
+    /// Starts the focused game, or joins a friend in it.
+    fn start_game(&mut self, join: Option<SteamJoin>, window: &mut Window, cx: &mut Context<Self>) {
         // One game at a time: a second launch would orphan the first.
         if self.session.is_some() || !self.lifecycle.accepts_navigation() {
             return;
@@ -1517,6 +1667,20 @@ impl LauncherView {
         let Some(game) = self.current().cloned() else {
             return;
         };
+        // A borrowed game whose owner is playing it: say so once, and let a
+        // second press go ahead (the family may have another copy).
+        if let Some(owner) = self.friends.in_use_by(&game) {
+            if self.play_anyway.as_ref() != Some(&game.id) {
+                let msg = format!(
+                    "{} is playing {} on their copy · press again to start anyway",
+                    owner.name, game.title
+                );
+                self.play_anyway = Some(game.id.clone());
+                self.toast(msg, cx);
+                return;
+            }
+        }
+        self.play_anyway = None;
         self.search_focused = false;
         let origin = Instant::now();
         let effects = self.lifecycle.launch(Duration::ZERO);
@@ -1542,7 +1706,7 @@ impl LauncherView {
         let db = self.backend.db.clone();
         let tx = self.tx.clone();
         self.backend.rt.spawn(async move {
-            match launch::start(&db, &game, false).await {
+            match launch::start(&db, &game, false, join.as_ref()).await {
                 Ok(r) => *running.lock().unwrap() = Some(r),
                 Err(e) => {
                     let _ = tx.unbounded_send(UiEvent::LaunchFailed {
@@ -1884,6 +2048,13 @@ async fn poll_game(
 
 impl Render for LauncherView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.drawn {
+            self.drawn = true;
+            crate::startup_mark("first frame");
+            // The splash goes once this frame is on screen.
+            let splash = self.splash.take();
+            window.on_next_frame(move |_, _| drop(splash));
+        }
         self.advance_animation();
         let vp = window.viewport_size();
         let (w, h) = (f32::from(vp.width), f32::from(vp.height));
@@ -1907,22 +2078,22 @@ impl Render for LauncherView {
         // Settings and the launch / Now Playing screens sit on an even
         // blurred backdrop, which the carousel crossfades into.
         let settings_open = matches!(self.screen, Screen::Settings(_));
-        let frost_wanted = settings_open
+        let backdrop_wanted = settings_open
             || matches!(
                 self.overlay,
                 Overlay::Launching { .. } | Overlay::Playing { .. }
             );
-        let frost = self.glide("frost", on(frost_wanted));
-        if frost < 0.997 {
+        let backdrop = self.glide("backdrop", on(backdrop_wanted));
+        if backdrop < 0.997 {
             root = self.render_home(root, w, h, u, cx);
         }
-        if frost > 0.003 {
+        if backdrop > 0.003 {
             let layer = div()
-                .id("frost")
+                .id("backdrop")
                 .absolute()
                 .size_full()
                 .bg(gpui::rgb(theme::OBSIDIAN))
-                .opacity(frost);
+                .opacity(backdrop);
             root = root.child(self.render_backdrop(layer));
         }
         if let Some(o) = self.render_overlay(w, h, u, cx) {
@@ -1962,6 +2133,7 @@ impl Render for LauncherView {
                 let (x, y) = self.options_anchor(w, h, u);
                 root = root.child(self.render_options(m, x, y, u, modal, cx));
             }
+            Some(Modal::Menu(m)) => root = root.child(self.render_menu(m, w, u, modal, cx)),
             Some(Modal::None) | None => {}
         }
 
@@ -1999,10 +2171,17 @@ impl Render for LauncherView {
     }
 }
 
-/// Opens the fullscreen window and runs until it closes.
-pub fn run(backend: Backend) {
+/// Opens the fullscreen window and runs until it closes. `start` supplies
+/// what was prepared while the toolkit started, which is where most of the
+/// startup time goes.
+pub fn run(
+    start: impl FnOnce() -> anyhow::Result<(Backend, Loaded)>,
+    splash: Option<Splash>,
+) -> anyhow::Result<()> {
+    let app = Application::new();
+    let (backend, loaded) = start()?;
     let backend = Arc::new(backend);
-    Application::new().run(move |cx: &mut App| {
+    app.run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1600.), px(900.)), cx);
         let windowed = std::env::var_os("MOONGLASS_WINDOWED").is_some();
         let options = WindowOptions {
@@ -2015,9 +2194,8 @@ pub fn run(backend: Backend) {
             app_id: Some("moonglass".into()),
             ..Default::default()
         };
-        let b = backend.clone();
         let opened = cx.open_window(options, move |window, cx| {
-            cx.new(|cx| LauncherView::new(b.clone(), window, cx))
+            cx.new(|cx| LauncherView::new(backend, loaded, splash, window, cx))
         });
         if let Err(e) = opened {
             tracing::error!("could not open the window: {e:#}");
@@ -2027,4 +2205,5 @@ pub fn run(backend: Backend) {
         cx.on_window_closed(|cx| cx.quit()).detach();
         cx.activate(true);
     });
+    Ok(())
 }

@@ -284,7 +284,7 @@ async fn deleting_emulator_cascades() {
     .await
     .unwrap();
     sqlx::query("DELETE FROM emulators")
-        .execute(db.pool())
+        .execute(&db.pool)
         .await
         .unwrap();
     assert!(db.games().await.unwrap().is_empty());
@@ -318,4 +318,60 @@ async fn artwork_respects_lock() {
         .set_artwork(&id, "c4", "h4", None, "#777777", "#888888", false)
         .await
         .unwrap());
+}
+
+#[tokio::test]
+async fn removing_an_emulator_removes_its_folders_and_games() {
+    let db = db().await;
+    for (id, name) in [("pcsx2", "PCSX2"), ("dolphin", "Dolphin")] {
+        db.upsert_emulator(&Emulator {
+            id: id.into(),
+            name: name.into(),
+            executable_path: format!("/emu/{id}"),
+            launch_template: "\"{rom}\"".into(),
+            file_extensions: ".iso".into(),
+            folder_marker: None,
+        })
+        .await
+        .unwrap();
+    }
+    db.add_rom_directory("romdir:gc", "/roms/gc", "dolphin", "GameCube", true)
+        .await
+        .unwrap();
+    db.add_rom_directory("romdir:ps2", "/roms/ps2", "pcsx2", "PS2", true)
+        .await
+        .unwrap();
+    let names: Vec<_> = db
+        .emulators()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    assert_eq!(names, ["Dolphin", "PCSX2"], "sorted by name");
+
+    let game = ScannedGame {
+        id: GameId::rom("/roms/gc/game.iso"),
+        title: "Game".into(),
+        source: Source::Rom,
+        source_id: None,
+        launch_target: Some("/roms/gc/game.iso".into()),
+        install_dir: None,
+        rom_directory_id: Some("romdir:gc".into()),
+        platform: Some("GameCube".into()),
+        last_played_hint: None,
+    };
+    db.reconcile(&ScanScope::RomDirectory("romdir:gc".into()), &[game], 0)
+        .await
+        .unwrap();
+    assert_eq!(db.games().await.unwrap().len(), 1);
+
+    db.remove_emulator("dolphin").await.unwrap();
+    let folders = db.rom_folders().await.unwrap();
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].emulator_id, "pcsx2");
+    assert!(db.games().await.unwrap().is_empty());
+
+    db.remove_rom_directory("romdir:ps2").await.unwrap();
+    assert!(db.rom_folders().await.unwrap().is_empty());
 }
