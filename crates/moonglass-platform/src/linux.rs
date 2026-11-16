@@ -51,6 +51,45 @@ pub fn finish_normalize(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
+/// Folders that hold many unrelated programs (see
+/// [`crate::is_trackable_folder`]).
+pub fn broad_folders() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = [
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/lib",
+        "/usr/libexec",
+        "/usr/share",
+        "/usr/local/bin",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/opt",
+        "/etc",
+        "/var",
+        "/tmp",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect();
+    if let Some(user) = directories::UserDirs::new() {
+        out.push(user.home_dir().to_path_buf());
+        out.extend(
+            [user.desktop_dir(), user.document_dir(), user.download_dir()]
+                .into_iter()
+                .flatten()
+                .map(Path::to_path_buf),
+        );
+    }
+    out
+}
+
+/// Linux has no single system folder that games never live under; the
+/// shared folders above cover it.
+pub fn system_folders() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 fn on_path(program: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -249,10 +288,59 @@ pub(crate) fn process_matches(p: &ProcessInfo<'_>, m: &Prepared<'_>) -> bool {
             p.environ
                 .iter()
                 .any(|e| e.as_encoded_bytes() == wanted.as_bytes())
-                || any_path_within(p, dir)
+                || dir.as_deref().is_some_and(|d| any_path_within(p, d))
         }
-        Prepared::Folder { dir } => any_path_within(p, dir),
+        Prepared::Folder { dir } => dir.as_deref().is_some_and(|d| any_path_within(p, d)),
         Prepared::Name(n) => name_matches(p.name, n),
+    }
+}
+
+pub fn browse_roots() -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    if let Ok(home) = home() {
+        out.push(("Home".to_string(), home));
+    }
+    out.push(("Computer".to_string(), PathBuf::from("/")));
+    let user = std::env::var("USER").unwrap_or_default();
+    for base in [
+        PathBuf::from("/media").join(&user),
+        PathBuf::from("/run/media").join(&user),
+        PathBuf::from("/mnt"),
+    ] {
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    out.push((name, p));
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn is_launchable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// Steam on Linux has no registry; process detection is the only signal.
+pub fn steam_app_running(_app_id: &str) -> Option<bool> {
+    None
+}
+
+/// `gilrs` reports battery percentages on Linux itself.
+pub fn xinput_power() -> Option<crate::PadPower> {
+    None
+}
+
+/// SIGTERM to each process: the polite request to quit.
+pub fn request_close(pids: &[u32]) {
+    for pid in pids {
+        if let Some(p) = Pid::from_raw(*pid as i32) {
+            let _ = rustix::process::kill_process(p, Signal::TERM);
+        }
     }
 }
 
@@ -297,11 +385,16 @@ pub fn set_start_at_login(enabled: bool) -> Result<()> {
 
 // ------------------------------------------------------- single instance
 
+/// The per-user runtime directory, or a per-user folder in the temporary
+/// directory (which is shared between users) when there is none.
 fn runtime_dir() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .unwrap_or_else(std::env::temp_dir)
+        .unwrap_or_else(|| {
+            let uid = rustix::process::getuid().as_raw();
+            std::env::temp_dir().join(format!("moonglass-{uid}"))
+        })
 }
 
 /// Lock file plus a Unix socket in the runtime directory. The second
@@ -315,6 +408,7 @@ impl Instance {
     pub fn acquire() -> Result<Option<Self>> {
         use rustix::fs::{flock, FlockOperation};
         let dir = runtime_dir();
+        std::fs::create_dir_all(&dir)?;
         let lock_path = dir.join("moonglass.lock");
         let sock_path = dir.join("moonglass.sock");
         let lock = std::fs::OpenOptions::new()

@@ -5,10 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
-use moonglass_art::ingest::{ingest, IngestConfig};
+use moonglass_art::ingest::{frosted_cover_path, ingest, IngestConfig, Ingested};
 use moonglass_art::steamgriddb::{Client, Lookup};
 use moonglass_art::{cache_folder_name, steam_cache, FoundArt};
-use moonglass_core::{Game, Source};
+use moonglass_core::{Game, GameId, Source};
 use moonglass_db::Db;
 
 pub const SETTING_SGDB_KEY: &str = "steamgriddb_api_key";
@@ -24,20 +24,36 @@ pub struct ArtSummary {
 fn needs_art(g: &Game) -> bool {
     g.is_installed
         && !g.artwork_locked
-        && !g
-            .cover_path
-            .as_deref()
-            .is_some_and(|p| Path::new(p).is_file())
+        // Art made before the frosted cover existed is redone once.
+        && !g.cover_path.as_deref().is_some_and(|p| {
+            let p = Path::new(p);
+            p.is_file() && frosted_cover_path(p).is_file()
+        })
+}
+
+/// Stores ingested artwork; `user_override` also locks it.
+async fn store(db: &Db, id: &GameId, art: &Ingested, user_override: bool) -> anyhow::Result<()> {
+    db.set_artwork(
+        id,
+        &art.cover_path.to_string_lossy(),
+        &art.hero_path.to_string_lossy(),
+        art.logo_path
+            .as_ref()
+            .map(|p| p.to_string_lossy())
+            .as_deref(),
+        &art.dominant,
+        &art.accent,
+        user_override,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Fills in artwork for every game that has none. `force` redoes all
 /// unlocked games (for example after adding a SteamGridDB key).
 pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<ArtSummary> {
-    let steam_root: Option<PathBuf> = db
-        .setting::<String>(crate::library::SETTING_STEAM_ROOT)
-        .await?
-        .map(Into::into)
-        .or_else(moonglass_platform::steam_root);
+    let _one_at_a_time = crate::library::LIBRARY_WORK.lock().await;
+    let steam_root = crate::library::steam_root(db).await?;
     let sgdb = match db.setting::<String>(SETTING_SGDB_KEY).await? {
         Some(k) if !k.trim().is_empty() => Some(Client::new(&k)?),
         _ => None,
@@ -81,19 +97,7 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
         .await?;
         match result {
             Ok(art) => {
-                db.set_artwork(
-                    &g.id,
-                    &art.cover_path.to_string_lossy(),
-                    &art.hero_path.to_string_lossy(),
-                    art.logo_path
-                        .as_ref()
-                        .map(|p| p.to_string_lossy())
-                        .as_deref(),
-                    &art.dominant,
-                    &art.accent,
-                    false,
-                )
-                .await?;
+                store(db, &g.id, &art, false).await?;
                 if art.is_placeholder {
                     summary.placeholders += 1;
                 } else if steam_hit {
@@ -119,6 +123,7 @@ pub async fn set_override(
     game: &Game,
     cover: &Path,
 ) -> anyhow::Result<()> {
+    let _one_at_a_time = crate::library::LIBRARY_WORK.lock().await;
     let dir = cache_dir
         .join("art")
         .join(cache_folder_name(game.id.as_str()))
@@ -140,18 +145,5 @@ pub async fn set_override(
     let art =
         tokio::task::spawn_blocking(move || ingest(&found, &title, &dir, IngestConfig::default()))
             .await??;
-    db.set_artwork(
-        &game.id,
-        &art.cover_path.to_string_lossy(),
-        &art.hero_path.to_string_lossy(),
-        art.logo_path
-            .as_ref()
-            .map(|p| p.to_string_lossy())
-            .as_deref(),
-        &art.dominant,
-        &art.accent,
-        true,
-    )
-    .await?;
-    Ok(())
+    store(db, &game.id, &art, true).await
 }

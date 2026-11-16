@@ -194,11 +194,6 @@ pub fn scan(steam_root: &Path, extra_deny: &HashSet<u32>) -> Result<Vec<ScannedG
     Ok(games)
 }
 
-/// `steam://rungameid/<AppID>`
-pub fn launch_uri(app_id: &str) -> String {
-    format!("steam://rungameid/{app_id}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,10 +326,5 @@ mod tests {
     fn missing_root_is_an_error() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(scan(&tmp.path().join("nope"), &HashSet::new()).is_err());
-    }
-
-    #[test]
-    fn uri() {
-        assert_eq!(launch_uri("620"), "steam://rungameid/620");
     }
 }

@@ -72,6 +72,39 @@ pub fn finish_normalize(p: &Path) -> String {
     s.to_lowercase()
 }
 
+/// Folders that hold many unrelated programs (see
+/// [`crate::is_trackable_folder`]).
+pub fn broad_folders() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = [
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramData",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "PUBLIC",
+    ]
+    .iter()
+    .filter_map(std::env::var_os)
+    .map(PathBuf::from)
+    .collect();
+    if let Some(user) = directories::UserDirs::new() {
+        out.push(user.home_dir().to_path_buf());
+        out.extend(
+            [user.desktop_dir(), user.document_dir(), user.download_dir()]
+                .into_iter()
+                .flatten()
+                .map(Path::to_path_buf),
+        );
+    }
+    out
+}
+
+/// Windows itself: nothing inside it is a game folder.
+pub fn system_folders() -> Vec<PathBuf> {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    vec![PathBuf::from(root)]
+}
+
 // ---------------------------------------------------------------- registry
 
 fn reg_get_string(subkey: &str, value: &str) -> Option<String> {
@@ -168,6 +201,9 @@ pub fn launch_epic(source: &EpicSource, app_name: &str, fallback_uri: Option<&st
 pub struct Tracked {
     child: Child,
     job: HANDLE,
+    /// False when the child could not be placed in the job; only the direct
+    /// child is watched and terminated then.
+    in_job: bool,
 }
 
 // The job handle is only used from the owning thread at a time.
@@ -190,14 +226,21 @@ impl Tracked {
             }
         };
         let handle = HANDLE(child.as_raw_handle());
-        if let Err(e) = unsafe { AssignProcessToJobObject(job, handle) } {
-            // Still usable: fall back to watching the direct child only.
-            tracing::warn!(error = %e, "could not place game in a Job Object");
-        }
-        Ok(Self { child, job })
+        let in_job = match unsafe { AssignProcessToJobObject(job, handle) } {
+            Ok(()) => true,
+            Err(e) => {
+                // Still usable: fall back to watching the direct child only.
+                tracing::warn!(error = %e, "could not place game in a Job Object");
+                false
+            }
+        };
+        Ok(Self { child, job, in_job })
     }
 
     fn active_processes(&self) -> Option<u32> {
+        if !self.in_job {
+            return None;
+        }
         let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         unsafe {
             QueryInformationJobObject(
@@ -223,8 +266,12 @@ impl Tracked {
     }
 
     pub fn terminate(&mut self) -> Result<()> {
-        unsafe { TerminateJobObject(self.job, 1) }
-            .or_else(|_| self.child.kill().map_err(windows::core::Error::from))
+        let job = if self.in_job {
+            unsafe { TerminateJobObject(self.job, 1) }
+        } else {
+            Err(windows::core::Error::empty())
+        };
+        job.or_else(|_| self.child.kill().map_err(windows::core::Error::from))
             .map_err(|e| PlatformError::Os(format!("terminate: {e}")))
     }
 
@@ -245,10 +292,105 @@ pub(crate) fn process_matches(p: &ProcessInfo<'_>, m: &Prepared<'_>) -> bool {
     match m {
         // Windows has no reliable view of another process's environment, so
         // Steam and Epic games are both found by their executable's folder.
-        Prepared::Steam { dir, .. } | Prepared::Folder { dir } => {
-            p.exe.is_some_and(|exe| within_normalized(exe, dir))
-        }
+        Prepared::Steam { dir, .. } | Prepared::Folder { dir } => match (dir, p.exe) {
+            (Some(dir), Some(exe)) => within_normalized(exe, dir),
+            _ => false,
+        },
         Prepared::Name(n) => name_matches(p.name, n),
+    }
+}
+
+pub fn browse_roots() -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
+        out.push(("Home".to_string(), home));
+    }
+    for letter in b'A'..=b'Z' {
+        let root = PathBuf::from(format!("{}:\\", letter as char));
+        if root.is_dir() {
+            out.push((format!("Drive {}:", letter as char), root));
+        }
+    }
+    out
+}
+
+pub fn is_launchable(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+}
+
+fn reg_get_dword(subkey: &str, value: &str) -> Option<u32> {
+    use windows::Win32::System::Registry::RRF_RT_REG_DWORD;
+    let subkey = HSTRING::from(subkey);
+    let value = HSTRING::from(value);
+    let mut data: u32 = 0;
+    let mut len: u32 = 4;
+    let rc = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &subkey,
+            &value,
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut data as *mut u32).cast()),
+            Some(&mut len),
+        )
+    };
+    (rc == ERROR_SUCCESS).then_some(data)
+}
+
+pub fn steam_app_running(app_id: &str) -> Option<bool> {
+    reg_get_dword(&format!(r"Software\Valve\Steam\Apps\{app_id}"), "Running").map(|v| v != 0)
+}
+
+pub fn xinput_power() -> Option<crate::PadPower> {
+    use windows::Win32::UI::Input::XboxController::{
+        XInputGetBatteryInformation, XInputGetState, BATTERY_DEVTYPE_GAMEPAD,
+        BATTERY_TYPE_DISCONNECTED, BATTERY_TYPE_UNKNOWN, BATTERY_TYPE_WIRED,
+        XINPUT_BATTERY_INFORMATION, XINPUT_STATE,
+    };
+    for i in 0..4 {
+        let mut st = XINPUT_STATE::default();
+        if unsafe { XInputGetState(i, &mut st) } != 0 {
+            continue;
+        }
+        let mut info = XINPUT_BATTERY_INFORMATION::default();
+        if unsafe { XInputGetBatteryInformation(i, BATTERY_DEVTYPE_GAMEPAD, &mut info) } != 0 {
+            continue;
+        }
+        return match info.BatteryType {
+            BATTERY_TYPE_WIRED => Some(crate::PadPower::Wired),
+            BATTERY_TYPE_DISCONNECTED | BATTERY_TYPE_UNKNOWN => None,
+            _ => Some(crate::PadPower::Level(info.BatteryLevel.0.min(3))),
+        };
+    }
+    None
+}
+
+/// Posts a close request to every visible top-level window owned by one
+/// of `pids` (the same as clicking the window's close button).
+pub fn request_close(pids: &[u32]) {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+    };
+    unsafe extern "system" fn visit(h: HWND, lparam: LPARAM) -> BOOL {
+        let pids = &*(lparam.0 as *const Vec<u32>);
+        if IsWindowVisible(h).as_bool() {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(h, Some(&mut pid));
+            if pids.contains(&pid) {
+                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        true.into()
+    }
+    let list: Vec<u32> = pids.to_vec();
+    unsafe {
+        let _ = EnumWindows(Some(visit), LPARAM(&list as *const Vec<u32> as isize));
     }
 }
 
@@ -509,10 +651,12 @@ pub mod window {
         true.into()
     }
 
-    /// Sends a normal close request to the client's main window, which sends
-    /// Steam and the Epic launcher to the system tray. The client keeps
-    /// running so cloud saves finish syncing. Returns how many windows were
-    /// asked to close.
+    /// If the client's main window is in front (the foreground window),
+    /// sends it a normal close request, which sends Steam and the Epic
+    /// launcher to the system tray. A client window the user left open
+    /// behind something else is not touched. The client keeps running so
+    /// cloud saves finish syncing. Call this before taking focus back.
+    /// Returns how many windows were asked to close.
     pub fn dismiss_launcher_window(launcher: Launcher) -> usize {
         let (names, title) = identity(launcher);
         let mut search = Search {
@@ -520,13 +664,16 @@ pub mod window {
             title,
             found: Vec::new(),
         };
+        let mut closed = 0;
         unsafe {
             let _ = EnumWindows(Some(visit), LPARAM(&mut search as *mut Search as isize));
-            for h in &search.found {
+            let front = GetForegroundWindow();
+            for h in search.found.iter().filter(|h| **h == front) {
                 let _ = PostMessageW(Some(*h), WM_CLOSE, WPARAM(0), LPARAM(0));
+                closed += 1;
             }
         }
-        search.found.len()
+        closed
     }
 }
 
@@ -536,19 +683,30 @@ pub mod window {
 /// `View + Menu` hold, and `Ctrl + Alt + Home` as a global keyboard hotkey.
 /// Both deliver to the same callback and keep working while Moonglass is not
 /// focused. Arm and disarm with [`RestoreHotkey::set_armed`]: it is only
-/// active while Launching or Running.
+/// active while Launching or Running, and the keyboard combination is only
+/// registered with Windows for that time, so other programs can use it the
+/// rest of the time.
 pub mod hotkey {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_HOME,
+        RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_HOME,
     };
     use windows::Win32::UI::Input::XboxController::{
         XInputGetState, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START, XINPUT_STATE,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, WM_APP, WM_HOTKEY, WM_USER,
+    };
+
+    const HOTKEY_ID: i32 = 1;
+    /// Thread messages from [`RestoreHotkey::set_armed`] to the keyboard thread.
+    const WM_ARM: u32 = WM_APP + 1;
+    const WM_DISARM: u32 = WM_APP + 2;
 
     /// What is available on this machine, shown in Settings.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -560,6 +718,8 @@ pub mod hotkey {
     pub struct RestoreHotkey {
         armed: Arc<AtomicBool>,
         availability: Availability,
+        /// The keyboard thread, when the combination is available.
+        keyboard_thread: Option<u32>,
     }
 
     impl RestoreHotkey {
@@ -579,25 +739,31 @@ pub mod hotkey {
             }
 
             let (tx, rx) = std::sync::mpsc::channel();
-            {
-                let armed = armed.clone();
-                std::thread::Builder::new()
-                    .name("moonglass-hotkey".into())
-                    .spawn(move || keyboard_loop(&armed, &*cb, tx))
-                    .ok();
-            }
-            let keyboard = rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+            std::thread::Builder::new()
+                .name("moonglass-hotkey".into())
+                .spawn(move || keyboard_loop(&*cb, tx))
+                .ok();
+            let keyboard_thread = rx.recv_timeout(Duration::from_secs(1)).ok().flatten();
             Self {
                 armed,
                 availability: Availability {
                     gamepad: true,
-                    keyboard,
+                    keyboard: keyboard_thread.is_some(),
                 },
+                keyboard_thread,
             }
         }
 
         pub fn set_armed(&self, armed: bool) {
-            self.armed.store(armed, Ordering::Relaxed);
+            if self.armed.swap(armed, Ordering::Relaxed) == armed {
+                return;
+            }
+            if let Some(thread) = self.keyboard_thread {
+                let msg = if armed { WM_ARM } else { WM_DISARM };
+                if let Err(e) = unsafe { PostThreadMessageW(thread, msg, WPARAM(0), LPARAM(0)) } {
+                    tracing::warn!(error = %e, "could not reach the hotkey thread");
+                }
+            }
         }
 
         pub fn availability(&self) -> Availability {
@@ -645,32 +811,101 @@ pub mod hotkey {
         }
     }
 
-    fn keyboard_loop(
-        armed: &AtomicBool,
-        cb: &(dyn Fn() + Send + Sync),
-        ready: std::sync::mpsc::Sender<bool>,
-    ) {
-        let ok = unsafe {
+    fn register() -> bool {
+        unsafe {
             RegisterHotKey(
                 None,
-                1,
+                HOTKEY_ID,
                 MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
                 VK_HOME.0 as u32,
             )
         }
-        .is_ok();
-        let _ = ready.send(ok);
-        if !ok {
+        .is_ok()
+    }
+
+    fn unregister() {
+        unsafe {
+            let _ = UnregisterHotKey(None, HOTKEY_ID);
+        }
+    }
+
+    /// Reports this thread's ID through `ready` (`None` if the combination
+    /// is taken), then registers the hotkey while armed and unregisters it
+    /// otherwise.
+    fn keyboard_loop(cb: &(dyn Fn() + Send + Sync), ready: std::sync::mpsc::Sender<Option<u32>>) {
+        let mut msg = MSG::default();
+        // Creates this thread's message queue, so `set_armed` can post to it.
+        unsafe {
+            let _ = PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE);
+        }
+        // Tried once now so that Settings can say whether it is available.
+        let free = register();
+        if free {
+            unregister();
+        } else {
             tracing::warn!(
                 "Ctrl+Alt+Home is taken by another program; keyboard restore hotkey unavailable"
             );
+        }
+        let _ = ready.send(free.then(|| unsafe { GetCurrentThreadId() }));
+        if !free {
             return;
         }
-        let mut msg = MSG::default();
-        while unsafe { GetMessageW(&mut msg, None, 0, 0) }.as_bool() {
-            if msg.message == WM_HOTKEY && armed.load(Ordering::Relaxed) {
-                cb();
+        let mut registered = false;
+        // GetMessageW returns 0 on WM_QUIT and -1 on failure.
+        while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+            match msg.message {
+                WM_ARM if !registered => {
+                    registered = register();
+                    if !registered {
+                        tracing::warn!("Ctrl+Alt+Home could not be registered for this game");
+                    }
+                }
+                WM_DISARM if registered => {
+                    unregister();
+                    registered = false;
+                }
+                WM_HOTKEY => cb(),
+                _ => {}
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Whether another thread could register the combination right now.
+        fn combination_is_free() -> bool {
+            let free = register();
+            if free {
+                unregister();
+            }
+            free
+        }
+
+        fn wait_until(want_free: bool) -> bool {
+            for _ in 0..40 {
+                if combination_is_free() == want_free {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            false
+        }
+
+        #[test]
+        fn keyboard_hotkey_is_held_only_while_armed() {
+            let hotkey = RestoreHotkey::start(Duration::from_secs(2), || {});
+            if !hotkey.availability().keyboard {
+                // Another program owns Ctrl+Alt+Home on this machine.
+                return;
+            }
+            assert!(combination_is_free(), "free before a game");
+            hotkey.set_armed(true);
+            assert!(wait_until(false), "held while a game runs");
+            hotkey.set_armed(false);
+            assert!(wait_until(true), "released after the game");
         }
     }
 }

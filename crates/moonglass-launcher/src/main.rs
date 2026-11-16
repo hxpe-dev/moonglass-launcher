@@ -1,9 +1,8 @@
-//! Moonglass, Phase 1 binary: the core without UI.
-//!
-//! This is the "plain debug list view" from the roadmap: it scans the
-//! library, lists it in carousel order, and launches games through the real
+//! Moonglass. With no arguments it opens the carousel ([`ui`]); with a
+//! command it is the debug CLI from the roadmap, which scans the library,
+//! lists it in carousel order, and launches games through the same
 //! lifecycle so detection, grace periods and timeouts can be exercised
-//! before the GPUI carousel exists.
+//! without the window.
 
 mod artwork;
 mod launch;
@@ -15,9 +14,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use moonglass_core::library::{carousel, search, visible_filters, Filter, RecentWindow};
+use moonglass_core::library::{carousel, search, visible_filters, Filter};
 use moonglass_core::lifecycle::Timing;
-use moonglass_core::{Game, GameId};
+use moonglass_core::Game;
 use moonglass_db::{Db, Emulator};
 use moonglass_platform::{AppPaths, InstanceGuard, InstanceStatus};
 
@@ -40,13 +39,15 @@ USAGE:
     moonglass set-art <id> <image-file>
     moonglass unlock-art <id>
     moonglass sgdb-key <key>|clear
+    moonglass steam-signal <id|number> [--secs <n>]
+                                     compare Steam's running flag with process detection
     moonglass autostart on|off|status
     moonglass paths
 
 Pills: all, recent, favorites, steam, epic, apps, emulators.
 <number> is the position shown by `moonglass list`.";
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -97,15 +98,18 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-async fn recent_window(db: &Db) -> anyhow::Result<RecentWindow> {
-    Ok(db.setting("recent_window").await?.unwrap_or_default())
+/// The preferences saved by Settings, so the CLI lists and launches the
+/// same way the carousel does.
+async fn prefs(db: &Db) -> anyhow::Result<ui::prefs::Prefs> {
+    Ok(db.setting(ui::prefs::PREFS_KEY).await?.unwrap_or_default())
 }
 
 /// Resolves a game by ID or by its number in the default `list` order.
 async fn resolve(db: &Db, key: &str) -> anyhow::Result<Game> {
     let games = db.games().await?;
     if let Ok(n) = key.parse::<usize>() {
-        let order = carousel(&games, Filter::All, now_unix(), recent_window(db).await?);
+        let recent = prefs(db).await?.recent_window();
+        let order = carousel(&games, Filter::All, now_unix(), recent);
         let i = order
             .get(
                 n.checked_sub(1)
@@ -123,7 +127,7 @@ async fn resolve(db: &Db, key: &str) -> anyhow::Result<Game> {
 async fn print_list(db: &Db, filter: Filter, query: Option<&str>) -> anyhow::Result<()> {
     let games = db.games().await?;
     let now = now_unix();
-    let recent = recent_window(db).await?;
+    let recent = prefs(db).await?.recent_window();
     let pills: Vec<_> = visible_filters(&games, now, recent)
         .iter()
         .map(|f| f.label())
@@ -191,12 +195,18 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     }
 
     // Single instance: a launch while a game is being tracked would race it.
-    let _instance = match InstanceGuard::acquire()? {
-        InstanceStatus::Primary(g) => g,
-        InstanceStatus::AlreadyRunning => {
-            println!("Moonglass is already running; asked it to come forward.");
-            return Ok(());
-        }
+    // `steam-signal` only reads, so it may run next to the carousel.
+    let read_only = cmd == "steam-signal";
+    let _instance = if read_only {
+        None
+    } else {
+        Some(match InstanceGuard::acquire()? {
+            InstanceStatus::Primary(g) => g,
+            InstanceStatus::AlreadyRunning => {
+                println!("Moonglass is already running; asked it to come forward.");
+                return Ok(());
+            }
+        })
     };
 
     let db = Db::open(&paths.database())
@@ -227,10 +237,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
             if let Some(s) = flag_value(rest, "--give-up") {
                 timing.give_up_after = Duration::from_secs(s.parse().context("--give-up")?);
             }
-            let dismiss = db
-                .setting::<bool>("dismiss_launcher_window")
-                .await?
-                .unwrap_or(true);
+            let dismiss = prefs(&db).await?.dismiss_launcher_window;
             let fallback = rest.iter().any(|a| a == "--epic-fallback");
             launch::run_to_completion(&db, &game, timing, fallback, dismiss).await?;
             // Spec 5.1: rescan when Moonglass resumes after a game exits.
@@ -329,7 +336,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
             let watch = keep("--watch", &game.watch_process);
             let track = rest.iter().any(|a| a == "--track-folder") || game.track_by_folder;
             db.set_launch_options(
-                &GameId::from_stored(game.id.to_string()),
+                &game.id,
                 launch_args.as_deref(),
                 cwd.as_deref(),
                 watch.as_deref(),
@@ -369,6 +376,50 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
             }
             None => bail!("sgdb-key needs a key or 'clear'"),
         },
+        "steam-signal" => {
+            let game = resolve(
+                &db,
+                rest.first().ok_or_else(|| anyhow!("needs a Steam game"))?,
+            )
+            .await?;
+            let app_id = game
+                .source_id
+                .clone()
+                .filter(|_| game.source == moonglass_core::Source::Steam)
+                .ok_or_else(|| anyhow!("{} is not a Steam game", game.title))?;
+            let secs: u64 = flag_value(rest, "--secs")
+                .map(str::parse)
+                .transpose()?
+                .unwrap_or(300);
+            let matcher = moonglass_platform::GameMatcher::Steam {
+                app_id: app_id.clone(),
+                install_dir: game.install_dir.clone().unwrap_or_default().into(),
+            };
+            println!("Watching {} (AppID {app_id}) for {secs}s. Start and quit the game from Steam or Moonglass.", game.title);
+            println!("time   registry  processes  agree");
+            let mut watcher = moonglass_platform::ProcessWatcher::new(&[]);
+            let (mut agree, mut total) = (0u32, 0u32);
+            for t in 0..secs {
+                watcher.refresh();
+                let reg = moonglass_platform::steam_app_running(&app_id);
+                let procs = watcher.any_matching(&matcher);
+                let same = reg == Some(procs);
+                total += 1;
+                agree += same as u32;
+                let reg_s = match reg {
+                    Some(true) => "running",
+                    Some(false) => "-",
+                    None => "n/a",
+                };
+                println!(
+                    "{t:>4}s  {reg_s:<8}  {:<9}  {}",
+                    if procs { "running" } else { "-" },
+                    if same { "yes" } else { "NO" }
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            println!("Agreed {agree} of {total} seconds.");
+        }
         "autostart" => match rest.first().map(String::as_str) {
             Some("status") | None => println!(
                 "Start at login: {}",
@@ -425,11 +476,17 @@ fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
         version = env!("CARGO_PKG_VERSION"),
         "starting UI"
     );
-    let instance = match InstanceGuard::acquire()? {
-        InstanceStatus::Primary(g) => g,
-        InstanceStatus::AlreadyRunning => {
-            tracing::info!("already running; asked the other instance to come forward");
-            return Ok(());
+    // Development only: lets a test window run next to a normal one.
+    let instance = if std::env::var_os("MOONGLASS_DEV_SECOND_INSTANCE").is_some() {
+        tracing::warn!("second instance allowed for development");
+        None
+    } else {
+        match InstanceGuard::acquire()? {
+            InstanceStatus::Primary(g) => Some(g),
+            InstanceStatus::AlreadyRunning => {
+                tracing::info!("already running; asked the other instance to come forward");
+                return Ok(());
+            }
         }
     };
     let db = rt

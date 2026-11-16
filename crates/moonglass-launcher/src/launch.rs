@@ -109,13 +109,27 @@ pub async fn start(db: &Db, game: &Game, epic_fallback: bool) -> anyhow::Result<
             };
             let cwd = game.working_dir.as_deref().map(Path::new);
             let child = TrackedChild::spawn(&target, &args, cwd)?;
-            // Launcher-style stubs exit at once; watch their folder instead.
-            let folder = game.track_by_folder.then(|| GameMatcher::Folder {
-                install_dir: target.parent().unwrap_or(Path::new("/")).to_path_buf(),
-            });
+            // Launcher-style stubs exit at once; watch their folder instead,
+            // unless it is too broad to stand for one game (a drive root,
+            // Downloads, the system folder): then the child is tracked.
+            let folder = game
+                .track_by_folder
+                .then(|| target.parent().map(Path::to_path_buf))
+                .flatten()
+                .filter(|dir| {
+                    let ok = moonglass_platform::is_trackable_folder(dir);
+                    if !ok {
+                        tracing::warn!(
+                            folder = %dir.display(),
+                            "folder holds more than this game; tracking the started process instead"
+                        );
+                    }
+                    ok
+                });
             Ok(Running {
-                child: (!game.track_by_folder).then_some(child),
-                matcher: override_matcher.or(folder),
+                child: folder.is_none().then_some(child),
+                matcher: override_matcher
+                    .or(folder.map(|install_dir| GameMatcher::Folder { install_dir })),
                 launcher: None,
             })
         }
@@ -147,13 +161,6 @@ pub async fn start(db: &Db, game: &Game, epic_fallback: bool) -> anyhow::Result<
             })
         }
     }
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// Debug-view driver: launch, poll once per second, report each
@@ -199,7 +206,7 @@ pub async fn run_to_completion(
                             moonglass_platform::window::dismiss_launcher_window(l);
                         }
                     }
-                    db.record_session(&game.id, now_unix(), session.as_secs() as i64)
+                    db.record_session(&game.id, crate::now_unix(), session.as_secs() as i64)
                         .await?;
                     return Ok(Some(session));
                 }

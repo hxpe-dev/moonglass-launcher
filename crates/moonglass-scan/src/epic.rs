@@ -44,11 +44,6 @@ impl ItemManifest {
             && !self.is_incomplete_install
     }
 
-    /// Primary launch URI, using the bare `AppName`.
-    pub fn launch_uri(&self) -> String {
-        launch_uri(&self.app_name)
-    }
-
     /// Fallback for titles that do not launch from the bare `AppName`.
     pub fn fallback_launch_uri(&self) -> String {
         format!(
@@ -56,10 +51,6 @@ impl ItemManifest {
             self.catalog_namespace, self.catalog_item_id, self.app_name
         )
     }
-}
-
-pub fn launch_uri(app_name: &str) -> String {
-    format!("com.epicgames.launcher://apps/{app_name}?action=launch&silent=true")
 }
 
 fn read_manifests(dir: &Path) -> Result<Vec<ItemManifest>, ScanError> {
@@ -198,10 +189,6 @@ mod tests {
         )
         .unwrap();
         let m = find_manifest(tmp.path(), "Kestrel").unwrap().unwrap();
-        assert_eq!(
-            m.launch_uri(),
-            "com.epicgames.launcher://apps/Kestrel?action=launch&silent=true"
-        );
         assert_eq!(
             m.fallback_launch_uri(),
             "com.epicgames.launcher://apps/ns1%3Aitem1%3AKestrel?action=launch&silent=true"

@@ -4,6 +4,7 @@
 //! "rescan" signal.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use moonglass_db::Db;
@@ -12,6 +13,11 @@ use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 
 pub const DEBOUNCE: Duration = Duration::from_secs(2);
+/// The debouncer reports each path once it has been quiet for [`DEBOUNCE`],
+/// checking every quarter of that, so one burst over several files can
+/// arrive as two batches. The signal waits until no batch has come for this
+/// long.
+const SETTLE: Duration = Duration::from_millis(750);
 
 /// Keeps the watchers alive; drop it to stop watching.
 pub struct LibraryWatcher {
@@ -22,18 +28,12 @@ pub struct LibraryWatcher {
 /// Folders to watch and whether to recurse into them.
 pub async fn watch_targets(db: &Db) -> anyhow::Result<Vec<(PathBuf, RecursiveMode)>> {
     let mut out = Vec::new();
-    let steam_root: Option<PathBuf> = db
-        .setting::<String>(crate::library::SETTING_STEAM_ROOT)
-        .await?
-        .map(Into::into)
-        .or_else(moonglass_platform::steam_root);
-    if let Some(root) = steam_root {
+    if let Some(root) = crate::library::steam_root(db).await? {
         for lib in moonglass_scan::steam::library_paths(&root).unwrap_or_default() {
             // Manifests sit directly in steamapps; recursing would also
             // watch every game's files while it downloads.
             out.push((lib.join("steamapps"), RecursiveMode::NonRecursive));
         }
-        // libraryfolders.vdf changes when a library is added.
     }
     match moonglass_platform::epic_source() {
         Some(EpicSource::EpicManifests(dir)) => out.push((dir, RecursiveMode::NonRecursive)),
@@ -56,14 +56,32 @@ pub async fn watch_targets(db: &Db) -> anyhow::Result<Vec<(PathBuf, RecursiveMod
     Ok(out)
 }
 
-/// Starts watching; `on_change` runs (on the watcher's thread) at most once
-/// per debounce window.
+/// Starts watching; `on_change` runs (on its own thread) once per burst of
+/// changes.
 pub fn start(
     targets: Vec<(PathBuf, RecursiveMode)>,
     on_change: impl Fn() + Send + 'static,
 ) -> anyhow::Result<LibraryWatcher> {
+    let (batch_tx, batch_rx) = mpsc::channel::<()>();
+    // Ends when the debouncer, which owns the sender, is dropped.
+    std::thread::Builder::new()
+        .name("moonglass-watch".into())
+        .spawn(move || {
+            while batch_rx.recv().is_ok() {
+                loop {
+                    match batch_rx.recv_timeout(SETTLE) {
+                        Ok(()) => {}
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                on_change();
+            }
+        })?;
     let mut debouncer = new_debouncer(DEBOUNCE, move |res: DebounceEventResult| match res {
-        Ok(events) if !events.is_empty() => on_change(),
+        Ok(events) if !events.is_empty() => {
+            let _ = batch_tx.send(());
+        }
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "file watcher error"),
     })?;
@@ -83,7 +101,6 @@ pub fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn debounces_bursts_into_one_signal() {

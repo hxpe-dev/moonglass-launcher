@@ -1,6 +1,6 @@
 # Project Specification: **Moonglass** (Console-Style PC Game Launcher)
 
-*Spec revision 1.2.*
+*Spec revision 1.4.*
 
 ## 1. Vision & Core Philosophy
 
@@ -10,7 +10,7 @@
 * **Premium Aesthetic:** Fluid GPU-rendered animation at the display's refresh rate (up to 120 Hz), ambient lighting derived from the selected game's artwork, and clean typography.
 * **Native Integrity:** Launching is delegated to the official clients (Steam, Epic) so achievements, cloud saves, Steam Input profiles, and the client's own playtime tracking keep working. Moonglass never replaces or patches a client. On Linux, where Epic has no official client, Epic games are launched through Heroic Games Launcher (section 2).
 * **One Codebase, Two Platforms:** Windows and Linux are both first-class. Everything that differs between them sits behind one platform layer (section 4.3); the UI, database, scanners, and artwork pipeline are shared.
-* **Controller-First:** Every Moonglass screen, including first-run setup, is navigable by gamepad. Keyboard and mouse always work as a fallback. Dialogs owned by other programs (Steam EULA prompts, cloud-save conflicts, UAC) are outside Moonglass's control; see section 9.
+* **Controller-First:** Every Moonglass screen, including first-run setup, is navigable by gamepad, and equally usable with keyboard and mouse (section 3, Keyboard and Mouse). Dialogs owned by other programs (Steam EULA prompts, cloud-save conflicts, UAC) are outside Moonglass's control; see section 9.
 
 ### Non-Goals (v1.0)
 
@@ -83,13 +83,14 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
 
 * **Top Bar**
   * Left: filter pills `All`, `Recent`, `Favorites`, `Steam`, `Epic`, `Apps`, `Emulators`, switched with `LB / RB`. Pills for sources with no games are hidden.
-  * Right: controller connection and battery, clock, settings gear.
+  * Right: the search box, controller connection and battery, clock, and a settings gear (clickable). The battery comes from `gilrs` where the OS reports it there, and from XInput on Windows (four levels, or "wired").
 
 * **Hero Carousel**
   * A single horizontal row of **2:3 box-art cards** (or the user-selected aspect ratio).
   * **Default view and ordering:** the `All` pill, sorted by `last_played` descending, then `date_added` descending, then title. Recently played games are therefore first, and the screen is never empty on first run. `Recent` shows games played within a time window: the last 30 days by default, adjustable in Settings to 7, 30, or 90 days. The pill is hidden when nothing falls inside the window.
-  * **Active card:** scales to `1.12x`, gains a crisp border, and shows the game's transparent logo (or its title in text) with a small source badge in the lower-left hero zone.
-  * **Inactive cards:** dimmed to `75%` opacity and at base scale. Separation comes from dimming and scale, not from a blur effect (see 4.1).
+  * **Active card:** clearly the focus of the screen: about half the screen height, roughly `1.45x` the size of the other cards. It gains a crisp border and the glow, and shows the game's transparent logo (or its title in text) with a small source badge in the hero zone above it.
+  * **Inactive cards:** smaller and slightly darkened, so attention goes to the active card while every other game stays recognizable. Covers are not blurred. Size and darkening transition smoothly as focus moves.
+  * **Corners:** every card, its cover image included, has rounded corners; the image is clipped to the card's radius (inside the border on the active card) so no corner shows past the outline.
   * **Empty state:** if no games exist at all, the carousel is replaced by a single "Add your games" card that opens setup.
 
 * **Ambient Background & Lighting**
@@ -98,20 +99,29 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
 
 * **Bottom Action Bar**
   * `[A] Play`, `[X] Search`, `[Y] Options`, `[LB/RB] Filter`, `[Menu] Settings`. Glyphs match the connected controller family where it can be detected.
+  * The hints follow the last input device: controller glyphs after gamepad input, key names (`Enter`, `Esc`, `Tab`, …) after keyboard or mouse input. Every hint is also a clickable button.
+
+* **Keyboard and Mouse**
+  * Keyboard: arrow keys move, `Enter` plays, `Esc` goes back or clears the search, `Tab` / `Shift+Tab` (or `PgUp` / `PgDn`) switch pills, `Home` / `End` jump to the first or last game, typing searches, `F11` toggles full screen. In the restore overlay, `Enter` returns to the game and `Del` force-quits.
+  * Mouse: clicking a card focuses it and clicking the focused card plays it; the wheel (or a touchpad swipe) moves one card per notch; pills, action-bar hints, the search clear button and overlay buttons are clickable. Hovered elements are highlighted.
 
 * **Search**
-  * `[X]` (or typing on a physical keyboard) opens a search field above the carousel with the on-screen keyboard beneath it.
+  * The search box sits at the top right of the top bar. `[X]` focuses it and opens the on-screen keyboard as a sheet at the bottom of the screen; typing on a physical keyboard or clicking the box focuses it directly. A focused box is outlined and shows a blinking caret.
   * The carousel filters live as characters are entered. Matching is case-insensitive on any part of the title and ignores punctuation and accents.
   * Search covers every installed, non-hidden game regardless of the active filter pill. Results use the default ordering.
-  * `[A]` on the keyboard's "Done" key moves focus to the results; `[B]` clears the search and restores the previous pill and position.
+  * `[A]` on the keyboard's "Done" key (or `Enter`) moves focus to the results; `[B]` (or `Esc`, or the box's × button) clears the search and restores the previous pill and position.
   * No matches shows "No games match" with the query, not an empty row.
 
 ### Customization (in-app, no config files)
 
-* **Carousel Geometry:** Vertical Posters (2:3), Wide Banners (16:9), or Square Tiles (1:1); card spacing; active-card scale.
-* **Ambient Mode:** Dynamic Color Bloom, Full-Screen Hero Fanart, or Pure OLED Dark; glow brightness; background blur strength (chosen from pre-computed levels).
-* **Card Metadata:** Art Only, Art + Title, or Art + Playtime & Source Badge.
-* **Reduced Motion:** disables the glow pulse and shortens transitions.
+* **Carousel Geometry:** Vertical Posters (2:3), Wide Banners (16:9, using the hero art), or Square Tiles (1:1); card spacing (Compact, Normal, Wide); focused card size (Normal, Large, Extra large).
+* **Ambient Mode:** Dynamic Color Bloom, Full-Screen Hero Fanart, or Pure OLED Dark; glow (Off, Subtle, Normal, Bright); background blur strength (chosen from pre-computed levels).
+* **Card Metadata:** Art Only, Art + Title, or Art + Playtime & Source Badge, shown under each card. Favorites carry a star and hidden games (when shown) a "Hidden" tag.
+* **Startup Animation:** on by default; the wordmark, then the cards rise in one after another (about 1.5 s). Off skips it.
+* **Reduced Motion:** disables the glow pulse, the startup animation and transitions.
+* **Clock:** 24-hour or 12-hour.
+
+All of these live in Settings → Appearance, apply immediately, and are saved.
 
 ### First-Run Flow
 
@@ -134,6 +144,7 @@ GPUI renders through DirectX 11 on Windows and through `wgpu` (Vulkan, with an O
 | Blurred hero background | Blurred **at ingestion** on the CPU (downscale, Gaussian blur, save as a small texture), then stretched by the GPU. Three strengths are pre-computed |
 | Background tint | Two-stop linear gradient from the dominant color to near-black |
 | Color and art crossfade | Two stacked layers with animated opacity |
+| Frosted backdrop (Now Playing) | Each cover gets a tiny, heavily blurred copy **at ingestion**; behind the Now Playing screen the carousel is drawn with these copies over the strongest pre-blurred hero |
 | Card motion | A small critically-damped spring implemented in Moonglass and stepped once per frame |
 
 GPUI is pre-1.0 and its API changes between releases. The dependency is pinned to an exact revision and upgraded deliberately.
@@ -217,7 +228,7 @@ Sources are tried in this order. The first hit wins per asset type (cover, hero,
 
 * Resize the cover to the largest size the carousel can display at the current resolution.
 * Extract dominant and accent colors. Both are clamped to a minimum saturation and a lightness band so that dark or grey covers still produce a visible glow.
-* Produce the three blurred hero variants.
+* Produce the three blurred hero variants and the frosted cover thumbnail.
 * Store paths and colors in SQLite.
 
 **At runtime:** only visible cards plus a few neighbors on each side are decoded and uploaded as GPU textures; others are released. Decoding happens off the UI thread.
@@ -256,12 +267,15 @@ Rules that make the folder signal reliable:
 * **Exit grace period.** When the last matching process ends, Moonglass waits 5 seconds. If another matching process appears (a launcher handing off to the real game), the state returns to Running.
 * **Per-game override.** Options allow naming the exact process to watch, for games whose real executable lives outside their install folder.
 * **Launcher-style executables.** A per-game toggle switches a standalone executable from child-process tracking to folder tracking, for stubs that start the real game and exit.
-* **Steam registry signal (Windows, to validate in Phase 0).** Steam appears to record per-app running state in the registry under `HKCU\Software\Valve\Steam\Apps\<AppID>`. If the spike confirms it is dependable, it becomes the primary Steam signal on Windows and the folder watch becomes the fallback.
+* **Folders too broad to be a game.** A drive root, the home, Desktop, Documents or Downloads folder, `Program Files`, the application-data folders, and anything inside the Windows folder (on Linux: `/usr/bin`, `/opt` and similar) hold unrelated programs. Such a folder never matches a process, so Stop and Force stop cannot reach anything but the game; a launcher-style executable in one falls back to child-process tracking.
+* **Steam registry signal (Windows, to validate in Phase 0).** Steam appears to record per-app running state in the registry under `HKCU\Software\Valve\Steam\Apps\<AppID>`. If the spike confirms it is dependable, it becomes the primary Steam signal on Windows and the folder watch becomes the fallback. Steam keeps a `Running` value (0/1) per AppID there. To gather evidence, Moonglass logs that value next to its own process detection whenever it changes during a Steam session, and `moonglass steam-signal <game>` prints both once per second while the player starts and quits the game.
 
 **Running**
 
 * Windows: the window is minimized. Linux: the window stays fullscreen underneath the game. Wayland gives an application no way to un-minimize or raise itself, so Moonglass never minimizes there; when the game's window closes, the compositor returns focus to the fullscreen window beneath it.
 * On both platforms Moonglass renders zero frames in this state.
+* **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over a frosted view of the carousel, how long the game has been running, and two buttons: **Return to game** (`[A]`/`Enter`) and **Stop game** (`[X]`/`Del`). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
+* **Stop game.** The first press asks the game to close normally (a window close request on Windows, `SIGTERM` on Linux) so it can save. If it is still running after 8 seconds, the button becomes **Force stop**, which terminates it (the Job Object or process group for executables and ROMs; the detected processes for Steam and Epic games). Moonglass never stops a game without the player asking.
 * Polling drops to once per second. Gamepad navigation is suspended. The only input still observed is the restore hotkey (5.4).
 
 **Exiting → Idle**
@@ -286,17 +300,21 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 
 * Active only in the Launching and Running states.
 * Default: hold `View + Menu` (Back + Start) for 2 seconds. The hold prevents collisions with games and emulators that use the same pair as a tap. Configurable.
+  * Xbox: View (two overlapping rectangles, left of the Xbox button) + Menu (three lines, right of it).
+  * PlayStation: Share (DualShock 4) or Create (DualSense) + Options.
+  * Nintendo Switch Pro: − (Minus) + + (Plus).
+  * Settings → System shows the names for the connected controller.
 * The `Guide` button is not offered: the public XInput API does not report it, and Windows Game Bar and Steam claim it on both platforms.
 * **Windows:** read by the XInput poller, about ten times per second. Keyboard equivalent, registered as a global hotkey: `Ctrl + Alt + Home`. This also covers controllers that XInput cannot see.
 * **Linux:** read by the `gilrs` thread, which keeps receiving events in the background and works with any controller the kernel recognizes. The keyboard equivalent is registered directly on X11 and through the desktop's global-shortcuts portal on Wayland; where the desktop offers neither, only the gamepad combination is available and Settings says so.
-* Action: bring Moonglass forward with an overlay offering **Return to game**, and for standalone executables and ROM entries, **Force quit** (terminates the Job Object or process group). On Wayland, if the compositor declines to bring Moonglass forward, the desktop notification from 5.3 is shown instead. Steam and Epic games are never killed by Moonglass; the user is returned to the launcher only.
+* Action: bring Moonglass forward on the Now Playing screen (5.3), with **Return to game** and **Stop game**. On Wayland, if the compositor declines to bring Moonglass forward, the desktop notification from 5.3 is shown instead.
 
 ### 5.5 Settings, File Browser, and Text Entry
 
-* **Settings** is a full-screen, controller-navigable view: Library (sources, ROM directories, emulators, rescan, hidden games, `Recent` window), Appearance (section 3), Artwork (SteamGridDB key), System (start at login, hotkey, close launcher window after exit, logs).
+* **Settings** is a full-screen view, opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse: Appearance (section 3, Customization), Library (add a game, ROM directories and emulators, `Recent` window, show hidden games, rescan), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller, logs, version). `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
 * **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the drive list on Windows and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
-* **On-screen keyboard:** used for library search and the few text fields (API key, launch arguments, search within the file browser). A physical keyboard works in the same fields.
-* **Per-game options (`[Y]`):** Favorite, Hide, Change Artwork, Launch Arguments, Working Directory, Process to Watch, Remove (for standalone executables and ROM entries).
+* **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
+* **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments and Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch. Remove asks for a second press.
 * **Start at login:** a toggle. Windows: writes or removes a value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Linux: writes or removes `~/.config/autostart/moonglass.desktop`.
 
 ## 6. Data Schema (SQLite)

@@ -3539,6 +3539,8 @@ dependencies = [
  "moonglass-scan",
  "notify-debouncer-mini",
  "raw-window-handle",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

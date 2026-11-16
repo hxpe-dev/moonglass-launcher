@@ -133,6 +133,40 @@ pub(crate) fn within_normalized(child: &Path, dir: &str) -> bool {
         || (c.len() > d.len() && c.starts_with(d) && matches!(c.as_bytes()[d.len()], b'/' | b'\\'))
 }
 
+/// Whether `dir` is narrow enough to stand for one game when matching "any
+/// process under this folder". A drive root, the home folder, `Program
+/// Files`, the system folder and the like would match unrelated processes,
+/// and Stop / Force stop act on every match, so such folders never match
+/// anything.
+pub fn is_trackable_folder(dir: &Path) -> bool {
+    trackable_dir(dir).is_some()
+}
+
+/// The [`normalize_path`] form of `dir` if it is [trackable](is_trackable_folder).
+fn trackable_dir(dir: &Path) -> Option<String> {
+    if !dir.is_absolute() {
+        return None;
+    }
+    let d = normalize_path(dir);
+    let d_path = Path::new(&d);
+    d_path.parent()?;
+    // `dir` is one of the shared folders, or a parent of one.
+    if imp::broad_folders()
+        .iter()
+        .any(|b| within_normalized(Path::new(&normalize_path(b)), &d))
+    {
+        return None;
+    }
+    // `dir` is inside the operating system's own folder.
+    if imp::system_folders()
+        .iter()
+        .any(|s| within_normalized(d_path, &normalize_path(s)))
+    {
+        return None;
+    }
+    Some(d)
+}
+
 // ------------------------------------------------------ launcher discovery
 
 /// The Steam install root (spec 2): the registry on Windows; the first
@@ -262,14 +296,15 @@ pub const IGNORED_PROCESSES: &[&str] = &[
 pub enum GameMatcher {
     /// A Steam game. Linux checks `SteamAppId` in the environment first
     /// (covers Proton, where the executable is Wine); both platforms fall
-    /// back to the install folder.
+    /// back to the install folder, if it is [trackable](is_trackable_folder).
     Steam {
         app_id: String,
         install_dir: PathBuf,
     },
     /// Epic, or a standalone executable with folder tracking: any process
     /// whose executable (Windows) or executable, working directory or
-    /// command line (Linux) is inside the folder.
+    /// command line (Linux) is inside the folder. A folder that is not
+    /// [trackable](is_trackable_folder) matches nothing.
     Folder { install_dir: PathBuf },
     /// Per-game override: an exact process name.
     ProcessName(String),
@@ -308,28 +343,65 @@ impl ProcessWatcher {
 
     /// Whether any non-ignored process matches. Call [`refresh`](Self::refresh) first.
     pub fn any_matching(&self, matcher: &GameMatcher) -> bool {
+        !self.matching_pids(matcher).is_empty()
+    }
+
+    /// Process IDs of every non-ignored process matching the game.
+    pub fn matching_pids(&self, matcher: &GameMatcher) -> Vec<u32> {
         let prepared = Prepared::new(matcher);
         let own = std::process::id();
-        self.sys.processes().values().any(|p| {
-            if p.pid().as_u32() == own || p.thread_kind().is_some() {
-                return false;
+        let mut out: Vec<u32> = self
+            .sys
+            .processes()
+            .values()
+            .filter(|p| {
+                if p.pid().as_u32() == own || p.thread_kind().is_some() {
+                    return false;
+                }
+                let name = p
+                    .exe()
+                    .and_then(Path::file_name)
+                    .unwrap_or_else(|| p.name());
+                if self.is_ignored(name) {
+                    return false;
+                }
+                let info = ProcessInfo {
+                    name,
+                    exe: p.exe(),
+                    cwd: p.cwd(),
+                    cmd: p.cmd(),
+                    environ: p.environ(),
+                };
+                imp::process_matches(&info, &prepared)
+            })
+            .map(|p| p.pid().as_u32())
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// Stop button, first press: asks the game to close normally (window
+    /// close request on Windows, SIGTERM on Linux) so it can save. Returns
+    /// how many processes were asked.
+    pub fn request_close(&self, matcher: &GameMatcher) -> usize {
+        let pids = self.matching_pids(matcher);
+        imp::request_close(&pids);
+        pids.len()
+    }
+
+    /// Stop button, when the game ignored the close request: terminates
+    /// every matching process.
+    pub fn force_stop(&self, matcher: &GameMatcher) -> usize {
+        let pids = self.matching_pids(matcher);
+        let mut n = 0;
+        for pid in &pids {
+            if let Some(p) = self.sys.process(sysinfo::Pid::from_u32(*pid)) {
+                if p.kill() {
+                    n += 1;
+                }
             }
-            let name = p
-                .exe()
-                .and_then(Path::file_name)
-                .unwrap_or_else(|| p.name());
-            if self.is_ignored(name) {
-                return false;
-            }
-            let info = ProcessInfo {
-                name,
-                exe: p.exe(),
-                cwd: p.cwd(),
-                cmd: p.cmd(),
-                environ: p.environ(),
-            };
-            imp::process_matches(&info, &prepared)
-        })
+        }
+        n
     }
 
     fn is_ignored(&self, name: &OsStr) -> bool {
@@ -338,15 +410,16 @@ impl ProcessWatcher {
     }
 }
 
-/// A matcher with its folder normalized once per poll.
+/// A matcher with its folder normalized once per poll. `dir` is `None` for
+/// a folder too broad to identify one game.
 pub(crate) enum Prepared<'a> {
-    #[cfg_attr(windows, allow(dead_code))]
     Steam {
+        #[cfg_attr(windows, allow(dead_code))]
         app_id: &'a str,
-        dir: String,
+        dir: Option<String>,
     },
     Folder {
-        dir: String,
+        dir: Option<String>,
     },
     Name(&'a str),
 }
@@ -359,10 +432,10 @@ impl<'a> Prepared<'a> {
                 install_dir,
             } => Prepared::Steam {
                 app_id,
-                dir: normalize_path(install_dir),
+                dir: trackable_dir(install_dir),
             },
             GameMatcher::Folder { install_dir } => Prepared::Folder {
-                dir: normalize_path(install_dir),
+                dir: trackable_dir(install_dir),
             },
             GameMatcher::ProcessName(n) => Prepared::Name(n),
         }
@@ -391,6 +464,53 @@ pub(crate) fn name_matches(name: &OsStr, wanted: &str) -> bool {
             .is_some_and(|s| s.eq_ignore_ascii_case(w))
 }
 
+// ------------------------------------------------------- file browser
+
+/// Starting points for the built-in file browser (spec 5.5): the drive
+/// list on Windows; home plus mounted volumes on Linux.
+pub fn browse_roots() -> Vec<(String, PathBuf)> {
+    imp::browse_roots()
+}
+
+/// Whether a file can be added as a standalone executable: `.exe` on
+/// Windows, the executable bit on Linux (binaries, AppImages, scripts).
+pub fn is_launchable(path: &Path) -> bool {
+    imp::is_launchable(path)
+}
+
+/// Polite close request for specific processes (see
+/// [`ProcessWatcher::request_close`]).
+pub fn request_close_pids(pids: &[u32]) {
+    imp::request_close(pids)
+}
+
+// ------------------------------------------------------- controllers
+
+/// Controller power as the OS reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadPower {
+    Wired,
+    /// Coarse level 0 (empty) to 3 (full), as XInput reports it.
+    Level(u8),
+}
+
+/// Power of the first connected XInput controller, where the OS has that
+/// (Windows). `gilrs` cannot read it there, so the UI asks here instead.
+pub fn xinput_power() -> Option<PadPower> {
+    imp::xinput_power()
+}
+
+// ------------------------------------------------------- Steam signal
+
+/// Steam's own per-game running flag
+/// (`HKCU\Software\Valve\Steam\Apps\<AppID>\Running` on Windows).
+/// `None` where it does not exist (Linux) or Steam has no entry for the
+/// game. Spec 5.3: logged next to process detection until it is shown to
+/// be dependable.
+pub fn steam_app_running(app_id: &str) -> Option<bool> {
+    imp::steam_app_running(app_id)
+}
+
 // ------------------------------------------------------- start at login
 
 pub fn start_at_login() -> Result<bool> {
@@ -406,7 +526,6 @@ pub fn set_start_at_login(enabled: bool) -> Result<()> {
 /// Held for the life of the process. A second launch signals the first one
 /// to come forward and then exits.
 pub struct InstanceGuard {
-    #[allow(dead_code)]
     inner: imp::Instance,
 }
 
@@ -501,15 +620,39 @@ mod tests {
     }
 
     #[test]
+    fn broad_folders_are_not_trackable() {
+        let home = directories::BaseDirs::new()
+            .unwrap()
+            .home_dir()
+            .to_path_buf();
+        assert!(!is_trackable_folder(&home));
+        assert!(!is_trackable_folder(Path::new("")));
+        assert!(!is_trackable_folder(Path::new("relative/folder")));
+        assert!(!is_trackable_folder(home.ancestors().last().unwrap()));
+        // The folder of a system program (System32, /bin).
+        assert!(!is_trackable_folder(sleeper_program().parent().unwrap()));
+        assert!(is_trackable_folder(&home.join("Games").join("Some Game")));
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(is_trackable_folder(tmp.path()));
+    }
+
+    #[test]
     fn watcher_finds_child_by_folder_and_name() {
-        let mut child = spawn_sleeper();
-        let exe = sleeper_program();
+        // A private copy, so the folder holds nothing but this "game".
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = tmp.path().join(sleeper_program().file_name().unwrap());
+        std::fs::copy(sleeper_program(), &exe).unwrap();
+        let mut child = TrackedChild::spawn(&exe, &sleeper_args(), None).unwrap();
         let mut w = ProcessWatcher::new(&[]);
         w.refresh();
         let folder = GameMatcher::Folder {
-            install_dir: exe.parent().unwrap().to_path_buf(),
+            install_dir: tmp.path().to_path_buf(),
         };
-        assert!(w.any_matching(&folder));
+        assert_eq!(w.matching_pids(&folder), [child.pid()]);
+        // A system folder is too broad to stand for a game.
+        assert!(!w.any_matching(&GameMatcher::Folder {
+            install_dir: sleeper_program().parent().unwrap().to_path_buf(),
+        }));
         let name = exe.file_name().unwrap().to_string_lossy().into_owned();
         assert!(w.any_matching(&GameMatcher::ProcessName(name.clone())));
         assert!(!w.any_matching(&GameMatcher::ProcessName(
@@ -519,6 +662,13 @@ mod tests {
         ignoring.refresh();
         assert!(!ignoring.any_matching(&GameMatcher::ProcessName(name)));
         child.terminate().unwrap();
+        // Let it go before the folder is deleted.
+        for _ in 0..50 {
+            if !child.is_alive() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
 
     #[cfg(windows)]
@@ -528,13 +678,8 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn spawn_sleeper() -> TrackedChild {
-        TrackedChild::spawn(
-            &sleeper_program(),
-            &["-n".into(), "30".into(), "127.0.0.1".into()],
-            None,
-        )
-        .unwrap()
+    fn sleeper_args() -> Vec<String> {
+        vec!["-n".into(), "30".into(), "127.0.0.1".into()]
     }
 
     #[cfg(unix)]
@@ -543,7 +688,11 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn sleeper_args() -> Vec<String> {
+        vec!["30".into()]
+    }
+
     fn spawn_sleeper() -> TrackedChild {
-        TrackedChild::spawn(&sleeper_program(), &["30".into()], None).unwrap()
+        TrackedChild::spawn(&sleeper_program(), &sleeper_args(), None).unwrap()
     }
 }

@@ -7,19 +7,25 @@ The full design is in [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1 and 2 are implemented and run on Windows; Linux code compiles but
-has not been run yet. Running `moonglass` with no arguments opens the carousel.
+Phases 1 and 2 are implemented, and Phase 3 is under way. Everything runs on
+Windows; the Linux code compiles but has not been run yet. Running
+`moonglass` with no arguments opens the carousel.
 
 | Spec area | State |
 | --- | --- |
 | Core: database, migrations, logs, single instance, scanners, reconciliation | Done |
-| Launch state machine, detection (Job Object / process group / folder / `SteamAppId`) | Done; launch to exit to focus return verified on Windows |
+| Launch state machine, detection (Job Object / process group / folder / `SteamAppId`) | Done; launch, exit and focus return confirmed on Windows |
 | File-system watchers, 2 s debounce | Done |
-| Artwork (5.2): Steam local cache, SteamGridDB, placeholder, resize, palette, 3 blurred heroes | Done |
-| Carousel: spring motion, filter pills, glow, ambient crossfade, hero zone, action bar, texture window | Done |
-| Gamepad navigation (`gilrs`), stick deadzone and repeat, controller family glyphs and battery | Done; not tried with a real controller yet |
-| Restore hotkey: XInput hold + `Ctrl+Alt+Home` (Windows), `View+Menu` on the gamepad thread (Linux) | Wired; not tried with a real controller yet |
-| Keyboard search (type to search, Esc restores the pill and position) | Done; on-screen keyboard is Phase 3 |
+| Artwork (5.2): Steam local cache, SteamGridDB, placeholder, palette, blurred heroes, frosted covers | Done |
+| Carousel: spring motion, focus styling, glow, ambient modes, hero zone, startup animation | Done |
+| Gamepad (`gilrs`), keyboard and mouse, input-aware hints | Done; gamepad confirmed with a real controller |
+| Controller battery (gilrs, XInput on Windows) | Done; XInput reading not yet seen on a real pad |
+| Restore hotkey and Now Playing screen with Stop / Force stop | Done; the controller combination is untested |
+| Search box (top right, caret), on-screen keyboard | Done |
+| Settings (Appearance, Library, Artwork, System), saved preferences | Done |
+| File browser, Add a game (executable), per-game Options menu | Done |
+| Emulator profiles and presets, ROM directory setup in Settings | Not yet (CLI only: `add-emulator`, `add-rom-dir`) |
+| First-run flow, packaging, section 7 performance checks | Not yet |
 
 Measured on Windows (1616×909 window, 32 games, release build): the window
 appears in 1.85 s and uses about 89 MB. While idle on the carousel it uses
@@ -29,26 +35,31 @@ scrolling and crossfades run at the display rate.
 Not done yet:
 
 * Phase 0 checks that need hardware: Linux X11/Wayland, focus on GNOME/KDE,
-  Proton detection, Steam's registry running-state signal, a real controller.
-* Phase 3: settings view, file browser, on-screen keyboard, per-game options
-  menu, emulator presets, first-run flow, customization, packaging.
+  Proton detection, Steam's registry running-state signal (use
+  `moonglass steam-signal <game>` while playing).
 * Linux keyboard restore hotkey (X11 grab / Wayland portal), X11
   launcher-window close request, desktop notification when focus fails.
 * GPU textures far from the focused card are not released yet. Only nearby
   cards are drawn, but GPUI's image cache keeps decoded images.
 * Epic's namespaced-URI fallback is manual (`--epic-fallback`).
 
+### Development
+
+`MOONGLASS_WINDOWED=1` opens a window instead of full screen.
+`MOONGLASS_DEV_SECOND_INSTANCE=1` lets a test window run next to a normal
+one (it shares the database).
+
 ## Layout
 
 ```
 crates/
   moonglass-core      IDs, title normalization, ordering/filters/search,
-                   launch templates, launch state machine (pure, no OS)
+                      launch templates, launch state machine (pure, no OS)
   moonglass-scan      Steam / Epic / Heroic / ROM file parsing
   moonglass-db        sqlx + SQLite, migrations, reconciliation, settings
   moonglass-platform  everything OS-specific (windows.rs / linux.rs)
   moonglass-art       artwork sources and ingestion
-  moonglass           the app: GPUI carousel (src/ui) plus a debug CLI
+  moonglass-launcher  the app: GPUI interface (src/ui) plus a debug CLI
 ```
 
 Only `moonglass-platform` contains platform conditionals.

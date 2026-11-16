@@ -1,9 +1,9 @@
 //! Scan orchestration (spec 5.1): runs every scanner, reconciles each one
 //! independently, and refreshes standalone executables' installed flag.
-//! Shared by the debug CLI now and the carousel UI later.
+//! Shared by the carousel and the debug CLI.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use moonglass_core::Source;
 use moonglass_db::{Db, ScanScope};
@@ -11,8 +11,22 @@ use moonglass_platform::EpicSource;
 use moonglass_scan::{epic, heroic, roms, steam, ScanError, ScannedGame};
 
 /// Settings keys.
-pub const SETTING_STEAM_ROOT: &str = "steam_root";
-pub const SETTING_STEAM_DENY: &str = "steam_extra_deny_app_ids";
+const SETTING_STEAM_ROOT: &str = "steam_root";
+const SETTING_STEAM_DENY: &str = "steam_extra_deny_app_ids";
+
+/// Scans and artwork refreshes are started from several places (startup,
+/// file watchers, Settings, the end of a game). They run one at a time, so
+/// two of them never write the same rows or image files at once.
+pub static LIBRARY_WORK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The Steam install root: a manual root in Settings wins over discovery.
+pub async fn steam_root(db: &Db) -> anyhow::Result<Option<PathBuf>> {
+    Ok(db
+        .setting::<String>(SETTING_STEAM_ROOT)
+        .await?
+        .map(Into::into)
+        .or_else(moonglass_platform::steam_root))
+}
 
 #[derive(Debug, Default)]
 pub struct ScanSummary {
@@ -27,14 +41,10 @@ impl ScanSummary {
 }
 
 pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
+    let _one_at_a_time = LIBRARY_WORK.lock().await;
     let mut summary = ScanSummary::default();
 
-    // Steam: a manual root in Settings wins over discovery.
-    let steam_root = db
-        .setting::<String>(SETTING_STEAM_ROOT)
-        .await?
-        .map(Into::into)
-        .or_else(moonglass_platform::steam_root);
+    let steam_root = steam_root(db).await?;
     let deny: HashSet<u32> = db
         .setting::<Vec<u32>>(SETTING_STEAM_DENY)
         .await?
