@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/moonglass-core",
+    "crates/moonglass-scan",
+    "crates/moonglass-db",
+    "crates/moonglass-platform",
+    "crates/moonglass-launcher",
+    "crates/moonglass-art",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+moonglass-core = { path = "crates/moonglass-core" }
+moonglass-scan = { path = "crates/moonglass-scan" }
+moonglass-db = { path = "crates/moonglass-db" }
+moonglass-platform = { path = "crates/moonglass-platform" }
+moonglass-art = { path = "crates/moonglass-art" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+keyvalues-parser = "0.2"
+walkdir = "2"
+unicode-normalization = "0.1"
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+directories = "6"
+tempfile = "3"
+
+# Image decoding and blurring are far too slow unoptimized; keep the rest of
+# the dev build fast to compile.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.moonglass-art]
+opt-level = 3

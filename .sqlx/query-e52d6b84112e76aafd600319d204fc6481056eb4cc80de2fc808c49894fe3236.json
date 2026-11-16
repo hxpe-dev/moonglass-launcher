@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE games SET is_installed = 0\n             WHERE source = ?1 AND (?2 IS NULL OR rom_directory_id = ?2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e52d6b84112e76aafd600319d204fc6481056eb4cc80de2fc808c49894fe3236"
+}

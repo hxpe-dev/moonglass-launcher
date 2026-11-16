@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT d.id, d.path, d.platform, d.recursive AS \"recursive: bool\",\n                      e.file_extensions, e.folder_marker\n               FROM rom_directories d JOIN emulators e ON e.id = d.emulator_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "path",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "platform",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "recursive: bool",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_extensions",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "folder_marker",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b1249b46a1eb7f7483d3e28bec0d1fef3d841b41fa90cb615c8871b6aaa16b1a"
+}

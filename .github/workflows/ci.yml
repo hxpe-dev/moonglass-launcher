@@ -1,0 +1,52 @@
+name: CI
+
+# Spec 4.3: both platform implementations are built and tested on every change.
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux system libraries (GPUI, gilrs)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libxkbcommon-dev libxkbcommon-x11-dev             libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev libfontconfig-dev             libfreetype-dev libasound2-dev pkg-config
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
+  sqlx-metadata:
+    name: .sqlx is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version "^0.8" --no-default-features --features sqlite --locked
+      - name: Check query metadata
+        run: |
+          export DATABASE_URL="sqlite:$RUNNER_TEMP/sqlx-check.db"
+          sqlx database create
+          sqlx migrate run --source crates/moonglass-db/migrations
+          SQLX_OFFLINE=false cargo sqlx prepare --workspace --check

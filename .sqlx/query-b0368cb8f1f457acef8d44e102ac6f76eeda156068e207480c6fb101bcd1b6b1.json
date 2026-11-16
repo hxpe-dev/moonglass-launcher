@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE games SET launch_args = ?, working_dir = ?, watch_process = ?, track_by_folder = ?\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "b0368cb8f1f457acef8d44e102ac6f76eeda156068e207480c6fb101bcd1b6b1"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!\" FROM games\n               WHERE source = ?1 AND (?2 IS NULL OR rom_directory_id = ?2)",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6019f32b5ff072679d242f7617dcc7dfe16592da485205ce2bedbb183ec30026"
+}

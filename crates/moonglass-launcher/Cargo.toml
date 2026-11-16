@@ -1,0 +1,32 @@
+[package]
+name = "moonglass-launcher"
+description = "Moonglass, a console-style PC game launcher: the GPUI carousel and a debug CLI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "moonglass"
+path = "src/main.rs"
+
+[dependencies]
+moonglass-core.workspace = true
+moonglass-scan.workspace = true
+moonglass-db.workspace = true
+moonglass-platform.workspace = true
+moonglass-art.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+notify-debouncer-mini = "0.6"
+# GPUI is pre-1.0; pinned to an exact version and upgraded deliberately (spec 4.1).
+gpui = "=0.2.2"
+futures = "0.3"
+raw-window-handle = "0.6"
+gilrs = "0.11"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+tempfile.workspace = true

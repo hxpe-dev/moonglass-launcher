@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO games (id, title, sort_title, search_title, source, launch_target, date_added)\n             VALUES (?, ?, ?, ?, 'exe', ?, ?)\n             ON CONFLICT (id) DO UPDATE SET is_installed = 1, launch_target = excluded.launch_target",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "0f32d630f0b424c72fa3471581225a54b56dad834bb63e960f5afffa586f83a5"
+}

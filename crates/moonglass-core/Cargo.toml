@@ -1,0 +1,11 @@
+[package]
+name = "moonglass-core"
+description = "Platform-independent model and rules for Moonglass: IDs, text normalization, ordering, filters, search, launch templates and the launch state machine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+unicode-normalization.workspace = true

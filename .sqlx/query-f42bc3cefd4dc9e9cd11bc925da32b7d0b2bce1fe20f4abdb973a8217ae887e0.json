@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO games (id, title, sort_title, search_title, source, source_id,\n                                    launch_target, install_dir, rom_directory_id, platform,\n                                    date_added, last_played, is_installed)\n                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)\n                 ON CONFLICT (id) DO UPDATE SET\n                     title            = excluded.title,\n                     sort_title       = excluded.sort_title,\n                     search_title     = excluded.search_title,\n                     source_id        = excluded.source_id,\n                     launch_target    = excluded.launch_target,\n                     install_dir      = excluded.install_dir,\n                     rom_directory_id = excluded.rom_directory_id,\n                     platform         = excluded.platform,\n                     last_played      = COALESCE(games.last_played, excluded.last_played),\n                     is_installed     = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "f42bc3cefd4dc9e9cd11bc925da32b7d0b2bce1fe20f4abdb973a8217ae887e0"
+}

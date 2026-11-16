@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id, e.name, e.executable_path, e.launch_template, e.file_extensions, e.folder_marker\n             FROM emulators e JOIN rom_directories d ON d.emulator_id = e.id\n             WHERE d.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "executable_path",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "launch_template",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_extensions",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "folder_marker",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "80c63952c88e39d26bc772eccabd7f161b1623292ffa25ab17f9fd5a94a1f1aa"
+}

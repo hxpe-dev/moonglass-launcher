@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE games SET cover_path = ?, hero_path = ?, logo_path = ?,\n                              dominant_color = ?, accent_color = ?,\n                              artwork_locked = (artwork_locked OR ?)\n             WHERE id = ? AND (artwork_locked = 0 OR ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "63a53720c0adaf231bdd31773affe2b4b915c37002b1ade6adb6451f3a86f6a7"
+}

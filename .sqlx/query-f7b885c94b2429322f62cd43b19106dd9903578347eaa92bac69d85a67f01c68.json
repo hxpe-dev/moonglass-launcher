@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO rom_directories (id, path, emulator_id, platform, recursive)\n             VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "f7b885c94b2429322f62cd43b19106dd9903578347eaa92bac69d85a67f01c68"
+}

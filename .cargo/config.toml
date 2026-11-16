@@ -1,0 +1,4 @@
+[env]
+# Use the checked-in .sqlx query metadata; no database needed to build.
+# scripts/sqlx-prepare.sh regenerates it after a query or migration change.
+SQLX_OFFLINE = "true"

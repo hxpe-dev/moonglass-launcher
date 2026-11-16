@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, name, executable_path, launch_template, file_extensions, folder_marker\n             FROM emulators WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "executable_path",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "launch_template",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_extensions",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "folder_marker",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9ac1e3cc674d9634fc486a330af89f0a91c322b5ed370e38e457c67bc7acb5ca"
+}

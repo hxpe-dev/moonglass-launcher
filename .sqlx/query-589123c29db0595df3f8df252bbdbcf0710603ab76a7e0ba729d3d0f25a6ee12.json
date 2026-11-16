@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE games SET is_hidden = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "589123c29db0595df3f8df252bbdbcf0710603ab76a7e0ba729d3d0f25a6ee12"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO emulators (id, name, executable_path, launch_template, file_extensions, folder_marker)\n             VALUES (?, ?, ?, ?, ?, ?)\n             ON CONFLICT (id) DO UPDATE SET\n                 name = excluded.name, executable_path = excluded.executable_path,\n                 launch_template = excluded.launch_template,\n                 file_extensions = excluded.file_extensions,\n                 folder_marker = excluded.folder_marker",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "86fca6163430baafe3760a54bf89ae3992e418826c1869fef041423313ef046b"
+}

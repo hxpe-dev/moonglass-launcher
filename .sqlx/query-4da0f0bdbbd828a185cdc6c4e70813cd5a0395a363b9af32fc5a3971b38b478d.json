@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM games WHERE id = ? AND source IN ('exe', 'rom')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "4da0f0bdbbd828a185cdc6c4e70813cd5a0395a363b9af32fc5a3971b38b478d"
+}
