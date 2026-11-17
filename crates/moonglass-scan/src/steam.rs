@@ -47,7 +47,7 @@ const DENY_NAME_PREFIXES: &[&str] = &[
 /// because Steam updates them on launch.
 const STATE_FULLY_INSTALLED: u64 = 4;
 
-fn parse_vdf(path: &Path, text: &str) -> Result<Obj<'static>, ScanError> {
+pub(crate) fn parse_vdf(path: &Path, text: &str) -> Result<Obj<'static>, ScanError> {
     // Steam escapes backslashes in paths; fall back to literal parsing for
     // the odd hand-edited file.
     let vdf = match keyvalues_parser::parse(text) {
@@ -63,7 +63,7 @@ fn parse_vdf(path: &Path, text: &str) -> Result<Obj<'static>, ScanError> {
     }
 }
 
-fn get_str<'a>(obj: &'a Obj<'_>, key: &str) -> Option<&'a str> {
+pub(crate) fn get_str<'a>(obj: &'a Obj<'_>, key: &str) -> Option<&'a str> {
     obj.get(key)?.first()?.get_str()
 }
 

@@ -341,6 +341,77 @@ pub fn is_launchable(path: &Path) -> bool {
 }
 
 /// Steam on Linux has no registry; process detection is the only signal.
+pub const STEAM_PROCESS: &str = "steam";
+
+/// Steam's `registry.vdf`, which holds on Linux what the registry holds
+/// on Windows.
+fn steam_registry() -> Option<PathBuf> {
+    let home = home().ok()?;
+    [
+        home.join(".steam/registry.vdf"),
+        home.join(".var/app")
+            .join(STEAM_FLATPAK_ID)
+            .join(".steam/registry.vdf"),
+        home.join("snap/steam/common/.steam/registry.vdf"),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
+/// The quoted value after `"key"` in a VDF text, with its byte range.
+fn vdf_value(text: &str, key: &str) -> Option<(usize, usize)> {
+    let needle = format!("\"{key}\"");
+    let at = text.find(&needle)? + needle.len();
+    let open = at + text[at..].find('"')? + 1;
+    let close = open + text[open..].find('"')?;
+    // Only whitespace between the key and its value.
+    text[at..open - 1]
+        .trim()
+        .is_empty()
+        .then_some((open, close))
+}
+
+pub fn steam_active_account() -> Option<u32> {
+    let text = std::fs::read_to_string(steam_registry()?).ok()?;
+    let (a, b) = vdf_value(&text, "ActiveUser")?;
+    text[a..b].parse().ok()
+}
+
+/// The `steam` command for this install (Flatpak, Snap or native).
+fn steam_command() -> Option<Command> {
+    let home = home().ok()?;
+    let root = steam_root();
+    let under = |p: PathBuf| root.as_deref().is_some_and(|r| r.starts_with(&p));
+    if under(home.join(".var/app").join(STEAM_FLATPAK_ID)) {
+        let mut c = Command::new("flatpak");
+        c.args(["run", STEAM_FLATPAK_ID]);
+        Some(c)
+    } else if under(home.join("snap")) {
+        let mut c = Command::new("snap");
+        c.args(["run", "steam"]);
+        Some(c)
+    } else {
+        on_path("steam").map(Command::new)
+    }
+}
+
+pub fn run_steam(args: &[&str]) -> Result<()> {
+    let mut c = steam_command()
+        .ok_or_else(|| PlatformError::Os("the steam command was not found".into()))?;
+    spawn_detached(c.args(args))
+}
+
+pub fn set_steam_auto_login(account_name: &str) -> Result<()> {
+    let path = steam_registry()
+        .ok_or_else(|| PlatformError::Os("Steam's registry.vdf was not found".into()))?;
+    let mut text = std::fs::read_to_string(&path)?;
+    let (a, b) = vdf_value(&text, "AutoLoginUser")
+        .ok_or_else(|| PlatformError::Os("registry.vdf has no AutoLoginUser".into()))?;
+    text.replace_range(a..b, account_name);
+    std::fs::write(&path, text)?;
+    Ok(())
+}
+
 pub fn steam_app_running(_app_id: &str) -> Option<bool> {
     None
 }
@@ -535,5 +606,22 @@ pub mod hotkey {
         pub fn availability(&self) -> Availability {
             self.availability
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_values() {
+        let text = "\"Registry\"\n{\n\t\"AutoLoginUser\"\t\t\"old_name\"\n\t\"ActiveProcess\"\n\t{\n\t\t\"pid\"\t\t\"42\"\n\t\t\"ActiveUser\"\t\t\"1259678735\"\n\t}\n}\n";
+        let (a, b) = vdf_value(text, "ActiveUser").unwrap();
+        assert_eq!(&text[a..b], "1259678735");
+        let (a, b) = vdf_value(text, "AutoLoginUser").unwrap();
+        assert_eq!(&text[a..b], "old_name");
+        // A key followed by a block has no value.
+        assert_eq!(vdf_value(text, "ActiveProcess"), None);
+        assert_eq!(vdf_value(text, "Missing"), None);
     }
 }

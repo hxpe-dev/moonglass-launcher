@@ -19,6 +19,8 @@ pub enum MenuAction {
     /// By ROM directory ID.
     RemoveRomFolder(String),
     RemoveEmulator,
+    /// Sign Steam in with this account (SteamID64).
+    SwitchSteamAccount(String),
 }
 
 pub struct MenuRow {
@@ -56,6 +58,8 @@ pub struct Menu {
     pub armed: bool,
     /// The emulator profile these rows act on, if any.
     pub emulator: Option<String>,
+    /// The Steam account list, refreshed when the accounts change.
+    pub steam_accounts: bool,
 }
 
 impl Menu {
@@ -213,6 +217,7 @@ mod tests {
             selected: 0,
             armed: false,
             emulator: Some("dolphin".into()),
+            steam_accounts: false,
         }
     }
 

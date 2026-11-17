@@ -21,6 +21,8 @@ use std::ffi::OsStr;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use std::time::{Duration, Instant};
+
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use thiserror::Error;
 
@@ -48,6 +50,8 @@ pub enum PlatformError {
     Os(String),
     #[error("could not determine the user's home or app-data folders")]
     NoHome,
+    #[error("Steam did not sign in to that account; it may be asking for its password")]
+    SteamSignIn,
 }
 
 pub type Result<T> = std::result::Result<T, PlatformError>;
@@ -508,6 +512,76 @@ pub fn xinput_power() -> Option<PadPower> {
 /// be dependable.
 pub fn steam_app_running(app_id: &str) -> Option<bool> {
     imp::steam_app_running(app_id)
+}
+
+// ------------------------------------------------- Steam accounts
+
+/// The 32-bit account ID Steam is signed in with right now, `None` when
+/// Steam is not running or no one is signed in
+/// (`HKCU\Software\Valve\Steam\ActiveProcess\ActiveUser` on Windows,
+/// the same value in `registry.vdf` on Linux).
+pub fn steam_active_account() -> Option<u32> {
+    imp::steam_active_account().filter(|&id| id != 0)
+}
+
+fn steam_running() -> bool {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    sys.processes()
+        .values()
+        .any(|p| p.name().eq_ignore_ascii_case(imp::STEAM_PROCESS))
+}
+
+/// Polls `done` every quarter second until it holds or `timeout` passes.
+fn wait_for(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let start = Instant::now();
+    loop {
+        if done() {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Signs Steam in as another remembered account (one that saved its
+/// password): closes Steam if it runs, makes `account_name` the account it
+/// signs in with automatically, starts it again in the background, and
+/// waits until that account is signed in. Blocks for up to about
+/// `timeout` plus the time Steam takes to close.
+///
+/// No password is involved: Steam uses the sign-in token it kept. When
+/// that token has expired, Steam shows its own sign-in window and this
+/// returns [`PlatformError::SteamSignIn`].
+pub fn switch_steam_account(account_name: &str, account_id: u32, timeout: Duration) -> Result<()> {
+    // Steam login names are letters, digits and underscores; anything else
+    // is refused before it reaches the registry or a config file.
+    let valid = !account_name.is_empty()
+        && account_name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    if !valid {
+        return Err(PlatformError::Os("not a Steam account name".into()));
+    }
+    if steam_active_account() == Some(account_id) {
+        return Ok(());
+    }
+    if steam_running() {
+        imp::run_steam(&["-shutdown"])?;
+        if !wait_for(Duration::from_secs(40), || !steam_running()) {
+            return Err(PlatformError::Os("Steam did not close".into()));
+        }
+    }
+    // After Steam has closed: it saves its settings on the way out.
+    imp::set_steam_auto_login(account_name)?;
+    imp::run_steam(&["-silent"])?;
+    if wait_for(timeout, || steam_active_account() == Some(account_id)) {
+        Ok(())
+    } else {
+        Err(PlatformError::SteamSignIn)
+    }
 }
 
 // ------------------------------------------------------- start at login

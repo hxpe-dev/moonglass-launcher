@@ -236,7 +236,11 @@ async fn refresh(http: &reqwest::Client, db: &Db) -> (Snapshot, Status) {
     let root: Option<PathBuf> = crate::library::steam_root(db).await.ok().flatten();
     let local = tokio::task::spawn_blocking(move || {
         let root = root?;
-        let me = moonglass_scan::steam::current_user(&root)?;
+        // The account Steam is signed in with right now (it can be
+        // switched), else the one it signs in with next.
+        let me = moonglass_platform::steam_active_account()
+            .map(moonglass_scan::steam_accounts::steam_id64)
+            .or_else(|| moonglass_scan::steam::current_user(&root))?;
         Some((me, moonglass_scan::steam::app_owners(&root)))
     })
     .await

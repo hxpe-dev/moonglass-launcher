@@ -178,11 +178,8 @@ pub fn open_uri(uri: &str) -> Result<()> {
     }
 }
 
-pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
-    if args.is_empty() {
-        return open_uri(&format!("steam://rungameid/{app_id}"));
-    }
-    let exe = reg_get_string(r"Software\Valve\Steam", "SteamExe")
+fn steam_exe() -> Option<PathBuf> {
+    reg_get_string(r"Software\Valve\Steam", "SteamExe")
         .map(PathBuf::from)
         .filter(|p| p.is_file())
         .or_else(|| {
@@ -190,9 +187,15 @@ pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
                 .map(|r| r.join("steam.exe"))
                 .filter(|p| p.is_file())
         })
-        .ok_or_else(|| {
-            PlatformError::Os("steam.exe was not found, and launch options need it".into())
-        })?;
+}
+
+pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return open_uri(&format!("steam://rungameid/{app_id}"));
+    }
+    let exe = steam_exe().ok_or_else(|| {
+        PlatformError::Os("steam.exe was not found, and launch options need it".into())
+    })?;
     // Steam is already running: this hands the request over and exits.
     Command::new(exe)
         .arg("-applaunch")
@@ -357,6 +360,48 @@ fn reg_get_dword(subkey: &str, value: &str) -> Option<u32> {
         )
     };
     (rc == ERROR_SUCCESS).then_some(data)
+}
+
+pub const STEAM_PROCESS: &str = "steam.exe";
+
+pub fn steam_active_account() -> Option<u32> {
+    reg_get_dword(r"Software\Valve\Steam\ActiveProcess", "ActiveUser")
+}
+
+/// Runs `steam.exe` with `args`: a running Steam takes the request over.
+pub fn run_steam(args: &[&str]) -> Result<()> {
+    let exe = steam_exe().ok_or_else(|| PlatformError::Os("steam.exe was not found".into()))?;
+    // A Steam started here outlives Moonglass: it must not hold on to
+    // Moonglass's console or pipes.
+    Command::new(exe)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(())
+}
+
+/// The account Steam signs in with when it starts.
+pub fn set_steam_auto_login(account_name: &str) -> Result<()> {
+    let key = HSTRING::from(r"Software\Valve\Steam");
+    let name = HSTRING::from("AutoLoginUser");
+    let data = wide(OsStr::new(account_name));
+    let rc = unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            &key,
+            &name,
+            REG_SZ.0,
+            Some(data.as_ptr().cast()),
+            (data.len() * 2) as u32,
+        )
+    };
+    if rc == ERROR_SUCCESS {
+        Ok(())
+    } else {
+        Err(PlatformError::Os(format!("registry write failed: {rc:?}")))
+    }
 }
 
 pub fn steam_app_running(app_id: &str) -> Option<bool> {

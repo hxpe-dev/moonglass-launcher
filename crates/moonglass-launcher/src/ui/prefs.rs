@@ -116,6 +116,8 @@ pub struct Prefs {
     pub clock: Clock,
     pub recent: RecentDays,
     pub show_hidden: bool,
+    /// Hide Steam games the signed-in Steam account cannot play.
+    pub steam_playable_only: bool,
     pub dismiss_launcher_window: bool,
 }
 
@@ -135,6 +137,7 @@ impl Default for Prefs {
             clock: Clock::DEFAULT,
             recent: RecentDays::DEFAULT,
             show_hidden: false,
+            steam_playable_only: true,
             dismiss_launcher_window: true,
         }
     }

@@ -52,6 +52,7 @@ use moonglass_platform::{
 use crate::friends::{self, Friend};
 use crate::launch::{self, Running, SteamJoin};
 use crate::now_unix;
+use crate::steam_accounts::SteamAccounts;
 use anim::Anims;
 use browser::{Browser, BrowserResult, Entry, Purpose};
 use emulators::EmulatorInfo;
@@ -122,6 +123,10 @@ enum UiEvent {
     Library(Vec<Game>),
     Emulators(Vec<EmulatorInfo>),
     Friends(friends::Snapshot, friends::Status),
+    /// The Steam accounts, or the account Steam is signed in with, changed.
+    SteamAccounts(SteamAccounts),
+    /// A switch of Steam account finished.
+    SteamSwitched(Result<(), String>, SteamAccounts),
     Pad(PadEvent),
     Power(Option<PadPower>),
     Restore,
@@ -235,6 +240,9 @@ pub struct LauncherView {
     friends_status: friends::Status,
     /// Wakes the friends poll when the key changes.
     friends_wake: Arc<tokio::sync::Notify>,
+    steam: SteamAccounts,
+    /// The account Steam is being switched to (its display name).
+    steam_switching: Option<String>,
     /// A game whose borrowed copy is in use and whose Play was pressed
     /// once: the second press starts it anyway.
     play_anyway: Option<GameId>,
@@ -387,6 +395,41 @@ impl LauncherView {
             },
         );
 
+        // Steam accounts: which one is signed in (it may change in Steam
+        // itself) and what it can play. Reading the registry is cheap; the
+        // files are read again only when something changed.
+        let steam_tx = tx.clone();
+        let steam_db = backend.db.clone();
+        backend.rt.spawn(async move {
+            let mut last = None;
+            loop {
+                if let Ok(Some(root)) = crate::library::steam_root(&steam_db).await {
+                    let probe = root.clone();
+                    let now = tokio::task::spawn_blocking(move || {
+                        let users = probe.join("config").join("loginusers.vdf");
+                        let changed = std::fs::metadata(users).and_then(|m| m.modified()).ok();
+                        (moonglass_platform::steam_active_account(), changed)
+                    })
+                    .await
+                    .ok();
+                    if now.is_some() && now != last {
+                        last = now;
+                        let loaded =
+                            tokio::task::spawn_blocking(move || SteamAccounts::load(&root)).await;
+                        if let Ok(accounts) = loaded {
+                            if steam_tx
+                                .unbounded_send(UiEvent::SteamAccounts(accounts))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(4)).await;
+            }
+        });
+
         // Controller battery where gilrs cannot read it (XInput on Windows).
         let power_tx = tx.clone();
         backend.rt.spawn(async move {
@@ -413,6 +456,8 @@ impl LauncherView {
             friends: friends::Snapshot::default(),
             friends_status: friends::Status::default(),
             friends_wake,
+            steam: SteamAccounts::default(),
+            steam_switching: None,
             play_anyway: None,
             shown: Vec::new(),
             hidden_ids: HashSet::new(),
@@ -590,6 +635,10 @@ impl LauncherView {
         } else {
             self.games.clone()
         };
+        // Steam games the signed-in account cannot play.
+        if self.prefs.steam_playable_only {
+            self.shown.retain(|g| self.steam.can_play(g));
+        }
         self.filters = visible_filters(&self.shown, now, recent);
         if !self.filters.contains(&self.filter) {
             self.filter = Filter::All;
@@ -744,6 +793,20 @@ impl LauncherView {
             UiEvent::Emulators(list) => {
                 self.emulators_changed(list);
                 cx.notify();
+            }
+            UiEvent::SteamAccounts(accounts) => self.steam_accounts_changed(accounts, cx),
+            UiEvent::SteamSwitched(result, accounts) => {
+                let name = self.steam_switching.take().unwrap_or_default();
+                self.toast(
+                    match result {
+                        Ok(()) => format!("Signed in to Steam as {name}"),
+                        Err(e) => format!("Could not switch to {name}: {e}"),
+                    },
+                    cx,
+                );
+                self.steam_accounts_changed(accounts, cx);
+                // Friends are per account.
+                self.friends_wake.notify_one();
             }
             UiEvent::Friends(snapshot, status) => {
                 if self.friends != snapshot || self.friends_status != status {
@@ -1068,6 +1131,110 @@ impl LauncherView {
             ((held - QUIT_HINT_DELAY).as_secs_f32() / (QUIT_HOLD - QUIT_HINT_DELAY).as_secs_f32())
                 .min(1.0)
         })
+    }
+
+    fn steam_accounts_changed(&mut self, accounts: SteamAccounts, cx: &mut Context<Self>) {
+        if accounts == self.steam {
+            return;
+        }
+        self.steam = accounts;
+        let keep = self.current().map(|g| g.id.to_string());
+        self.recompute(keep);
+        // An open account list shows the new state.
+        if matches!(&self.modal, Modal::Menu(m) if m.steam_accounts) {
+            self.modal = Modal::Menu(self.steam_account_menu());
+        }
+        cx.notify();
+    }
+
+    /// The account list: choosing one signs Steam in with it.
+    fn steam_account_menu(&self) -> Menu {
+        let active = self.steam.active.as_deref();
+        let rows: Vec<menu::MenuRow> = self
+            .steam
+            .accounts
+            .iter()
+            .map(|a| {
+                let mut label = a.persona_name.clone();
+                if Some(a.steam_id.as_str()) == active {
+                    label.push_str("  ·  signed in");
+                } else if !a.remembers_password {
+                    label.push_str("  ·  Steam will ask for the password");
+                }
+                menu::MenuRow::new(
+                    label,
+                    menu::MenuAction::SwitchSteamAccount(a.steam_id.clone()),
+                )
+            })
+            .collect();
+        let selected = self
+            .steam
+            .accounts
+            .iter()
+            .position(|a| Some(a.steam_id.as_str()) == active)
+            .unwrap_or(0);
+        Menu {
+            title: "Steam account".into(),
+            note: Some(
+                "Steam restarts to sign in with the account you choose. \
+                 Accounts appear once they have signed in to Steam on this computer."
+                    .into(),
+            ),
+            rows,
+            selected,
+            armed: false,
+            emulator: None,
+            steam_accounts: true,
+        }
+    }
+
+    pub(super) fn open_steam_accounts(&mut self, cx: &mut Context<Self>) {
+        if self.steam.accounts.is_empty() {
+            return self.toast("No Steam accounts found on this computer", cx);
+        }
+        self.set_modal(Modal::Menu(self.steam_account_menu()));
+    }
+
+    /// Signs Steam in with another account, in the background.
+    pub(super) fn switch_steam_account(&mut self, steam_id: &str, cx: &mut Context<Self>) {
+        let Some(account) = self
+            .steam
+            .accounts
+            .iter()
+            .find(|a| a.steam_id == steam_id)
+            .cloned()
+        else {
+            return;
+        };
+        self.set_modal(Modal::None);
+        if self.steam.active.as_deref() == Some(steam_id) || self.steam_switching.is_some() {
+            return;
+        }
+        if self.session.is_some() {
+            return self.toast("Close the game first: switching restarts Steam", cx);
+        }
+        self.steam_switching = Some(account.persona_name.clone());
+        self.toast(
+            format!(
+                "Switching Steam to {}… Steam restarts",
+                account.persona_name
+            ),
+            cx,
+        );
+        let db = self.backend.db.clone();
+        let tx = self.tx.clone();
+        self.backend.rt.spawn(async move {
+            let root = crate::library::steam_root(&db).await.ok().flatten();
+            let (result, accounts) = match root {
+                Some(root) => tokio::task::spawn_blocking(move || {
+                    crate::steam_accounts::switch(&root, &account)
+                })
+                .await
+                .unwrap_or_else(|e| (Err(e.to_string()), SteamAccounts::default())),
+                None => (Err("Steam was not found".into()), SteamAccounts::default()),
+            };
+            let _ = tx.unbounded_send(UiEvent::SteamSwitched(result, accounts));
+        });
     }
 
     fn is_home_idle(&self) -> bool {
@@ -1640,6 +1807,15 @@ impl LauncherView {
             hidden: installed.filter(|g| g.is_hidden).count(),
             sgdb_key_set: self.sgdb_key_set,
             steam_key_set: self.friends_status != friends::Status::Off,
+            steam_account: match (&self.steam_switching, self.steam.active_account()) {
+                (Some(to), _) => format!("Switching to {to}…"),
+                (None, Some(a)) if self.steam.can_switch() => {
+                    format!("{} · change…", a.persona_name)
+                }
+                (None, Some(a)) => a.persona_name.clone(),
+                (None, None) if self.steam.accounts.is_empty() => "Not found".into(),
+                (None, None) => "Not signed in · choose…".into(),
+            },
             friends: self.friends_status.text(),
             start_at_login: self.start_at_login,
             emulators: self
@@ -1696,6 +1872,7 @@ impl LauncherView {
             }
             SettingsCmd::Run(item) => match item {
                 Item::AddGame => self.open_browser(Purpose::AddExecutable),
+                Item::SteamAccount => self.open_steam_accounts(cx),
                 Item::SteamKey => {
                     self.set_modal(Modal::Keyboard(Osk::new(
                         TextTarget::SteamApiKey,

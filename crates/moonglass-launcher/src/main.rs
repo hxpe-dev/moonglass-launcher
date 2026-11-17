@@ -8,6 +8,7 @@ mod artwork;
 mod friends;
 mod launch;
 mod library;
+mod steam_accounts;
 mod ui;
 mod watch;
 
@@ -42,6 +43,8 @@ USAGE:
     moonglass sgdb-key <key>|clear
     moonglass steam-signal <id|number> [--secs <n>]
                                      compare Steam's running flag with process detection
+    moonglass steam-accounts             the remembered Steam accounts and what each can play
+    moonglass steam-switch <number>      sign Steam in with another account (restarts Steam)
     moonglass autostart on|off|status
     moonglass paths
 
@@ -358,6 +361,55 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
             )
             .await?;
             println!("Saved options for {}", game.title);
+        }
+        "steam-accounts" | "steam-switch" => {
+            let root = library::steam_root(&db)
+                .await?
+                .ok_or_else(|| anyhow!("Steam was not found"))?;
+            let games = db.games().await?;
+            let mut accounts = steam_accounts::SteamAccounts::load(&root);
+            if cmd == "steam-switch" {
+                let n: usize = rest
+                    .first()
+                    .and_then(|n| n.parse().ok())
+                    .ok_or_else(|| anyhow!("needs an account number from steam-accounts"))?;
+                let account = accounts
+                    .accounts
+                    .get(n.wrapping_sub(1))
+                    .cloned()
+                    .ok_or_else(|| anyhow!("no account {n}"))?;
+                println!("Switching Steam to {}…", account.persona_name);
+                let (result, after) =
+                    tokio::task::spawn_blocking(move || steam_accounts::switch(&root, &account))
+                        .await?;
+                result.map_err(|e| anyhow!(e))?;
+                accounts = after;
+            }
+            let steam_games: Vec<_> = games
+                .iter()
+                .filter(|g| g.source == moonglass_core::Source::Steam && g.is_installed)
+                .collect();
+            for (i, a) in accounts.accounts.iter().enumerate() {
+                let active = accounts.active.as_deref() == Some(a.steam_id.as_str());
+                println!(
+                    "{:>2}. {}{}{}",
+                    i + 1,
+                    a.persona_name,
+                    if active { "  [signed in]" } else { "" },
+                    if a.remembers_password {
+                        ""
+                    } else {
+                        "  (password not saved)"
+                    },
+                );
+            }
+            if accounts.active_account().is_some() {
+                let playable = steam_games.iter().filter(|g| accounts.can_play(g)).count();
+                println!(
+                    "Signed-in account can play {playable} of {} installed Steam games",
+                    steam_games.len()
+                );
+            }
         }
         "artwork" => {
             let s = artwork::refresh(&db, &paths.cache_dir, rest.iter().any(|a| a == "--force"))

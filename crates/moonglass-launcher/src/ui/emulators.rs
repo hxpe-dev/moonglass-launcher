@@ -150,6 +150,7 @@ fn preset_menu() -> Menu {
         selected: 0,
         armed: false,
         emulator: None,
+        steam_accounts: false,
     }
 }
 
@@ -189,6 +190,7 @@ fn emulator_menu(info: &EmulatorInfo) -> Menu {
         selected: 0,
         armed: false,
         emulator: Some(e.id.clone()),
+        steam_accounts: false,
     }
 }
 
@@ -285,6 +287,7 @@ impl LauncherView {
                     Ok(Some("ROM folder removed".to_string()))
                 });
             }
+            (MenuAction::SwitchSteamAccount(id), _) => self.switch_steam_account(&id, cx),
             (MenuAction::RemoveEmulator, Some(info)) => {
                 let e = info.emulator;
                 self.set_modal(Modal::None);

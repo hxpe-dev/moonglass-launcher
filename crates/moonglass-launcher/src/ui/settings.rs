@@ -58,6 +58,8 @@ pub enum Item {
     ShowHidden,
     Rescan,
     LibraryInfo,
+    SteamAccount,
+    SteamPlayableOnly,
     SteamKey,
     FriendsInfo,
     /// An emulator profile, by its position in the list.
@@ -103,6 +105,8 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::ShowHidden,
             Item::Rescan,
             Item::LibraryInfo,
+            Item::SteamAccount,
+            Item::SteamPlayableOnly,
             Item::SteamKey,
             Item::FriendsInfo,
         ],
@@ -143,6 +147,7 @@ impl Item {
             Item::StartupAnimation
             | Item::ReducedMotion
             | Item::ShowHidden
+            | Item::SteamPlayableOnly
             | Item::StartAtLogin
             | Item::DismissLauncher => Kind::Toggle,
             Item::AddGame
@@ -150,6 +155,7 @@ impl Item {
             | Item::Emulator(_)
             | Item::AddEmulator
             | Item::SteamKey
+            | Item::SteamAccount
             | Item::SgdbKey
             | Item::RefreshArt
             | Item::Exit => Kind::Action,
@@ -180,6 +186,8 @@ impl Item {
             Item::ShowHidden => "Show hidden games",
             Item::Rescan => "Rescan library now",
             Item::LibraryInfo => "Library",
+            Item::SteamAccount => "Steam account",
+            Item::SteamPlayableOnly => "Only Steam games this account can play",
             Item::SteamKey => "Steam friends: Web API key",
             Item::FriendsInfo => "Friends",
             // Drawn with the profile's own name.
@@ -204,6 +212,8 @@ pub struct SettingsInfo {
     pub hidden: usize,
     pub sgdb_key_set: bool,
     pub steam_key_set: bool,
+    /// The signed-in Steam account, as the Steam account row shows it.
+    pub steam_account: String,
     /// What the friends feature last reported.
     pub friends: String,
     pub start_at_login: bool,
@@ -279,6 +289,7 @@ impl SettingsState {
             Item::StartupAnimation => prefs.startup_animation = !prefs.startup_animation,
             Item::ReducedMotion => prefs.reduced_motion = !prefs.reduced_motion,
             Item::ShowHidden => prefs.show_hidden = !prefs.show_hidden,
+            Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
             _ => return false,
         }
@@ -394,6 +405,8 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::AddGame => "Choose an executable…".into(),
         Item::Recent => prefs.recent.label().into(),
         Item::ShowHidden => on_off(prefs.show_hidden).into(),
+        Item::SteamAccount => info.steam_account.clone(),
+        Item::SteamPlayableOnly => on_off(prefs.steam_playable_only).into(),
         Item::Rescan => "Rescan".into(),
         Item::LibraryInfo => format!("{} games, {} hidden", info.games, info.hidden),
         Item::Emulator(i) => info

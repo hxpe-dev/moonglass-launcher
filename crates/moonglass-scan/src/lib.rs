@@ -16,6 +16,7 @@ pub mod epic;
 pub mod heroic;
 pub mod roms;
 pub mod steam;
+pub mod steam_accounts;
 
 #[derive(Debug, Error)]
 pub enum ScanError {
