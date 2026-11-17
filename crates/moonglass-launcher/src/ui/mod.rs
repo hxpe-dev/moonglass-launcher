@@ -78,6 +78,9 @@ const PULSE_PERIOD_SECS: f32 = 3.2;
 /// indistinguishable from the display rate and costs a fraction of the
 /// CPU/GPU. Motion (scrolling, crossfades) still runs at the refresh rate.
 const PULSE_FRAME: Duration = Duration::from_millis(33);
+/// Longest step the pulse takes between two frames, so it carries on from
+/// where it was after a pause instead of jumping.
+const PULSE_MAX_STEP_SECS: f32 = 0.1;
 const CARET_BLINK_MS: u128 = 530;
 const INTRO_SECS: f32 = 1.6;
 const TOAST_SECS: u64 = 4;
@@ -320,7 +323,10 @@ pub struct LauncherView {
     last_frame: Option<Instant>,
     /// When Esc or B started being held on the home screen.
     quit_hold: Option<Instant>,
-    started: Instant,
+    /// Glow pulse time in seconds. It only moves while the window is
+    /// focused: an unfocused Moonglass keeps a still glow and draws nothing.
+    pulse_secs: f32,
+    pulse_tick: Option<Instant>,
     intro_start: Option<Instant>,
     ambient_from: Option<Ambient>,
     ambient_to: Option<Ambient>,
@@ -412,6 +418,11 @@ impl LauncherView {
             }
         })
         .detach();
+
+        // Focus gained or lost: redraw, which restarts or pauses the glow
+        // pulse (spec 7: no work while nothing on screen changes).
+        cx.observe_window_activation(window, |_, _, cx| cx.notify())
+            .detach();
 
         let restore_armed = Arc::new(AtomicBool::new(false));
         let restore_config = moonglass_platform::RestoreConfig::new(
@@ -551,7 +562,8 @@ impl LauncherView {
             saved_position: None,
             spring: Spring::new(0.0, 18.0),
             last_frame: None,
-            started: Instant::now(),
+            pulse_secs: 0.0,
+            pulse_tick: None,
             intro_start: None,
             ambient_from: None,
             ambient_to: None,
@@ -889,7 +901,8 @@ impl LauncherView {
                     if self.prefs.startup_animation && self.prefs.animate() {
                         self.intro_start = Some(Instant::now());
                     }
-                    self.started = Instant::now();
+                    self.pulse_secs = 0.0;
+                    self.pulse_tick = None;
                     // Development: start on a given screen.
                     match std::env::var("MOONGLASS_DEV_SCREEN").as_deref() {
                         Ok("settings") => self.open_settings(),
@@ -2608,6 +2621,20 @@ impl LauncherView {
         }
     }
 
+    /// Moves the glow pulse forward while the window is focused, and holds
+    /// it where it is otherwise.
+    fn advance_pulse(&mut self, active: bool) {
+        if !active {
+            self.pulse_tick = None;
+            return;
+        }
+        let now = Instant::now();
+        if let Some(t) = self.pulse_tick {
+            self.pulse_secs += now.duration_since(t).as_secs_f32().min(PULSE_MAX_STEP_SECS);
+        }
+        self.pulse_tick = Some(now);
+    }
+
     /// End of a frame: asks for the next one while anything is still moving.
     fn schedule_next_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let home_idle =
@@ -2619,7 +2646,10 @@ impl LauncherView {
             && (!self.spring.is_settled() || self.crossfade < 1.0 || self.intro_start.is_some());
         let moving =
             carousel_moving || self.anims.get_mut().is_moving() || self.quit_hold.is_some();
+        // The pulse pauses while another window has the focus (which
+        // includes Moonglass being minimized); refocusing resumes it.
         let pulsing = home_idle
+            && window.is_window_active()
             && matches!(self.screen, Screen::Home)
             && self.prefs.animate()
             && self.prefs.glow_brightness() > 0.0
@@ -2642,7 +2672,7 @@ impl LauncherView {
         if !self.prefs.animate() {
             return 0.5;
         }
-        let t = self.started.elapsed().as_secs_f32();
+        let t = self.pulse_secs;
         0.5 + 0.5 * (t * std::f32::consts::TAU / PULSE_PERIOD_SECS).sin()
     }
 }
@@ -2736,6 +2766,7 @@ impl Render for LauncherView {
             window.on_next_frame(move |_, _| drop(splash));
         }
         self.advance_animation();
+        self.advance_pulse(window.is_window_active());
         self.check_quit_hold(window, cx);
         let vp = window.viewport_size();
         let (w, h) = (f32::from(vp.width), f32::from(vp.height));

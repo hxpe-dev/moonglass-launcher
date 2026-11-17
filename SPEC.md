@@ -157,7 +157,7 @@ GPUI renders through DirectX 11 on Windows and through `wgpu` (Vulkan, with an O
 
 | Effect | Implementation |
 | --- | --- |
-| Glow behind active card | Two or three stacked box shadows with large blur radii in the game's accent and dominant colors; the pulse animates their opacity and spread |
+| Glow behind active card | Two or three stacked box shadows with large blur radii in the game's accent and dominant colors; the pulse animates their opacity and spread, and pauses where it is while Moonglass does not have the focus |
 | Blurred hero background | Blurred **at ingestion** on the CPU (downscale, Gaussian blur, save as a small texture), then stretched by the GPU. Three strengths are pre-computed |
 | Background tint | Two-stop linear gradient from the dominant color to near-black |
 | Color and art crossfade | Two stacked layers with animated opacity |
