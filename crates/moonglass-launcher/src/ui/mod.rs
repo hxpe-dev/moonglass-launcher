@@ -6,9 +6,11 @@
 //! Zed's `gpui_tokio`.
 //!
 //! Layers, bottom to top: the home screen (carousel) or the blurred
-//! backdrop it crossfades into, the launch / Now Playing overlay, Settings,
-//! a modal (on-screen keyboard, file browser, per-game options or an
-//! emulator menu), and a toast. Input goes to the topmost layer.
+//! backdrop it crossfades into, the launch / Now Playing overlay, Settings
+//! or first-time setup, a modal (on-screen keyboard, file browser,
+//! per-game options, or a menu: emulators, Steam accounts, Steam folder,
+//! Steam apps that are not games), then a toast and the exit progress.
+//! Input goes to the topmost layer.
 
 mod anim;
 mod browser;
@@ -170,6 +172,9 @@ enum UiEvent {
     },
     Tick,
     Toast(String),
+    /// Artwork files were written again at the same paths: GPUI's cached
+    /// images of them are out of date.
+    ArtworkRewritten,
     Dir {
         generation: u64,
         dir: Option<PathBuf>,
@@ -270,13 +275,17 @@ pub struct LauncherView {
     /// Wakes the friends poll when the key changes.
     friends_wake: Arc<tokio::sync::Notify>,
     steam: SteamAccounts,
+    /// The installed Steam games `steam` was read for (a hash of their
+    /// AppIDs): what an account can play is read again when it changes.
+    steam_apps_seen: u64,
     /// The account Steam is being switched to (its display name).
     steam_switching: Option<String>,
     /// A game whose borrowed copy is in use and whose Play was pressed
     /// once: the second press starts it anyway.
     play_anyway: Option<GameId>,
     /// What the carousel shows: `games`, with hidden games un-hidden when
-    /// "Show hidden games" is on.
+    /// "Show hidden games" is on, less the Steam games the signed-in
+    /// account cannot play when that setting is on.
     shown: Vec<Game>,
     hidden_ids: HashSet<GameId>,
     filters: Vec<Filter>,
@@ -306,6 +315,8 @@ pub struct LauncherView {
     anims: RefCell<Anims>,
     /// Images drawn and when, so idle ones can be released.
     drawn_images: RefCell<images::DrawnImages>,
+    /// Which artwork files exist and their sizes, asked once.
+    file_facts: RefCell<images::FileFacts>,
 
     screen: Screen,
     /// Settings while it fades out after closing.
@@ -340,9 +351,6 @@ pub struct LauncherView {
     scanned: bool,
     /// First-run setup while it fades out.
     setup_leaving: Option<setup::SetupState>,
-    /// Logo sizes, so the logo can be laid out left-aligned at its own
-    /// aspect ratio (an image box with Contain would center it).
-    logo_sizes: std::collections::HashMap<String, Option<(u32, u32)>>,
     /// Until the user moves, rescans keep focus on the first card (the most
     /// recently played game) instead of following the previous one.
     user_moved: bool,
@@ -506,6 +514,7 @@ impl LauncherView {
             friends_status: friends::Status::default(),
             friends_wake,
             steam: SteamAccounts::default(),
+            steam_apps_seen: 0,
             steam_switching: None,
             play_anyway: None,
             shown: Vec::new(),
@@ -529,6 +538,7 @@ impl LauncherView {
             repaint_pending: false,
             anims: RefCell::new(Anims::new()),
             drawn_images: RefCell::default(),
+            file_facts: RefCell::default(),
             screen: Screen::Home,
             settings_leaving: None,
             modal: Modal::None,
@@ -548,8 +558,8 @@ impl LauncherView {
             restore_armed,
             hotkey,
             restore_config,
-            steam_root_manual: loaded.steam_root_manual.clone(),
-            steam_ignored: loaded.steam_ignored.clone(),
+            steam_root_manual: loaded.steam_root_manual,
+            steam_ignored: loaded.steam_ignored,
             sgdb_key_set: loaded.sgdb_key_set,
             start_at_login: moonglass_platform::start_at_login().unwrap_or(false),
             splash,
@@ -557,7 +567,6 @@ impl LauncherView {
             loaded: false,
             scanned: false,
             setup_leaving: None,
-            logo_sizes: Default::default(),
             user_moved: false,
             input: InputMode::Keyboard,
             wheel_accum: 0.0,
@@ -834,6 +843,9 @@ impl LauncherView {
                     .flatten();
                 let first = !self.loaded;
                 self.games = games;
+                self.steam_apps_changed();
+                // New or changed artwork comes with a library reload.
+                self.forget_file_facts();
                 self.loaded = true;
                 self.recompute(keep);
                 if let Modal::Options(m) = &mut self.modal {
@@ -957,6 +969,11 @@ impl LauncherView {
                 }
             }
             UiEvent::Tick => self.tick(window, cx),
+            UiEvent::ArtworkRewritten => {
+                self.forget_file_facts();
+                self.release_images(Duration::ZERO, window, cx);
+                cx.notify();
+            }
         }
     }
 
@@ -1207,6 +1224,35 @@ impl LauncherView {
             ((held - QUIT_HINT_DELAY).as_secs_f32() / (QUIT_HOLD - QUIT_HINT_DELAY).as_secs_f32())
                 .min(1.0)
         })
+    }
+
+    /// Steam games were installed or removed: what each account can play is
+    /// read again (the account watcher only notices sign-ins).
+    fn steam_apps_changed(&mut self) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for g in self
+            .games
+            .iter()
+            .filter(|g| g.source == Source::Steam && g.is_installed)
+        {
+            g.id.hash(&mut h);
+        }
+        let seen = h.finish();
+        if seen == std::mem::replace(&mut self.steam_apps_seen, seen) || !self.loaded {
+            return;
+        }
+        let db = self.backend.db.clone();
+        let tx = self.tx.clone();
+        self.backend.rt.spawn(async move {
+            if let Ok(Some(root)) = crate::library::steam_root(&db).await {
+                if let Ok(accounts) =
+                    tokio::task::spawn_blocking(move || SteamAccounts::load(&root)).await
+                {
+                    let _ = tx.unbounded_send(UiEvent::SteamAccounts(accounts));
+                }
+            }
+        });
     }
 
     fn steam_accounts_changed(&mut self, accounts: SteamAccounts, cx: &mut Context<Self>) {
@@ -1596,6 +1642,7 @@ impl LauncherView {
             }
             TextTarget::SgdbKey => {
                 self.sgdb_key_set = !text.is_empty();
+                let tx = self.tx.clone();
                 self.db_task(move |db, cache| async move {
                     db.set_setting(crate::artwork::SETTING_SGDB_KEY, &text)
                         .await?;
@@ -1603,6 +1650,7 @@ impl LauncherView {
                         return Ok(Some("SteamGridDB key removed".to_string()));
                     }
                     let s = crate::artwork::refresh(&db, &cache, true).await?;
+                    let _ = tx.unbounded_send(UiEvent::ArtworkRewritten);
                     Ok(Some(format!(
                         "SteamGridDB key saved · {} covers from SteamGridDB",
                         s.from_sgdb
@@ -1861,9 +1909,11 @@ impl LauncherView {
             Opt::ChangeArt => self.open_browser(Purpose::Artwork(g.id)),
             Opt::ResetArt => {
                 self.set_modal(Modal::None);
+                let tx = self.tx.clone();
                 self.db_task(move |db, cache| async move {
                     db.unlock_artwork(&g.id).await?;
                     crate::artwork::refresh(&db, &cache, false).await?;
+                    let _ = tx.unbounded_send(UiEvent::ArtworkRewritten);
                     Ok(Some(format!("Automatic artwork for {}", g.title)))
                 });
             }
@@ -2159,8 +2209,10 @@ impl LauncherView {
                 }
                 Item::RefreshArt => {
                     self.toast("Refreshing artwork…", cx);
+                    let tx = self.tx.clone();
                     self.db_task(|db, cache| async move {
                         let s = crate::artwork::refresh(&db, &cache, true).await?;
+                        let _ = tx.unbounded_send(UiEvent::ArtworkRewritten);
                         Ok(Some(s.to_string()))
                     });
                 }
@@ -2631,8 +2683,8 @@ impl Render for LauncherView {
             .text_color(theme::white(0.95))
             .text_size(px(22.0 * u));
 
-        // Settings and the launch / Now Playing screens sit on an even
-        // blurred backdrop, which the carousel crossfades into.
+        // Settings, setup and the launch / Now Playing screens sit on an
+        // even blurred backdrop, which the carousel crossfades into.
         let settings_open = matches!(self.screen, Screen::Settings(_));
         let setup_open = matches!(self.screen, Screen::Setup(_));
         let backdrop_wanted = settings_open
@@ -2673,12 +2725,14 @@ impl Render for LauncherView {
 
         // First-run setup, kept while it fades out.
         let setup_shown = self.glide("setup", on(setup_open));
-        if let Screen::Setup(st) = &self.screen {
-            self.setup_leaving = Some(st.clone());
-        } else if setup_shown < 0.005 {
+        if !setup_open && setup_shown < 0.005 {
             self.setup_leaving = None;
         }
-        if let Some(st) = self.setup_leaving.as_ref().filter(|_| setup_shown > 0.005) {
+        let st = match &self.screen {
+            Screen::Setup(st) => Some(st),
+            _ => self.setup_leaving.as_ref(),
+        };
+        if let Some(st) = st.filter(|_| setup_shown > 0.005) {
             root = root.child(self.render_setup(st, setup_shown, u, cx));
         }
 

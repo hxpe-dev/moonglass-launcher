@@ -1,5 +1,6 @@
-//! Drawing the home screen (carousel), the startup animation, the blurred
-//! backdrop, and the launch / Now Playing overlays.
+//! Drawing the home screen (carousel, top bar, action bar), its
+//! backgrounds and the blurred backdrop, the startup animation, and the
+//! launch / Now Playing overlays.
 
 use std::path::{Path, PathBuf};
 
@@ -104,7 +105,7 @@ impl LauncherView {
     /// shape" the image's own width / height, which the card takes.
     /// Artwork made before the shaped images existed falls back to the
     /// uncropped cover.
-    fn image_for_card(&mut self, g: &Game) -> Option<(PathBuf, Option<f32>)> {
+    fn image_for_card(&self, g: &Game) -> Option<(PathBuf, Option<f32>)> {
         let cover = PathBuf::from(g.cover_path.as_deref()?);
         let crop = match self.prefs.card_shape {
             CardShape::Poster => CardCrop::Poster,
@@ -112,12 +113,23 @@ impl LauncherView {
             CardShape::Banner => CardCrop::Banner,
         };
         let card = card_image_path(&cover, crop);
-        let fallback = if card.is_file() { card } else { cover.clone() };
+        let fallback = if self.file_exists(&card) {
+            card
+        } else {
+            cover.clone()
+        };
         Some(match self.prefs.card_fit {
             CardFit::Fit => (fallback, None),
             CardFit::Fill => {
                 let fill = card_fill_image_path(&cover, crop);
-                (if fill.is_file() { fill } else { fallback }, None)
+                (
+                    if self.file_exists(&fill) {
+                        fill
+                    } else {
+                        fallback
+                    },
+                    None,
+                )
             }
             CardFit::Original => {
                 // Banners show the hero art, the other shapes the cover.
@@ -126,15 +138,11 @@ impl LauncherView {
                         .hero_path
                         .as_deref()
                         .map(PathBuf::from)
-                        .filter(|p| p.is_file())
+                        .filter(|p| self.file_exists(p))
                         .unwrap_or(cover),
                     _ => cover,
                 };
-                let size = *self
-                    .logo_sizes
-                    .entry(source.to_string_lossy().into_owned())
-                    .or_insert_with(|| moonglass_art::dimensions(&source));
-                match size {
+                match self.image_size(&source) {
                     Some((w, h)) if w > 0 && h > 0 => (source, Some(w as f32 / h as f32)),
                     _ => (fallback, None),
                 }
@@ -240,9 +248,9 @@ impl LauncherView {
         root
     }
 
-    /// What Settings and the launch / Now Playing screens sit on: only the
-    /// focused game's most blurred artwork and its color, with no cards, so
-    /// the whole screen is one even surface.
+    /// What Settings, setup and the launch / Now Playing screens sit on:
+    /// only the focused game's most blurred artwork and its color, with no
+    /// cards, so the whole screen is one even surface.
     pub(super) fn render_backdrop(&self, layer: Stateful<Div>) -> Stateful<Div> {
         self.render_background(layer, true)
     }
@@ -273,7 +281,7 @@ impl LauncherView {
                 _ if backdrop => amb.fanart.as_ref().map(|h| blurred_hero_path(h, 2)),
                 _ => amb.background.clone(),
             };
-            if let Some(bg) = image.filter(|p| p.is_file()) {
+            if let Some(bg) = image.filter(|p| self.file_exists(p)) {
                 root = root.child(
                     self.image(bg)
                         .absolute()
@@ -358,10 +366,10 @@ impl LauncherView {
                     .w(relative(1.0 + 2.0 * OVERSCAN))
                     .object_fit(ObjectFit::Cover)
             };
-            if let Some(art) = amb.fanart.clone().filter(|p| p.is_file()) {
+            if let Some(art) = amb.fanart.clone().filter(|p| self.file_exists(p)) {
                 root = root.child(layer(art).opacity(opacity * 0.9));
             }
-            if let Some(motion) = amb.motion.clone().filter(|p| p.is_file()) {
+            if let Some(motion) = amb.motion.clone().filter(|p| self.file_exists(p)) {
                 root = root.child(layer(motion).opacity(opacity * 0.9 * smear));
             }
             root = root.child(
@@ -507,7 +515,8 @@ impl LauncherView {
                 .relative();
             if let Some((path, _)) = art {
                 // The image is rounded itself (clipping by the parent is
-                // rectangular) and already has the card's shape, so its
+                // rectangular) and already has the card's shape (or the
+                // card has the image's, with Original shape), so its
                 // corners are the card's corners.
                 inner = inner.child(
                     self.image(path)
@@ -655,16 +664,12 @@ impl LauncherView {
         u: f32,
         alpha: f32,
     ) -> Stateful<Div> {
+        // The logo is laid out left-aligned at its own aspect ratio (an
+        // image box with Contain would center it), so its size is needed.
         let logo = self
             .current()
             .and_then(|g| g.logo_path.clone())
-            .and_then(|p| {
-                let size = *self
-                    .logo_sizes
-                    .entry(p.clone())
-                    .or_insert_with(|| moonglass_art::dimensions(Path::new(&p)));
-                size.map(|s| (p, s))
-            });
+            .and_then(|p| Some((p.clone(), self.image_size(Path::new(&p))?)));
         let Some(g) = self.current().cloned() else {
             return root;
         };
@@ -1093,7 +1098,7 @@ impl LauncherView {
                 };
                 let logo = self.session.as_ref().and_then(|s| {
                     let p = s.game.logo_path.clone()?;
-                    let (lw, lh) = moonglass_art::dimensions(Path::new(&p))?;
+                    let (lw, lh) = self.image_size(Path::new(&p))?;
                     Some((p, lw, lh))
                 });
                 let headline: AnyElement = match logo {

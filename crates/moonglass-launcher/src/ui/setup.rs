@@ -1,7 +1,7 @@
 //! First-run setup (spec 3, First-Run Flow): the games found, emulators and
 //! ROM folders, a SteamGridDB key, then the carousel. Every step can be
-//! skipped. It opens on the first start with an empty library, and from the
-//! "Add your games" card.
+//! skipped. It opens on the first start with an empty library, from the
+//! "Add your games" card, and from Settings → System.
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Div, SharedString};
 use moonglass_core::Source;
@@ -120,12 +120,15 @@ impl LauncherView {
     pub(super) fn open_setup(&mut self) {
         self.search_focused = false;
         self.set_modal(Modal::None);
+        self.setup_leaving = None;
         self.screen = Screen::Setup(SetupState::new());
     }
 
     /// Leaves setup for the carousel, and remembers it was done.
     fn finish_setup(&mut self, cx: &mut Context<Self>) {
-        self.screen = Screen::Home;
+        if let Screen::Setup(st) = std::mem::replace(&mut self.screen, Screen::Home) {
+            self.setup_leaving = Some(st);
+        }
         let db = self.backend.db.clone();
         self.backend.rt.spawn(async move {
             if let Err(e) = db.set_setting(SETTING_SETUP_DONE, &true).await {

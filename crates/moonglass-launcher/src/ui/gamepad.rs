@@ -4,7 +4,8 @@
 //!
 //! Where the platform says so (Linux, whose evdev backend works without
 //! focus), the same thread also watches for the restore combination
-//! (`View + Menu` held) while a game runs.
+//! (View + Menu, or both sticks, held; see Settings → System) while a game
+//! runs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

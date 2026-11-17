@@ -14,6 +14,19 @@ pub(crate) fn client() -> Result<reqwest::Client, ArtError> {
         .build()?)
 }
 
+/// Percent-encodes text for use as one URL path segment.
+pub(crate) fn encode_path_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 /// File extension for a downloaded image, from its URL.
 fn image_extension(url: &str) -> &str {
     let path = url.split(['?', '#']).next().unwrap_or(url);
@@ -37,16 +50,8 @@ pub(crate) async fn download(
     stem: &str,
 ) -> Result<PathBuf, ArtError> {
     let resp = http.get(url).send().await?.error_for_status()?;
-    if resp.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES) {
-        return Err(ArtError::TooLarge(url.to_string()));
-    }
-    let bytes = resp.bytes().await?;
-    if bytes.len() as u64 > MAX_IMAGE_BYTES {
-        return Err(ArtError::TooLarge(url.to_string()));
-    }
-    std::fs::create_dir_all(dir).map_err(|e| ArtError::io(dir, e))?;
     let path = dir.join(format!("{stem}.{}", image_extension(url)));
-    std::fs::write(&path, &bytes).map_err(|e| ArtError::io(&path, e))?;
+    save(resp, url, &path).await?;
     Ok(path)
 }
 
@@ -73,6 +78,13 @@ pub(crate) async fn download_if_found(
     if !is_image {
         return Ok(None);
     }
+    let path = dir.join(format!("{stem}.{ext}"));
+    save(resp, url, &path).await?;
+    Ok(Some(path))
+}
+
+/// Writes a response's body to `path`, refusing one over the size limit.
+async fn save(resp: reqwest::Response, url: &str, path: &Path) -> Result<(), ArtError> {
     if resp.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES) {
         return Err(ArtError::TooLarge(url.to_string()));
     }
@@ -80,10 +92,10 @@ pub(crate) async fn download_if_found(
     if bytes.len() as u64 > MAX_IMAGE_BYTES {
         return Err(ArtError::TooLarge(url.to_string()));
     }
-    std::fs::create_dir_all(dir).map_err(|e| ArtError::io(dir, e))?;
-    let path = dir.join(format!("{stem}.{ext}"));
-    std::fs::write(&path, &bytes).map_err(|e| ArtError::io(&path, e))?;
-    Ok(Some(path))
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| ArtError::io(dir, e))?;
+    }
+    std::fs::write(path, &bytes).map_err(|e| ArtError::io(path, e))
 }
 
 #[cfg(test)]

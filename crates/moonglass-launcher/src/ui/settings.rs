@@ -1,6 +1,7 @@
 //! Settings (spec 5.5): a full-screen, controller-navigable view with
 //! Appearance, Library, Emulators, Artwork and System sections, drawn as
-//! glass panels over the blurred backdrop. Every change applies immediately and is saved.
+//! glass panels over the blurred backdrop. Every change applies immediately
+//! and is saved.
 
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedString};
 
@@ -327,7 +328,7 @@ impl SettingsState {
         true
     }
 
-    fn activate(&self, item: Item, prefs: &mut Prefs, delta: isize) -> SettingsCmd {
+    fn activate(item: Item, prefs: &mut Prefs, delta: isize) -> SettingsCmd {
         match item.kind() {
             Kind::Choice | Kind::Toggle if item == Item::StartAtLogin => {
                 SettingsCmd::ToggleStartAtLogin
@@ -366,17 +367,17 @@ impl SettingsState {
             NavAction::Left => {
                 let item = self.current();
                 if matches!(item.kind(), Kind::Choice | Kind::Toggle) {
-                    return self.activate(item, prefs, -1);
+                    return Self::activate(item, prefs, -1);
                 }
                 self.in_sections = true;
             }
             NavAction::Right => {
                 let item = self.current();
                 if matches!(item.kind(), Kind::Choice | Kind::Toggle) {
-                    return self.activate(item, prefs, 1);
+                    return Self::activate(item, prefs, 1);
                 }
             }
-            NavAction::Confirm => return self.activate(self.current(), prefs, 1),
+            NavAction::Confirm => return Self::activate(self.current(), prefs, 1),
             _ => {}
         }
         SettingsCmd::None
@@ -386,7 +387,7 @@ impl SettingsState {
     pub fn click_item(&mut self, i: usize, prefs: &mut Prefs) -> SettingsCmd {
         self.in_sections = false;
         self.item = i;
-        self.activate(self.current(), prefs, 1)
+        Self::activate(self.current(), prefs, 1)
     }
 
     pub fn click_section(&mut self, s: usize) {
@@ -458,7 +459,9 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::SteamKey => key_state(info.steam_key_set).into(),
         Item::FriendsInfo => info.friends.clone(),
         Item::RefreshArt => "Refresh".into(),
-        Item::ArtInfo => "Steam's local cache, then SteamGridDB, then a placeholder".into(),
+        Item::ArtInfo => {
+            "Steam's cache, Epic's catalog, SteamGridDB (with a key), Switch and retro game databases, then a placeholder".into()
+        }
         Item::StartAtLogin => on_off(info.start_at_login).into(),
         Item::DismissLauncher => on_off(prefs.dismiss_launcher_window).into(),
         Item::RestoreHotkey => {

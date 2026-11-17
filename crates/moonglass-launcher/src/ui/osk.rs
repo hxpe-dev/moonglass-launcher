@@ -1,6 +1,7 @@
 //! On-screen keyboard (spec 5.5): used for search and the few text fields
-//! (SteamGridDB key, launch arguments, process to watch). A physical
-//! keyboard types into the same fields.
+//! (the SteamGridDB and Steam keys, launch arguments, process to watch,
+//! emulator arguments and file types, a ROM folder's platform name). A
+//! physical keyboard types into the same fields.
 //!
 //! Gamepad: D-pad moves, A types the key, X deletes, Y types a space,
 //! Menu (Start) is Done, B cancels.

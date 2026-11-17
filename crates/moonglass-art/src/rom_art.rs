@@ -139,19 +139,6 @@ fn candidate_names(file_stem: &str, title: &str) -> Vec<String> {
     names
 }
 
-/// Percent-encodes one URL path segment.
-fn encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
 /// Box art from the libretro thumbnails, as the cover.
 pub async fn fetch_libretro(
     http: &reqwest::Client,
@@ -166,8 +153,8 @@ pub async fn fetch_libretro(
         for name in &names {
             let url = format!(
                 "{LIBRETRO}/{}/Named_Boxarts/{}.png",
-                encode(system),
-                encode(&libretro_name(name))
+                net::encode_path_segment(system),
+                net::encode_path_segment(&libretro_name(name))
             );
             if let Some(path) = net::download_if_found(http, &url, dir, "boxart", "png").await? {
                 out.cover = Some(path);

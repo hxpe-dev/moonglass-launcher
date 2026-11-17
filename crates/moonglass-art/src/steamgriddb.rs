@@ -111,7 +111,7 @@ impl Client {
         Ok(match lookup {
             Lookup::SteamAppId(id) => Some(format!("steam/{id}")),
             Lookup::Title(title) => {
-                let term = encode_path_segment(title);
+                let term = net::encode_path_segment(title);
                 let hits: Option<Vec<SearchHit>> = self
                     .get(&format!("{API}/search/autocomplete/{term}"))
                     .await?;
@@ -159,19 +159,6 @@ impl Client {
     }
 }
 
-/// Percent-encodes a title for use as one URL path segment.
-fn encode_path_segment(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,10 +166,10 @@ mod tests {
     #[test]
     fn encodes_titles() {
         assert_eq!(
-            encode_path_segment("Half-Life 2: Ep/1"),
+            net::encode_path_segment("Half-Life 2: Ep/1"),
             "Half-Life%202%3A%20Ep%2F1"
         );
-        assert_eq!(encode_path_segment("Pokémon"), "Pok%C3%A9mon");
+        assert_eq!(net::encode_path_segment("Pokémon"), "Pok%C3%A9mon");
     }
 
     #[test]

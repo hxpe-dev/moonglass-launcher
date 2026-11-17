@@ -1,6 +1,7 @@
 //! Ingestion, once per asset (spec 5.2): resize the cover, extract colors,
-//! crop one image per card shape, produce the three pre-blurred hero
-//! variants, and copy everything into Moonglass's cache so that changes in a
+//! make one image per card shape (plus a zoomed-in crop of the cover),
+//! produce the three pre-blurred hero variants and the motion-blurred one,
+//! and copy everything into Moonglass's cache so that changes in a
 //! launcher's own cache cannot break it.
 
 use std::fs::File;
@@ -48,7 +49,7 @@ pub struct Ingested {
     pub is_placeholder: bool,
 }
 
-/// The card shapes of the carousel. A card's image is cropped to its shape
+/// The card shapes of the carousel. A card's image is given its shape
 /// here, at ingestion: the renderer rounds an image's own corners, so an
 /// image wider or taller than its card would show square corners past the
 /// card's outline.
@@ -306,7 +307,7 @@ pub fn ingest(
         }
         None => (cover_img.clone(), cover_path.clone()),
     };
-    // One image per card shape, cropped to fit it exactly.
+    // One image per card shape, with exactly its proportions.
     for crop in CardCrop::ALL {
         let shaped = if crop == CardCrop::Banner {
             center_crop(&hero_img, crop.aspect())

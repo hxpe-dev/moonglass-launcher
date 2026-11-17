@@ -1,7 +1,7 @@
 //! Built-in file browser (spec 5.5): a controller-navigable list of folders,
-//! used wherever a path is needed. Starts from the drive list (Windows) or
-//! home plus mounted volumes (Linux), and filters files by what is being
-//! picked.
+//! used wherever a path is needed. Starts from the home folder plus the
+//! drives (Windows) or mounted volumes (Linux), and filters files by what
+//! is being picked.
 
 use std::path::{Path, PathBuf};
 

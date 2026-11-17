@@ -83,7 +83,7 @@ pub async fn start(
             }
             Ok(Running {
                 child: None,
-                matcher: Some(override_matcher.unwrap_or(GameMatcher::Steam {
+                matcher: Some(override_matcher.unwrap_or_else(|| GameMatcher::Steam {
                     app_id: app_id.to_string(),
                     install_dir: PathBuf::from(game.install_dir.clone().unwrap_or_default()),
                 })),
@@ -111,7 +111,7 @@ pub async fn start(
                 .ok_or_else(|| anyhow!("Epic game without install folder"))?;
             Ok(Running {
                 child: None,
-                matcher: Some(override_matcher.unwrap_or(GameMatcher::Folder {
+                matcher: Some(override_matcher.unwrap_or_else(|| GameMatcher::Folder {
                     install_dir: install_dir.into(),
                 })),
                 launcher: Some(Launcher::Epic),
@@ -149,7 +149,7 @@ pub async fn start(
             Ok(Running {
                 child: folder.is_none().then_some(child),
                 matcher: override_matcher
-                    .or(folder.map(|install_dir| GameMatcher::Folder { install_dir })),
+                    .or_else(|| folder.map(|install_dir| GameMatcher::Folder { install_dir })),
                 launcher: None,
             })
         }

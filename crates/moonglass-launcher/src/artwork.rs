@@ -20,6 +20,11 @@ use moonglass_db::Db;
 
 pub const SETTING_SGDB_KEY: &str = "steamgriddb_api_key";
 
+/// Games left with a placeholder that were already looked up again in
+/// this run.
+static RETRIED: std::sync::Mutex<std::collections::BTreeSet<GameId>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 #[derive(Debug, Default)]
 pub struct ArtSummary {
     pub from_steam: usize,
@@ -149,9 +154,13 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
     };
     // An Epic or emulated game left with a placeholder is tried again: the
     // catalog may have gained it, or the last download may have failed.
+    // Each is retried once per run (refreshes also follow every library
+    // change and game session; a game no source knows would be looked up
+    // again each time).
     let retry = |g: &Game| {
         has_placeholder(g)
             && ((g.source == Source::Epic && epic.is_some()) || g.source == Source::Rom)
+            && RETRIED.lock().unwrap().insert(g.id.clone())
     };
     for g in games
         .iter()

@@ -7,7 +7,7 @@
 //! both, and decoded again (off the UI thread) if they come back.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use gpui::{img, Context, Img, ImgResourceLoader, Resource, Window};
@@ -18,6 +18,16 @@ use super::LauncherView;
 pub const IDLE_RELEASE: Duration = Duration::from_secs(20);
 /// How often the carousel looks for images to release.
 pub const RELEASE_CHECK: Duration = Duration::from_secs(5);
+
+/// What drawing needs to know about artwork files, asked once rather
+/// than on every frame: whether a file exists, and an image's pixel size
+/// (read from its header). Forgotten when the library is reloaded, which
+/// is when artwork changes.
+#[derive(Default)]
+pub struct FileFacts {
+    exists: HashMap<PathBuf, bool>,
+    sizes: HashMap<PathBuf, Option<(u32, u32)>>,
+}
 
 #[derive(Default)]
 pub struct DrawnImages {
@@ -59,6 +69,31 @@ impl DrawnImages {
 }
 
 impl LauncherView {
+    /// Whether an artwork file exists (cached; see [`FileFacts`]).
+    pub(super) fn file_exists(&self, path: &Path) -> bool {
+        *self
+            .file_facts
+            .borrow_mut()
+            .exists
+            .entry(path.to_path_buf())
+            .or_insert_with(|| path.is_file())
+    }
+
+    /// An image's pixel size (cached; see [`FileFacts`]).
+    pub(super) fn image_size(&self, path: &Path) -> Option<(u32, u32)> {
+        *self
+            .file_facts
+            .borrow_mut()
+            .sizes
+            .entry(path.to_path_buf())
+            .or_insert_with(|| moonglass_art::dimensions(path))
+    }
+
+    /// Artwork may have changed: look at the files again.
+    pub(super) fn forget_file_facts(&self) {
+        *self.file_facts.borrow_mut() = FileFacts::default();
+    }
+
     /// An image element for a file, noted as drawn now.
     pub(super) fn image(&self, path: PathBuf) -> Img {
         self.drawn_images.borrow_mut().note(path.clone());

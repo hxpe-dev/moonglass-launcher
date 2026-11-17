@@ -860,7 +860,8 @@ pub mod window {
 // ------------------------------------------------------------------ hotkey
 
 /// The background restore hotkey (spec 5.4): an XInput poller for the
-/// `View + Menu` hold, and `Ctrl + Alt + Home` as a global keyboard hotkey.
+/// controller hold ([`crate::RestoreConfig`]: View + Menu or both sticks),
+/// and `Ctrl + Alt + Home` as a global keyboard hotkey.
 /// Both deliver to the same callback and keep working while Moonglass is not
 /// focused. Arm and disarm with [`RestoreHotkey::set_armed`]: it is only
 /// active while Launching or Running, and the keyboard combination is only

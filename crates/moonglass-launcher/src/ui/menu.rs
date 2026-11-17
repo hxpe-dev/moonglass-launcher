@@ -1,6 +1,7 @@
-//! A small list menu shown over Settings: choosing an emulator preset, and
-//! the actions for one emulator profile. Rows that remove something ask for
-//! a second press.
+//! A small list menu shown over Settings or setup: the emulator presets, an
+//! emulator profile's actions, the Steam accounts, the Steam folder, and
+//! the Steam apps that are not games. Rows that remove something ask for a
+//! second press.
 
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
 

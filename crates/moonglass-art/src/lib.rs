@@ -10,7 +10,8 @@
 //! 6. a generated placeholder ([`placeholder`]).
 //!
 //! [`ingest`] then prepares what the carousel needs once per asset: a
-//! resized cover, one image cropped to each card shape, dominant and accent
+//! resized cover, one image for each card shape (and a zoomed-in crop of
+//! the cover), dominant and accent
 //! colors, three pre-blurred hero textures and a motion-blurred one (GPUI
 //! has no blur filter, spec 4.1).
 

@@ -24,13 +24,19 @@ pub struct SteamAccounts {
     owners: HashMap<String, String>,
 }
 
+/// SteamID64 of the account Steam is signed in with right now, or, while
+/// Steam is closed, the one it will sign in with. Blocking.
+pub fn signed_in(steam_root: &Path) -> Option<String> {
+    moonglass_platform::steam_active_account()
+        .map(steam_accounts::steam_id64)
+        .or_else(|| moonglass_scan::steam::current_user(steam_root))
+}
+
 impl SteamAccounts {
     /// Reads Steam's files. Blocking.
     pub fn load(steam_root: &Path) -> Self {
         let accounts = steam_accounts::accounts(steam_root);
-        let active = moonglass_platform::steam_active_account()
-            .map(steam_accounts::steam_id64)
-            .or_else(|| moonglass_scan::steam::current_user(steam_root));
+        let active = signed_in(steam_root);
         let access = active
             .as_deref()
             .map(|id| Access::load(steam_root, id))
