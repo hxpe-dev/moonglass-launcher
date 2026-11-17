@@ -162,10 +162,18 @@ impl LauncherView {
 
         if !self.loaded {
             // Nothing yet; the first frame stays plain.
-        } else if self.games.iter().all(|g| !g.is_visible()) && !self.prefs.show_hidden {
+        } else if self.library_empty() {
             root = root.child(
                 div()
+                    .id("add-your-games")
                     .absolute()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(white(0.08)))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.set_input(InputMode::Mouse, cx);
+                        this.open_setup();
+                        cx.notify();
+                    }))
                     .left(px(l.left))
                     .top(px(l.focus_top))
                     .w(px(l.focus_w))

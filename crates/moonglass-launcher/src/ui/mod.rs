@@ -21,6 +21,7 @@ mod options;
 mod osk;
 pub mod prefs;
 mod settings;
+mod setup;
 pub mod spring;
 mod theme;
 
@@ -98,6 +99,7 @@ pub struct Loaded {
     sgdb_key_set: bool,
     emulators: Vec<EmulatorInfo>,
     games: Vec<Game>,
+    setup_done: bool,
 }
 
 impl Loaded {
@@ -115,12 +117,20 @@ impl Loaded {
             sgdb_key_set: key.ok().flatten().is_some_and(|k| !k.trim().is_empty()),
             emulators: emulators::load(db).await.unwrap_or_default(),
             games: db.games().await.unwrap_or_default(),
+            setup_done: db
+                .setting::<bool>(setup::SETTING_SETUP_DONE)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(false),
         }
     }
 }
 
 enum UiEvent {
     Library(Vec<Game>),
+    /// The startup scan finished (first-run setup shows what it found).
+    Scanned,
     Emulators(Vec<EmulatorInfo>),
     Friends(friends::Snapshot, friends::Status),
     /// The Steam accounts, or the account Steam is signed in with, changed.
@@ -207,6 +217,7 @@ enum Modal {
 enum Screen {
     Home,
     Settings(SettingsState),
+    Setup(setup::SetupState),
 }
 
 /// Stop requests passed to the polling task.
@@ -301,6 +312,10 @@ pub struct LauncherView {
     splash: Option<Splash>,
     drawn: bool,
     loaded: bool,
+    /// The startup scan has finished.
+    scanned: bool,
+    /// First-run setup while it fades out.
+    setup_leaving: Option<setup::SetupState>,
     /// Logo sizes, so the logo can be laid out left-aligned at its own
     /// aspect ratio (an image box with Contain would center it).
     logo_sizes: std::collections::HashMap<String, Option<(u32, u32)>>,
@@ -499,12 +514,19 @@ impl LauncherView {
             splash,
             drawn: false,
             loaded: false,
+            scanned: false,
+            setup_leaving: None,
             logo_sizes: Default::default(),
             user_moved: false,
             input: InputMode::Keyboard,
             wheel_accum: 0.0,
         };
+        // First start: nothing in the library yet and setup never done.
+        let first_run = !loaded.setup_done && loaded.games.iter().all(|g| !g.is_installed);
         view.handle(UiEvent::Library(loaded.games), window, cx);
+        if first_run {
+            view.open_setup();
+        }
         view.startup();
         window.focus(&view.focus);
         view
@@ -530,6 +552,7 @@ impl LauncherView {
                 tracing::error!("scan failed: {e:#}");
             }
             send(db.clone(), tx.clone()).await;
+            let _ = tx.unbounded_send(UiEvent::Scanned);
             if let Err(e) = crate::artwork::refresh(&db, &cache, false).await {
                 tracing::error!("artwork failed: {e:#}");
             }
@@ -794,6 +817,10 @@ impl LauncherView {
                 self.emulators_changed(list);
                 cx.notify();
             }
+            UiEvent::Scanned => {
+                self.scanned = true;
+                cx.notify();
+            }
             UiEvent::SteamAccounts(accounts) => self.steam_accounts_changed(accounts, cx),
             UiEvent::SteamSwitched(result, accounts) => {
                 let name = self.steam_switching.take().unwrap_or_default();
@@ -960,6 +987,8 @@ impl LauncherView {
                     self.overlay_nav(a, window, cx);
                 } else if matches!(self.screen, Screen::Settings(_)) {
                     self.settings_nav(a, cx);
+                } else if matches!(self.screen, Screen::Setup(_)) {
+                    self.setup_nav(a, cx);
                 } else {
                     self.home_nav(a, window, cx);
                 }
@@ -987,6 +1016,9 @@ impl LauncherView {
             NavAction::Confirm => {
                 if self.search_focused {
                     self.finish_search();
+                } else if self.library_empty() {
+                    // The "Add your games" card.
+                    self.open_setup();
                 } else {
                     self.play(window, cx);
                 }
@@ -1235,6 +1267,11 @@ impl LauncherView {
             };
             let _ = tx.unbounded_send(UiEvent::SteamSwitched(result, accounts));
         });
+    }
+
+    /// Nothing to show at all: the carousel is the "Add your games" card.
+    pub(super) fn library_empty(&self) -> bool {
+        self.loaded && self.games.iter().all(|g| !g.is_visible()) && !self.prefs.show_hidden
     }
 
     fn is_home_idle(&self) -> bool {
@@ -1873,6 +1910,13 @@ impl LauncherView {
             SettingsCmd::Run(item) => match item {
                 Item::AddGame => self.open_browser(Purpose::AddExecutable),
                 Item::SteamAccount => self.open_steam_accounts(cx),
+                Item::RunSetup => {
+                    if let Screen::Settings(st) = std::mem::replace(&mut self.screen, Screen::Home)
+                    {
+                        self.settings_leaving = Some(st);
+                    }
+                    self.open_setup();
+                }
                 Item::SteamKey => {
                     self.set_modal(Modal::Keyboard(Osk::new(
                         TextTarget::SteamApiKey,
@@ -2346,7 +2390,9 @@ impl Render for LauncherView {
         // Settings and the launch / Now Playing screens sit on an even
         // blurred backdrop, which the carousel crossfades into.
         let settings_open = matches!(self.screen, Screen::Settings(_));
+        let setup_open = matches!(self.screen, Screen::Setup(_));
         let backdrop_wanted = settings_open
+            || setup_open
             || matches!(
                 self.overlay,
                 Overlay::Launching { .. } | Overlay::Playing { .. }
@@ -2374,11 +2420,22 @@ impl Render for LauncherView {
         }
         let st = match &self.screen {
             Screen::Settings(st) => Some(st),
-            Screen::Home => self.settings_leaving.as_ref(),
+            _ => self.settings_leaving.as_ref(),
         };
         if let Some(st) = st.filter(|_| settings > 0.005) {
             let info = self.settings_info();
             root = root.child(self.render_settings(st, &info, settings, w, h, u, cx));
+        }
+
+        // First-run setup, kept while it fades out.
+        let setup_shown = self.glide("setup", on(setup_open));
+        if let Screen::Setup(st) = &self.screen {
+            self.setup_leaving = Some(st.clone());
+        } else if setup_shown < 0.005 {
+            self.setup_leaving = None;
+        }
+        if let Some(st) = self.setup_leaving.as_ref().filter(|_| setup_shown > 0.005) {
+            root = root.child(self.render_setup(st, setup_shown, u, cx));
         }
 
         let modal_open = !matches!(self.modal, Modal::None);

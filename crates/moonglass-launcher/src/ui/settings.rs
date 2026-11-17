@@ -71,6 +71,7 @@ pub enum Item {
     StartAtLogin,
     DismissLauncher,
     RestoreHotkey,
+    RunSetup,
     Logs,
     Version,
     Exit,
@@ -115,6 +116,7 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::StartAtLogin,
             Item::DismissLauncher,
             Item::RestoreHotkey,
+            Item::RunSetup,
             Item::Logs,
             Item::Version,
             Item::Exit,
@@ -158,6 +160,7 @@ impl Item {
             | Item::SteamAccount
             | Item::SgdbKey
             | Item::RefreshArt
+            | Item::RunSetup
             | Item::Exit => Kind::Action,
             Item::LibraryInfo
             | Item::FriendsInfo
@@ -199,6 +202,7 @@ impl Item {
             Item::StartAtLogin => "Start Moonglass at login",
             Item::DismissLauncher => "Send Steam / Epic to the tray after a game",
             Item::RestoreHotkey => "Return to Moonglass during a game",
+            Item::RunSetup => "First-time setup",
             Item::Logs => "Logs",
             Item::Version => "Version",
             Item::Exit => "Exit Moonglass",
@@ -429,6 +433,7 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
                 restore_combo(info.family).to_string()
             }
         }
+        Item::RunSetup => "Open".into(),
         Item::Logs => info.logs.clone(),
         Item::Version => env!("CARGO_PKG_VERSION").into(),
         Item::Exit => "Exit".into(),
