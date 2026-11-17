@@ -1,0 +1,3 @@
+# sqlx stores a checksum of each migration in the database; CRLF
+# checkouts would change those bytes and the library would not open.
+*.sql text eol=lf
