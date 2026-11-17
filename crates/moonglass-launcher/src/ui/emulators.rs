@@ -19,6 +19,9 @@ pub struct Preset {
     pub template: &'static str,
     pub extensions: &'static str,
     pub folder_marker: Option<&'static str>,
+    /// Flathub IDs of the emulator: on Linux an installed one is used
+    /// directly (`flatpak run <id>`), with no program to choose.
+    pub flatpak_ids: &'static [&'static str],
 }
 
 pub const PRESETS: [Preset; 7] = [
@@ -28,30 +31,35 @@ pub const PRESETS: [Preset; 7] = [
         template: r#""{rom}""#,
         extensions: ".zip,.7z,.nes,.sfc,.smc,.gb,.gbc,.gba,.md,.gen,.n64,.z64,.nds,.cue,.chd,.m3u",
         folder_marker: None,
+        flatpak_ids: &["org.libretro.RetroArch"],
     },
     Preset {
         name: "Dolphin",
         template: r#"-b -e "{rom}""#,
         extensions: ".iso,.rvz,.gcm,.gcz,.ciso,.wbfs,.wad",
         folder_marker: None,
+        flatpak_ids: &["org.DolphinEmu.dolphin-emu"],
     },
     Preset {
         name: "PCSX2",
         template: r#"-batch -fullscreen -- "{rom}""#,
         extensions: ".iso,.chd,.cso,.cue,.m3u",
         folder_marker: None,
+        flatpak_ids: &["net.pcsx2.PCSX2"],
     },
     Preset {
         name: "RPCS3",
         template: r#"--no-gui "{rom}""#,
         extensions: "",
         folder_marker: Some("PS3_GAME/USRDIR/EBOOT.BIN"),
+        flatpak_ids: &["net.rpcs3.RPCS3"],
     },
     Preset {
         name: "Ryujinx",
         template: r#"--fullscreen "{rom}""#,
         extensions: SWITCH_FILES,
         folder_marker: None,
+        flatpak_ids: &["io.github.ryubing.Ryujinx", "org.ryujinx.Ryujinx"],
     },
     Preset {
         // yuzu and the emulators built from it take the same arguments.
@@ -59,12 +67,14 @@ pub const PRESETS: [Preset; 7] = [
         template: r#"-f -g "{rom}""#,
         extensions: SWITCH_FILES,
         folder_marker: None,
+        flatpak_ids: &["org.yuzu_emu.yuzu"],
     },
     Preset {
         name: "Another emulator",
         template: r#""{rom}""#,
         extensions: "",
         folder_marker: None,
+        flatpak_ids: &[],
     },
 ];
 
@@ -141,6 +151,9 @@ fn preset_menu() -> Menu {
             .map(|(i, p)| {
                 let label = if i == CUSTOM {
                     format!("{}…", p.name)
+                } else if moonglass_platform::installed_flatpak(p.flatpak_ids).is_some() {
+                    // Linux: picked up as installed, no program to choose.
+                    format!("{}  ·  Flatpak found", p.name)
                 } else {
                     p.name.to_string()
                 };
@@ -253,10 +266,17 @@ impl LauncherView {
         let emulator = m.emulator.as_deref().and_then(|id| self.emulator(id));
         match (action, emulator.cloned()) {
             (MenuAction::AddEmulator(preset), _) => {
-                self.open_browser(Purpose::EmulatorProgram {
-                    preset: Some(preset),
-                    emulator: None,
-                });
+                let flatpak = PRESETS
+                    .get(preset)
+                    .and_then(|p| moonglass_platform::installed_flatpak(p.flatpak_ids));
+                match flatpak {
+                    // Installed from Flathub: nothing to choose.
+                    Some(app_id) => self.add_preset(preset, "flatpak".into(), Some(app_id), None),
+                    None => self.open_browser(Purpose::EmulatorProgram {
+                        preset: Some(preset),
+                        emulator: None,
+                    }),
+                }
             }
             (MenuAction::ChangeProgram, Some(info)) => {
                 self.open_browser(Purpose::EmulatorProgram {
@@ -316,35 +336,59 @@ impl LauncherView {
                 ..info.emulator.clone()
             },
             (None, Some(i)) => {
-                let p = &PRESETS[i.min(CUSTOM)];
-                let name = if i >= CUSTOM {
-                    path.file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                } else {
-                    p.name.to_string()
-                };
-                Emulator {
-                    id: new_id(&name, &self.emulators),
-                    name,
-                    executable_path: program,
-                    launch_template: p.template.to_string(),
-                    file_extensions: p.extensions.to_string(),
-                    folder_marker: p.folder_marker.map(str::to_string),
-                }
+                let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+                return self.add_preset(i, program, None, stem);
             }
             (None, None) => return,
         };
-        let is_new = emulator.is_none();
         let id = profile.id.clone();
         self.db_task(move |db, _| async move {
             db.upsert_emulator(&profile).await?;
-            Ok(Some(if is_new {
-                format!("Added {} · now add a ROM folder", profile.name)
-            } else {
-                format!("Program changed for {}", profile.name)
-            }))
+            Ok(Some(format!("Program changed for {}", profile.name)))
+        });
+        // Shown once the profile is back from the database.
+        self.pending_emulator_menu = Some(id);
+    }
+
+    /// Adds a profile from preset `i`. `flatpak_app` runs it as that
+    /// Flatpak (the program is then `flatpak`); `custom_name` names a
+    /// profile made from "Another emulator".
+    fn add_preset(
+        &mut self,
+        i: usize,
+        program: String,
+        flatpak_app: Option<String>,
+        custom_name: Option<String>,
+    ) {
+        let p = &PRESETS[i.min(CUSTOM)];
+        let name = match custom_name {
+            Some(n) if i >= CUSTOM => n,
+            _ => p.name.to_string(),
+        };
+        let launch_template = match &flatpak_app {
+            Some(app) => format!("run {app} {}", p.template),
+            None => p.template.to_string(),
+        };
+        let profile = Emulator {
+            id: new_id(&name, &self.emulators),
+            name,
+            executable_path: program,
+            launch_template,
+            file_extensions: p.extensions.to_string(),
+            folder_marker: p.folder_marker.map(str::to_string),
+        };
+        let id = profile.id.clone();
+        let via = if flatpak_app.is_some() {
+            " (its Flatpak)"
+        } else {
+            ""
+        };
+        self.db_task(move |db, _| async move {
+            db.upsert_emulator(&profile).await?;
+            Ok(Some(format!(
+                "Added {}{via} · now add a ROM folder",
+                profile.name
+            )))
         });
         // Shown once the profile is back from the database.
         self.pending_emulator_menu = Some(id);

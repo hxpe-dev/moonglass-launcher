@@ -362,6 +362,11 @@ fn reg_get_dword(subkey: &str, value: &str) -> Option<u32> {
     (rc == ERROR_SUCCESS).then_some(data)
 }
 
+/// Flatpak is Linux only.
+pub fn flatpak_app_installed(_app_id: &str) -> bool {
+    false
+}
+
 pub const STEAM_PROCESS: &str = "steam.exe";
 
 pub fn steam_active_account() -> Option<u32> {

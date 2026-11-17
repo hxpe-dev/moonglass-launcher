@@ -96,6 +96,10 @@ fn on_path(program: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+pub fn flatpak_app_installed(app_id: &str) -> bool {
+    home().is_ok_and(|h| flatpak_installed(app_id, &h))
+}
+
 fn flatpak_installed(app_id: &str, home: &Path) -> bool {
     [
         home.join(".local/share/flatpak/app").join(app_id),

@@ -514,6 +514,15 @@ pub fn steam_app_running(app_id: &str) -> Option<bool> {
     imp::steam_app_running(app_id)
 }
 
+/// The first of `app_ids` installed as a Flatpak (Linux; always `None` on
+/// Windows).
+pub fn installed_flatpak(app_ids: &[&str]) -> Option<String> {
+    app_ids
+        .iter()
+        .find(|id| imp::flatpak_app_installed(id))
+        .map(|id| id.to_string())
+}
+
 // ------------------------------------------------- Steam accounts
 
 /// The 32-bit account ID Steam is signed in with right now, `None` when
