@@ -554,6 +554,19 @@ pub mod window {
     /// No-op: Moonglass stays fullscreen underneath the game.
     pub fn hide_for_game(_raw: isize) {}
 
+    /// A desktop notification through `notify-send`, where it is installed.
+    pub fn notify(_raw: isize, title: &str, body: &str) {
+        let sent = std::process::Command::new("notify-send")
+            .args(["--app-name=Moonglass", title, body])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        if let Err(e) = sent {
+            tracing::warn!(error = %e, "desktop notification unavailable");
+        }
+    }
+
     /// Focus is requested through the toolkit on Linux.
     pub fn regain_focus(_raw: isize) -> FocusResult {
         FocusResult::UseToolkit

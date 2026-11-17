@@ -571,6 +571,62 @@ pub mod window {
         WS_POPUP, WS_VISIBLE,
     };
 
+    /// A desktop notification: a tray balloon, which Windows 10 and 11 show
+    /// as a regular notification. The tray icon is removed after a while.
+    pub fn notify(raw: isize, title: &str, body: &str) {
+        use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows::Win32::UI::Shell::{
+            Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
+            NOTIFYICONDATAW,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
+
+        fn copy(dst: &mut [u16], s: &str) {
+            let n = dst.len() - 1;
+            for (d, c) in dst.iter_mut().zip(s.encode_utf16().take(n)) {
+                *d = c;
+            }
+        }
+        let mut data = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd(raw),
+            uID: 0x4D47,
+            uFlags: NIF_INFO | NIF_ICON | NIF_TIP,
+            dwInfoFlags: NIIF_INFO,
+            ..Default::default()
+        };
+        unsafe {
+            // The program's own icon (resource 1), else the generic one.
+            let module = GetModuleHandleW(None).ok();
+            data.hIcon = module
+                .and_then(|m| LoadIconW(Some(m.into()), windows::core::PCWSTR(1 as _)).ok())
+                .or_else(|| LoadIconW(None, IDI_APPLICATION).ok())
+                .unwrap_or_default();
+        }
+        copy(&mut data.szTip, "Moonglass");
+        copy(&mut data.szInfoTitle, title);
+        copy(&mut data.szInfo, body);
+        unsafe {
+            if !Shell_NotifyIconW(NIM_ADD, &data).as_bool() {
+                tracing::warn!("desktop notification unavailable");
+                return;
+            }
+        }
+        let handle = raw;
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(15));
+            let data = NOTIFYICONDATAW {
+                cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+                hWnd: hwnd(handle),
+                uID: 0x4D47,
+                ..Default::default()
+            };
+            unsafe {
+                let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+            }
+        });
+    }
+
     fn hwnd(raw: isize) -> HWND {
         HWND(raw as *mut _)
     }

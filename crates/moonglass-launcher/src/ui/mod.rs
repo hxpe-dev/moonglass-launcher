@@ -2064,7 +2064,7 @@ impl LauncherView {
                 if let Some(game) = &game {
                     self.dismiss_launcher(game);
                 }
-                self.regain_focus(window);
+                self.regain_focus(window, cx);
                 if let Some(game) = game {
                     let mins = session.as_secs() / 60;
                     if mins > 0 {
@@ -2087,15 +2087,36 @@ impl LauncherView {
             .unwrap_or_default()
     }
 
-    fn regain_focus(&self, window: &mut Window) {
+    fn regain_focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         match moonglass_platform::window::regain_focus(raw_window(window)) {
             FocusResult::Focused => {}
-            FocusResult::UseToolkit => window.activate_window(),
-            FocusResult::NotFocused => {
-                tracing::warn!("could not regain focus after the game; flashing the taskbar");
+            FocusResult::UseToolkit => {
+                // An activation request, which the desktop may decline
+                // (Wayland): look again once it has had time to act.
+                window.activate_window();
+                cx.spawn_in(window, async move |_, cx| {
+                    cx.background_executor().timer(Duration::from_secs(2)).await;
+                    let _ = cx.update(|window, _| {
+                        if !window.is_window_active() {
+                            Self::focus_failed(window);
+                        }
+                    });
+                })
+                .detach();
             }
+            FocusResult::NotFocused => Self::focus_failed(window),
         }
         window.focus(&self.focus);
+    }
+
+    /// Spec 5.3: focus could not be taken back. Say how to return.
+    fn focus_failed(window: &Window) {
+        tracing::warn!("could not regain focus; showing a notification");
+        moonglass_platform::window::notify(
+            raw_window(window),
+            "Moonglass is ready",
+            "It could not come to the front by itself. Switch to it from the taskbar or with Alt + Tab.",
+        );
     }
 
     /// Spec 5.3: after a Steam or Epic game, a client window left in front
@@ -2134,7 +2155,7 @@ impl LauncherView {
     /// Restore hotkey: bring Moonglass forward over the game.
     fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.is_some() && self.lifecycle.restore_hotkey_armed() {
-            self.regain_focus(window);
+            self.regain_focus(window, cx);
             cx.notify();
         }
     }
