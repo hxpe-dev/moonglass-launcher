@@ -1,14 +1,18 @@
 //! Artwork orchestration (spec 5.2): for each game without artwork, try
 //! Steam's local cache, then the Epic launcher's catalog, then SteamGridDB
-//! (with a key), then a placeholder, ingest the result, and store it. Locked (user-chosen) artwork is never
-//! replaced.
+//! (with a key), then, for emulated games, the keyless game databases
+//! ([`moonglass_art::rom_art`]), then a placeholder; ingest the result, and
+//! store it. Locked (user-chosen) artwork is never replaced.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use moonglass_art::epic_catalog::{self, Catalog};
 use moonglass_art::ingest::{
-    card_image_path, ingest, is_placeholder_cover, CardCrop, IngestConfig, Ingested,
+    card_image_path, ensure_motion_hero, ingest, is_placeholder_cover, CardCrop, IngestConfig,
+    Ingested,
 };
+use moonglass_art::rom_art;
 use moonglass_art::steamgriddb::{Client, Lookup};
 use moonglass_art::{cache_folder_name, steam_cache, FoundArt};
 use moonglass_core::{Game, GameId, Source};
@@ -21,6 +25,7 @@ pub struct ArtSummary {
     pub from_steam: usize,
     pub from_epic: usize,
     pub from_sgdb: usize,
+    pub from_rom_db: usize,
     pub placeholders: usize,
     pub failed: usize,
 }
@@ -29,9 +34,13 @@ impl std::fmt::Display for ArtSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Artwork: {} from Steam, {} from Epic, {} from SteamGridDB, {} placeholders",
-            self.from_steam, self.from_epic, self.from_sgdb, self.placeholders
+            "Artwork: {} from Steam, {} from Epic, {} from SteamGridDB",
+            self.from_steam, self.from_epic, self.from_sgdb
         )?;
+        if self.from_rom_db > 0 {
+            write!(f, ", {} from game databases", self.from_rom_db)?;
+        }
+        write!(f, ", {} placeholders", self.placeholders)?;
         if self.failed > 0 {
             write!(f, ", {} failed", self.failed)?;
         }
@@ -114,9 +123,36 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
         None
     };
     let http = moonglass_art::http_client()?;
-    // An Epic game left with a placeholder is tried again: the catalog may
-    // have gained it, or the last download may have failed.
-    let retry = |g: &Game| g.source == Source::Epic && epic.is_some() && has_placeholder(g);
+    // Which emulator runs each ROM folder, to tell the system of a game.
+    let emulator_names: HashMap<String, String> = db
+        .emulators()
+        .await?
+        .into_iter()
+        .map(|e| {
+            let exe = Path::new(&e.executable_path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            (e.id, format!("{} {exe}", e.name))
+        })
+        .collect();
+    let rom_emulator: HashMap<String, String> = db
+        .rom_folders()
+        .await?
+        .into_iter()
+        .filter_map(|d| Some((d.id, emulator_names.get(&d.emulator_id)?.clone())))
+        .collect();
+    let switch_ids = if games.iter().any(|g| g.source == Source::Rom && unlocked(g)) {
+        tokio::task::spawn_blocking(rom_art::switch_title_ids_from_emulators).await?
+    } else {
+        Vec::new()
+    };
+    // An Epic or emulated game left with a placeholder is tried again: the
+    // catalog may have gained it, or the last download may have failed.
+    let retry = |g: &Game| {
+        has_placeholder(g)
+            && ((g.source == Source::Epic && epic.is_some()) || g.source == Source::Rom)
+    };
     for g in games
         .iter()
         .filter(|g| unlocked(g) && (force || needs_art(g) || retry(g)))
@@ -159,6 +195,18 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
             }
         }
 
+        let mut rom_hit = false;
+        if g.source == Source::Rom && !found.is_complete() {
+            let emulator = g
+                .rom_directory_id
+                .as_ref()
+                .and_then(|d| rom_emulator.get(d))
+                .map_or("", String::as_str);
+            let more = rom_artwork(&http, g, emulator, &switch_ids, &found, &dir).await;
+            rom_hit = found.cover.is_none() && more.cover.is_some();
+            found.fill_from(more);
+        }
+
         // Nothing better than the placeholder it already has.
         if found.cover.is_none() && has_placeholder(g) && !force {
             continue;
@@ -181,6 +229,8 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
                     summary.from_epic += 1;
                 } else if sgdb_hit {
                     summary.from_sgdb += 1;
+                } else if rom_hit {
+                    summary.from_rom_db += 1;
                 }
             }
             Err(e) => {
@@ -189,7 +239,71 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
             }
         }
     }
+
+    // The motion-blurred background, for artwork made before it existed.
+    let heroes: Vec<PathBuf> = db
+        .games()
+        .await?
+        .into_iter()
+        .filter_map(|g| g.hero_path.map(PathBuf::from))
+        .filter(|h| h.is_file() && !moonglass_art::ingest::motion_hero_path(h).is_file())
+        .collect();
+    if !heroes.is_empty() {
+        tokio::task::spawn_blocking(move || {
+            for h in heroes {
+                if let Err(e) = ensure_motion_hero(&h) {
+                    tracing::warn!(error = %e, "motion background not made");
+                }
+            }
+        })
+        .await?;
+    }
     Ok(summary)
+}
+
+/// Keyless artwork for an emulated game: the Switch eShop images by title
+/// ID, or libretro box art. Failures are logged and leave slots empty.
+async fn rom_artwork(
+    http: &reqwest::Client,
+    g: &Game,
+    emulator: &str,
+    switch_ids: &[(String, String)],
+    want: &FoundArt,
+    dir: &Path,
+) -> FoundArt {
+    let Some(file) = g.launch_target.as_deref().map(Path::new) else {
+        return FoundArt::default();
+    };
+    // A folder game (RPCS3) is named by its folder.
+    let stem = if file.is_dir() {
+        file.file_name()
+    } else {
+        file.file_stem()
+    }
+    .map(|s| s.to_string_lossy().into_owned())
+    .unwrap_or_default();
+    let result = if rom_art::is_switch(file, emulator) {
+        let key = rom_art::match_key(&g.title);
+        let id = rom_art::switch_title_id(&stem).or_else(|| {
+            switch_ids
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, id)| id.clone())
+        });
+        match id {
+            Some(id) => rom_art::fetch_switch(http, &id, want, dir).await,
+            None => return FoundArt::default(),
+        }
+    } else if want.cover.is_none() {
+        let systems = rom_art::libretro_systems(file, emulator);
+        rom_art::fetch_libretro(http, systems, &stem, &g.title, dir).await
+    } else {
+        return FoundArt::default();
+    };
+    result.unwrap_or_else(|e| {
+        tracing::warn!(game = %g.id, error = %e, "emulated game artwork lookup failed");
+        FoundArt::default()
+    })
 }
 
 /// `[Y] → Change Artwork`: the user picks an image; it is ingested and

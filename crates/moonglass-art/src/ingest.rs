@@ -100,6 +100,35 @@ fn center_crop(img: &DynamicImage, (aw, ah): (u32, u32)) -> DynamicImage {
     img.crop_imm((w - cw) / 2, (h - ch) / 2, cw, ch)
 }
 
+/// A cover shaped for a card. Covers about as wide as the card or taller
+/// are center-cropped (a 2:3 poster on a square card loses a little top and
+/// bottom). A cover much wider than the card (a square Switch icon or a
+/// landscape box on a poster card) would lose its sides, often half the
+/// title: it is shown whole instead, centered on a blurred, darkened fill
+/// made from itself.
+fn card_from_cover(img: &DynamicImage, (aw, ah): (u32, u32)) -> DynamicImage {
+    let (w, h) = img.dimensions();
+    let (src, dst) = (w as f32 / h.max(1) as f32, aw as f32 / ah as f32);
+    if src <= dst * 1.2 {
+        return center_crop(img, (aw, ah));
+    }
+    let out_h = (w as u64 * ah as u64 / aw as u64) as u32;
+    let small_w = 64u32;
+    let small_h = (small_w * ah / aw).max(1);
+    let small = center_crop(img, (aw, ah)).resize_exact(small_w, small_h, FilterType::Triangle);
+    let mut fill = image::imageops::blur(&small.to_rgb8(), 4.0);
+    for p in fill.pixels_mut() {
+        for c in p.0.iter_mut() {
+            *c = (*c as f32 * 0.55) as u8;
+        }
+    }
+    let mut canvas = DynamicImage::ImageRgb8(fill)
+        .resize_exact(w, out_h, FilterType::Triangle)
+        .to_rgb8();
+    image::imageops::overlay(&mut canvas, &img.to_rgb8(), 0, ((out_h - h) / 2) as i64);
+    DynamicImage::ImageRgb8(canvas)
+}
+
 /// Scales `img` down to `max_height` if it is taller.
 fn fit_height(img: DynamicImage, max_height: u32) -> DynamicImage {
     if img.height() <= max_height {
@@ -119,6 +148,65 @@ pub fn is_placeholder_cover(cover_path: &Path) -> bool {
 /// needs no extra columns. `level` is 0, 1 or 2.
 pub fn blurred_hero_path(hero_path: &Path, level: usize) -> PathBuf {
     hero_path.with_file_name(format!("hero_blur_{}.jpg", level.min(2)))
+}
+
+/// Width of the motion-blurred background texture: wider than the blur
+/// textures, since the art is only smeared sideways and stays recognizable.
+pub const MOTION_WIDTH: u32 = 960;
+
+/// Path of the horizontally motion-blurred hero, derived like
+/// [`blurred_hero_path`].
+pub fn motion_hero_path(hero_path: &Path) -> PathBuf {
+    hero_path.with_file_name("hero_motion.jpg")
+}
+
+/// Smears `img` sideways, as a fast horizontal camera pan would: three
+/// box blurs along each row (close to a Gaussian), none vertically.
+fn motion_blur(img: &DynamicImage) -> image::RgbImage {
+    let (w, h) = img.dimensions();
+    let small_h = ((h as u64 * MOTION_WIDTH as u64) / w.max(1) as u64).max(1) as u32;
+    let mut buf = img
+        .resize_exact(MOTION_WIDTH, small_h, FilterType::Triangle)
+        .to_rgb8();
+    let width = buf.width() as i64;
+    let radius = (MOTION_WIDTH / 40) as i64;
+    let mut row = vec![[0u32; 3]; width as usize];
+    for _pass in 0..3 {
+        for y in 0..buf.height() {
+            for x in 0..width {
+                row[x as usize] = buf.get_pixel(x as u32, y).0.map(u32::from);
+            }
+            // Running sum over [x - r, x + r], edges clamped.
+            let at = |i: i64| row[i.clamp(0, width - 1) as usize];
+            let mut sum = [0u32; 3];
+            for i in -radius..=radius {
+                let p = at(i);
+                (0..3).for_each(|c| sum[c] += p[c]);
+            }
+            let n = (2 * radius + 1) as u32;
+            for x in 0..width {
+                let px = image::Rgb(sum.map(|s| (s / n) as u8));
+                buf.put_pixel(x as u32, y, px);
+                let (add, sub) = (at(x + radius + 1), at(x - radius));
+                (0..3).for_each(|c| sum[c] = sum[c] + add[c] - sub[c]);
+            }
+        }
+    }
+    buf
+}
+
+fn write_motion(hero: &DynamicImage, path: &Path) -> Result<(), ArtError> {
+    save_jpeg(&DynamicImage::ImageRgb8(motion_blur(hero)), path, 85)
+}
+
+/// Makes the motion-blurred texture for artwork ingested before it
+/// existed. Does nothing when it is already there.
+pub fn ensure_motion_hero(hero_path: &Path) -> Result<PathBuf, ArtError> {
+    let path = motion_hero_path(hero_path);
+    if !path.is_file() {
+        write_motion(&open(hero_path)?, &path)?;
+    }
+    Ok(path)
 }
 
 fn open(path: &Path) -> Result<DynamicImage, ArtError> {
@@ -178,12 +266,12 @@ pub fn ingest(
     };
     // One image per card shape, cropped to fit it exactly.
     for crop in CardCrop::ALL {
-        let source = if crop == CardCrop::Banner {
-            &hero_img
+        let shaped = if crop == CardCrop::Banner {
+            center_crop(&hero_img, crop.aspect())
         } else {
-            &cover_img
+            card_from_cover(&cover_img, crop.aspect())
         };
-        let card = fit_height(center_crop(source, crop.aspect()), cfg.cover_max_height);
+        let card = fit_height(shaped, cfg.cover_max_height);
         save_jpeg(&card, &card_image_path(&cover_path, crop), 90)?;
     }
 
@@ -195,6 +283,8 @@ pub fn ingest(
         let target = out_dir.join(format!("hero_blur_{level}.jpg"));
         save_jpeg(&blurred, &target, 85)?;
     }
+
+    write_motion(&hero_img, &motion_hero_path(&hero_path))?;
 
     let logo_path = match &found.logo {
         Some(src) => {
@@ -265,10 +355,46 @@ mod tests {
             let b = image::open(blurred_hero_path(&r.hero_path, level)).unwrap();
             assert_eq!(b.width(), BLUR_WIDTH);
         }
+        assert!(motion_hero_path(&r.hero_path).is_file());
         assert_eq!(r.logo_path, Some(out.join("logo.png")));
         // Red-ish cover gives a red-ish dominant color.
         let d = color::to_hsl(color::Rgb::from_hex(&r.dominant).unwrap());
         assert!(!(30.0..330.0).contains(&d.h), "hue {}", d.h);
+    }
+
+    #[test]
+    fn wide_covers_are_shown_whole() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("icon.png");
+        write_img(&src, 600, 600, [250, 250, 250]);
+        let found = FoundArt {
+            cover: Some(src),
+            ..Default::default()
+        };
+        let r = ingest(&found, "Icon", tmp.path(), IngestConfig::default()).unwrap();
+        let poster = image::open(card_image_path(&r.cover_path, CardCrop::Poster))
+            .unwrap()
+            .to_rgb8();
+        assert_eq!((poster.width(), poster.height()), (600, 900));
+        // The icon is whole in the middle; the fill above it is darker.
+        assert!(poster.get_pixel(300, 450).0[0] > 230);
+        assert!(poster.get_pixel(300, 20).0[0] < 160);
+    }
+
+    #[test]
+    fn motion_blur_is_horizontal() {
+        // Left half black, right half white, split by a vertical edge.
+        let mut img = RgbImage::new(200, 100);
+        for (x, _, p) in img.enumerate_pixels_mut() {
+            *p = Rgb(if x < 100 { [0; 3] } else { [255; 3] });
+        }
+        let out = motion_blur(&DynamicImage::ImageRgb8(img));
+        let mid = out.width() / 2;
+        let v = |x: u32, y: u32| out.get_pixel(x, y).0[0];
+        // Smeared across the edge, identical down each column.
+        assert!(v(mid, 10) > 60 && v(mid, 10) < 200);
+        assert_eq!(v(mid, 10), v(mid, out.height() - 10));
+        assert!(v(5, 10) < 5 && v(out.width() - 5, 10) > 250);
     }
 
     #[test]

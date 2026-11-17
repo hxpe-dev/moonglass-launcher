@@ -50,6 +50,42 @@ pub(crate) async fn download(
     Ok(path)
 }
 
+/// Like [`download`], for hosts where a missing image is an ordinary
+/// answer: `Ok(None)` on 404, or when the response is not an image (some
+/// hosts answer a miss with an HTML page). Saved as `<dir>/<stem>.<ext>`.
+pub(crate) async fn download_if_found(
+    http: &reqwest::Client,
+    url: &str,
+    dir: &Path,
+    stem: &str,
+    ext: &str,
+) -> Result<Option<PathBuf>, ArtError> {
+    let resp = http.get(url).send().await?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let resp = resp.error_for_status()?;
+    let is_image = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|t| t.starts_with("image/"));
+    if !is_image {
+        return Ok(None);
+    }
+    if resp.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES) {
+        return Err(ArtError::TooLarge(url.to_string()));
+    }
+    let bytes = resp.bytes().await?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err(ArtError::TooLarge(url.to_string()));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| ArtError::io(dir, e))?;
+    let path = dir.join(format!("{stem}.{ext}"));
+    std::fs::write(&path, &bytes).map_err(|e| ArtError::io(&path, e))?;
+    Ok(Some(path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

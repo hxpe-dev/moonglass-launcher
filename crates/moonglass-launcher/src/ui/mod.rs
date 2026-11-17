@@ -15,6 +15,7 @@ mod browser;
 mod emulators;
 mod gamepad;
 mod home;
+mod icons;
 mod menu;
 mod options;
 mod osk;
@@ -37,7 +38,7 @@ use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, FocusHandle, Hsla, KeyDownEvent,
     MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
 };
-use moonglass_art::ingest::blurred_hero_path;
+use moonglass_art::ingest::{blurred_hero_path, motion_hero_path};
 use moonglass_core::library::{carousel, search, visible_filters, Filter};
 use moonglass_core::lifecycle::{AbandonReason, Effect, Lifecycle, State, Timing};
 use moonglass_core::{Game, GameId, Source};
@@ -143,6 +144,8 @@ enum UiEvent {
 struct Ambient {
     background: Option<PathBuf>,
     fanart: Option<PathBuf>,
+    /// The art smeared sideways, for the motion blur background.
+    motion: Option<PathBuf>,
     dominant: Hsla,
     accent: Hsla,
 }
@@ -249,6 +252,9 @@ pub struct LauncherView {
     ambient_from: Option<Ambient>,
     ambient_to: Option<Ambient>,
     crossfade: f32,
+    /// Which way the focus last moved (+1 right, -1 left): the motion blur
+    /// background slides with it.
+    motion_dir: f32,
     caret_epoch: Instant,
     repaint_pending: bool,
     /// Every animated value except the carousel position (see [`anim`]).
@@ -417,6 +423,7 @@ impl LauncherView {
             ambient_from: None,
             ambient_to: None,
             crossfade: 1.0,
+            motion_dir: 1.0,
             caret_epoch: Instant::now(),
             repaint_pending: false,
             anims: RefCell::new(Anims::new()),
@@ -594,7 +601,11 @@ impl LauncherView {
     }
 
     fn select(&mut self, index: usize, snap: bool) {
-        self.selected = index.min(self.order.len().saturating_sub(1));
+        let index = index.min(self.order.len().saturating_sub(1));
+        if index != self.selected {
+            self.motion_dir = if index > self.selected { 1.0 } else { -1.0 };
+        }
+        self.selected = index;
         if snap || !self.prefs.animate() {
             self.spring.snap(self.selected as f32);
         } else {
@@ -607,6 +618,10 @@ impl LauncherView {
                 .as_ref()
                 .map(|h| blurred_hero_path(&PathBuf::from(h), level)),
             fanart: g.hero_path.as_ref().map(PathBuf::from),
+            motion: g
+                .hero_path
+                .as_ref()
+                .map(|h| motion_hero_path(&PathBuf::from(h))),
             dominant: hex_color(g.dominant_color.as_deref(), 0x2A3550),
             accent: hex_color(g.accent_color.as_deref(), 0x5A78C8),
         });
@@ -2178,7 +2193,7 @@ pub fn run(
     start: impl FnOnce() -> anyhow::Result<(Backend, Loaded)>,
     splash: Option<Splash>,
 ) -> anyhow::Result<()> {
-    let app = Application::new();
+    let app = Application::new().with_assets(icons::Assets);
     let (backend, loaded) = start()?;
     let backend = Arc::new(backend);
     app.run(move |cx: &mut App| {

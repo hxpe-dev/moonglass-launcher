@@ -2,6 +2,8 @@
 
 use gpui::{div, prelude::*, px, rgb, Div, Hsla, Rgba};
 
+use super::icons::{icon, keycap_icons};
+
 pub const OBSIDIAN: u32 = 0x07080B;
 pub const INK: u32 = 0x101114;
 
@@ -62,25 +64,31 @@ pub fn segment(t: f32, start: f32, dur: f32) -> f32 {
     ((t - start) / dur).clamp(0.0, 1.0)
 }
 
-/// A rounded key cap ("A", "Enter", "LB RB").
+/// A rounded key cap ("A", "Enter", "LB RB"). Controller glyphs and arrow
+/// pairs ("✕", "≡", "↑↓") are drawn as icons, centered in the cap.
 pub fn keycap(label: &str, u: f32) -> Div {
-    div()
+    let cap = div()
         .h(px(30.0 * u))
         .min_w(px(30.0 * u))
-        .px(px(if label.chars().count() > 1 {
-            10.0 * u
-        } else {
-            0.0
-        }))
         .rounded_full()
         .bg(white(0.9))
         .text_color(rgb(INK))
         .flex()
         .items_center()
-        .justify_center()
-        .text_size(px(15.0 * u))
-        .font_weight(gpui::FontWeight::BOLD)
-        .child(label.to_string())
+        .justify_center();
+    if let Some(icons) = keycap_icons(label) {
+        return cap
+            .when(icons.len() > 1, |d| d.px(px(8.0 * u)).gap(px(2.0 * u)))
+            .children(icons.iter().map(|i| icon(*i, 15.0 * u, rgb(INK))));
+    }
+    cap.px(px(if label.chars().count() > 1 {
+        10.0 * u
+    } else {
+        0.0
+    }))
+    .text_size(px(15.0 * u))
+    .font_weight(gpui::FontWeight::BOLD)
+    .child(label.to_string())
 }
 
 /// A pill button body; callers add the id, hover and click handler.

@@ -9,7 +9,8 @@ use gpui::{div, prelude::*, px, rgb, AnyElement, Context, SharedString};
 use moonglass_core::GameId;
 
 use super::gamepad::NavAction;
-use super::theme::{black, keycap, on, selected, white};
+use super::icons::{icon, Icon};
+use super::theme::{black, keycap, mix, on, selected, white, INK};
 use super::LauncherView;
 
 /// Rows shown at once; the list scrolls around the selection.
@@ -261,12 +262,12 @@ impl LauncherView {
         for i in start..end {
             let e = &b.entries[i];
             let sel = i == b.selected;
-            let icon = match e.kind {
-                EntryKind::Up => "↑",
-                EntryKind::Root => "◆",
-                EntryKind::Dir => "▸",
-                EntryKind::File => "•",
-                EntryKind::UseThisFolder => "✓",
+            let kind_icon = match e.kind {
+                EntryKind::Up => Icon::ArrowUp,
+                EntryKind::Root => Icon::Drive,
+                EntryKind::Dir => Icon::Folder,
+                EntryKind::File => Icon::File,
+                EntryKind::UseThisFolder => Icon::Check,
             };
             let lit = self.glide(("browse-row", i), on(sel));
             list = list.child(
@@ -282,7 +283,12 @@ impl LauncherView {
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.browser_click(i, window, cx)),
                     )
-                    .child(div().w(px(18.0 * u)).child(icon))
+                    // The row's text color, which follows the highlight.
+                    .child(icon(
+                        kind_icon,
+                        18.0 * u,
+                        mix(white(0.85), rgb(INK).into(), lit),
+                    ))
                     .child(div().truncate().child(SharedString::from(e.label.clone()))),
             );
         }

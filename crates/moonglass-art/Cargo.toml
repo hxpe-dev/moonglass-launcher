@@ -10,6 +10,7 @@ moonglass-core.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+directories.workspace = true
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

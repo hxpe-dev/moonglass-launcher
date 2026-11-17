@@ -5,6 +5,7 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedString};
 
 use super::gamepad::{Family, NavAction};
+use super::icons::{icon, Icon};
 use super::prefs::{Choice, Prefs};
 use super::theme::{black, keycap, mix, on, selected, white, INK};
 use super::LauncherView;
@@ -488,13 +489,16 @@ impl LauncherView {
                 Kind::Choice => {
                     // A new value fades in.
                     let fresh = self.appear(("settings-value", st.section, i, v.as_str()));
+                    // The arrows take the row's text color, which follows
+                    // the highlight.
+                    let arrow = mix(white(0.95), ink, lit).opacity(0.55);
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(10.0 * u))
-                        .child(div().opacity(0.55).child("‹"))
+                        .gap(px(8.0 * u))
+                        .child(icon(Icon::ChevronLeft, 16.0 * u, arrow))
                         .child(div().opacity(fresh).child(v))
-                        .child(div().opacity(0.55).child("›"))
+                        .child(icon(Icon::ChevronRight, 16.0 * u, arrow))
                 }
                 Kind::Toggle => {
                     // The knob slides and the track changes color.

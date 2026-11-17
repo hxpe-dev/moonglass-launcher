@@ -64,6 +64,7 @@ choice!(CardDetails {
 choice!(Ambient {
     Bloom => "Color bloom",
     Fanart => "Full-screen art",
+    Motion => "Full-screen art + motion blur",
     Oled => "Pure black (OLED)",
 } default Bloom);
 

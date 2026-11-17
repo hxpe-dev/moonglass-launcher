@@ -4,12 +4,13 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, img, linear_color_stop, linear_gradient, point, prelude::*, px, rgb, AnyElement,
+    div, img, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgb, AnyElement,
     BoxShadow, Context, Div, MouseButton, ObjectFit, SharedString, Stateful,
 };
 use moonglass_art::ingest::{blurred_hero_path, card_image_path, CardCrop};
 use moonglass_core::{Game, Source};
 
+use super::icons::{icon, Icon};
 use super::prefs::{Ambient as AmbientMode, CardDetails, CardShape, Clock};
 use super::theme::{
     battery, black, ease_out_cubic, hex_color, keycap, mix, on, pill, segment, white, INK, OBSIDIAN,
@@ -218,6 +219,9 @@ impl LauncherView {
         if mode == AmbientMode::Oled && !backdrop {
             return root;
         }
+        if mode == AmbientMode::Motion {
+            return self.render_motion_background(root);
+        }
         for (amb, opacity) in [
             (self.ambient_from.clone(), 1.0 - self.crossfade),
             (self.ambient_to.clone(), self.crossfade),
@@ -266,6 +270,72 @@ impl LauncherView {
                         180.,
                         linear_color_stop(top, 0.),
                         linear_color_stop(bottom, stop),
+                    )),
+            );
+        }
+        root
+    }
+
+    /// Full-screen art with motion blur. GPUI has no blur filter, so each
+    /// game has a sideways-smeared copy of its art made at ingestion, laid
+    /// over the sharp art. At rest a part of it shows, as streaks; when the
+    /// focus moves, the new art slides in from the direction of travel,
+    /// fully smeared, and sharpens as it settles. Fast scrolling keeps it
+    /// smeared.
+    fn render_motion_background(&self, mut root: Stateful<Div>) -> Stateful<Div> {
+        /// Share of the smeared copy shown at rest.
+        const REST: f32 = 0.55;
+        /// How far the art slides, as a share of the screen width.
+        const SLIDE: f32 = 0.06;
+        // The art is wider than the screen, so sliding never shows an edge.
+        const OVERSCAN: f32 = SLIDE + 0.01;
+        // Cards per second at which the blur is at its strongest.
+        let speed = (self.spring.velocity.abs() / 6.0).min(1.0);
+        let dir = self.motion_dir;
+        let settle = ease_out_cubic(self.crossfade);
+        for (amb, opacity, offset) in [
+            // Leaving: slides out the way the focus moved.
+            (
+                self.ambient_from.clone(),
+                1.0 - self.crossfade,
+                -dir * SLIDE * settle,
+            ),
+            // Arriving: slides in from the other side.
+            (
+                self.ambient_to.clone(),
+                self.crossfade,
+                dir * SLIDE * (1.0 - settle),
+            ),
+        ] {
+            let Some(amb) = amb else { continue };
+            if opacity <= 0.001 {
+                continue;
+            }
+            let smear = (REST + (1.0 - REST) * speed.max(1.0 - settle)).min(1.0);
+            let layer = |path: PathBuf| {
+                img(path)
+                    .absolute()
+                    .top_0()
+                    .h_full()
+                    .left(relative(-OVERSCAN + offset))
+                    .w(relative(1.0 + 2.0 * OVERSCAN))
+                    .object_fit(ObjectFit::Cover)
+            };
+            if let Some(art) = amb.fanart.clone().filter(|p| p.is_file()) {
+                root = root.child(layer(art).opacity(opacity * 0.9));
+            }
+            if let Some(motion) = amb.motion.clone().filter(|p| p.is_file()) {
+                root = root.child(layer(motion).opacity(opacity * 0.9 * smear));
+            }
+            root = root.child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .opacity(opacity)
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(black(0.2), 0.),
+                        linear_color_stop(rgb(OBSIDIAN), 0.98),
                     )),
             );
         }
@@ -415,6 +485,9 @@ impl LauncherView {
             if friends > 0 || in_use {
                 let tag = |text: String, color: u32| {
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.0 * u))
                         .px(px(8.0 * u))
                         .py(px(2.0 * u))
                         .rounded(px(6.0 * u))
@@ -430,7 +503,9 @@ impl LauncherView {
                     .flex()
                     .gap(px(6.0 * u));
                 if friends > 0 {
-                    tags = tags.child(tag(format!("● {friends}"), ONLINE));
+                    // An online dot drawn as a circle, not a text bullet.
+                    let dot = div().size(px(7.0 * u)).rounded_full().bg(rgb(ONLINE));
+                    tags = tags.child(tag(friends.to_string(), ONLINE).child(dot));
                 }
                 if in_use {
                     tags = tags.child(tag("In use".into(), IN_USE));
@@ -459,13 +534,13 @@ impl LauncherView {
                 if g.is_favorite {
                     badges = badges.child(
                         div()
-                            .px(px(7.0 * u))
-                            .py(px(1.0 * u))
+                            .size(px(24.0 * u))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .rounded(px(6.0 * u))
                             .bg(black(0.7))
-                            .text_color(rgb(0xF5C451))
-                            .text_size(px(15.0 * u))
-                            .child("★"),
+                            .child(icon(Icon::Star, 15.0 * u, rgb(0xF5C451))),
                     );
                 }
                 inner = inner.child(badges);
@@ -661,12 +736,7 @@ impl LauncherView {
                 this.set_input(InputMode::Mouse, cx);
                 this.click_search_box(cx);
             }))
-            .child(
-                div()
-                    .text_color(white(0.6))
-                    .text_size(px(18.0 * u))
-                    .child("⌕"),
-            )
+            .child(icon(Icon::Search, 18.0 * u, white(0.6)))
             .child(
                 div()
                     .flex_1()
@@ -697,28 +767,34 @@ impl LauncherView {
                 d.child(
                     div()
                         .id("search-clear")
-                        .px(px(8.0 * u))
+                        .size(px(28.0 * u))
+                        .flex()
+                        .items_center()
+                        .justify_center()
                         .rounded_full()
                         .cursor_pointer()
-                        .text_color(white(0.7))
-                        .hover(|s| s.bg(white(0.15)).text_color(white(1.0)))
+                        .opacity(0.7)
+                        .hover(|s| s.bg(white(0.15)).opacity(1.0))
                         .on_click(cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
                             this.clear_search();
                             cx.notify();
                         }))
-                        .child("×"),
+                        .child(icon(Icon::Close, 14.0 * u, white(1.0))),
                 )
             })
             .child(
                 div()
                     .id("search-osk")
-                    .px(px(6.0 * u))
-                    .rounded(px(6.0 * u))
+                    .w(px(34.0 * u))
+                    .h(px(28.0 * u))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(8.0 * u))
                     .cursor_pointer()
-                    .text_color(white(0.55))
-                    .text_size(px(16.0 * u))
-                    .hover(|s| s.bg(white(0.15)).text_color(white(1.0)))
+                    .opacity(0.6)
+                    .hover(|s| s.bg(white(0.15)).opacity(1.0))
                     .on_click(cx.listener(|this, _, _, cx| {
                         cx.stop_propagation();
                         if this.is_home_idle() {
@@ -726,7 +802,7 @@ impl LauncherView {
                             cx.notify();
                         }
                     }))
-                    .child("⌨"),
+                    .child(icon(Icon::Keyboard, 22.0 * u, white(1.0))),
             );
 
         // Controller status: battery where the OS reports it.
@@ -782,13 +858,12 @@ impl LauncherView {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .text_size(px(22.0 * u))
             .hover(|s| s.bg(white(0.14)))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.set_input(InputMode::Mouse, cx);
                 this.input_action(super::gamepad::NavAction::OpenSettings, window, cx);
             }))
-            .child("⚙");
+            .child(icon(Icon::Gear, 24.0 * u, white(0.9)));
 
         div()
             .absolute()

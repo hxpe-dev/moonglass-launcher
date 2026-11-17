@@ -5,12 +5,14 @@
 //! 2. Steam's local library cache ([`steam_cache`]),
 //! 3. the Epic Games Launcher's local catalog, for Epic games ([`epic_catalog`]),
 //! 4. SteamGridDB, with the user's API key ([`steamgriddb`]),
-//! 5. a generated placeholder ([`placeholder`]).
+//! 5. for emulated games, keyless game databases: Switch eShop images by
+//!    title ID, libretro box art for older systems ([`rom_art`]),
+//! 6. a generated placeholder ([`placeholder`]).
 //!
 //! [`ingest`] then prepares what the carousel needs once per asset: a
 //! resized cover, one image cropped to each card shape, dominant and accent
-//! colors, and three pre-blurred hero textures (GPUI has no blur filter,
-//! spec 4.1).
+//! colors, three pre-blurred hero textures and a motion-blurred one (GPUI
+//! has no blur filter, spec 4.1).
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +23,7 @@ pub mod epic_catalog;
 pub mod ingest;
 mod net;
 pub mod placeholder;
+pub mod rom_art;
 pub mod steam_cache;
 pub mod steamgriddb;
 
