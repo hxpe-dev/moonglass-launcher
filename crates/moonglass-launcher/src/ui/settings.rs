@@ -43,6 +43,7 @@ impl Section {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     CardShape,
+    CardFit,
     FocusSize,
     Spacing,
     CardDetails,
@@ -85,6 +86,7 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
         }
         Section::Appearance => &[
             Item::CardShape,
+            Item::CardFit,
             Item::FocusSize,
             Item::Spacing,
             Item::CardDetails,
@@ -129,6 +131,7 @@ impl Item {
     fn kind(self) -> Kind {
         match self {
             Item::CardShape
+            | Item::CardFit
             | Item::FocusSize
             | Item::Spacing
             | Item::CardDetails
@@ -162,6 +165,7 @@ impl Item {
     pub fn label(self) -> &'static str {
         match self {
             Item::CardShape => "Card shape",
+            Item::CardFit => "Card art",
             Item::FocusSize => "Focused card size",
             Item::Spacing => "Card spacing",
             Item::CardDetails => "Card details",
@@ -263,6 +267,7 @@ impl SettingsState {
     pub fn adjust(item: Item, prefs: &mut Prefs, delta: isize) -> bool {
         match item {
             Item::CardShape => prefs.card_shape = prefs.card_shape.step(delta),
+            Item::CardFit => prefs.card_fit = prefs.card_fit.step(delta),
             Item::FocusSize => prefs.focus_size = prefs.focus_size.step(delta),
             Item::Spacing => prefs.spacing = prefs.spacing.step(delta),
             Item::CardDetails => prefs.card_details = prefs.card_details.step(delta),
@@ -376,6 +381,7 @@ fn key_state(set: bool) -> &'static str {
 fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
     match item {
         Item::CardShape => prefs.card_shape.label().into(),
+        Item::CardFit => prefs.card_fit.label().into(),
         Item::FocusSize => prefs.focus_size.label().into(),
         Item::Spacing => prefs.spacing.label().into(),
         Item::CardDetails => prefs.card_details.label().into(),

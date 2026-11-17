@@ -77,6 +77,8 @@ pub enum PadEvent {
     Status(ControllerStatus),
     /// The restore combination was held while armed.
     Restore,
+    /// B / Circle was let go (holding it on the home screen exits).
+    BackReleased,
 }
 
 const DEADZONE: f32 = 0.45;
@@ -187,6 +189,9 @@ pub fn spawn(
                             | Button::DPadDown,
                             _,
                         ) => held = None,
+                        EventType::ButtonReleased(Button::East, _) => {
+                            let _ = tx.unbounded_send(PadEvent::BackReleased);
+                        }
                         EventType::AxisChanged(Axis::LeftStickX | Axis::LeftStickY, _, _) => {
                             let pad = gilrs.gamepad(ev.id);
                             let x = pad.value(Axis::LeftStickX);

@@ -80,12 +80,27 @@ impl CardCrop {
             CardCrop::Banner => "card_banner.jpg",
         }
     }
+
+    fn fill_file_name(self) -> &'static str {
+        match self {
+            CardCrop::Poster => "card_poster_fill.jpg",
+            CardCrop::Square => "card_square_fill.jpg",
+            CardCrop::Banner => "card_banner.jpg",
+        }
+    }
 }
 
 /// Path of the image for a card shape, derived from the cover path so the
 /// schema needs no extra columns.
 pub fn card_image_path(cover_path: &Path, crop: CardCrop) -> PathBuf {
     cover_path.with_file_name(crop.file_name())
+}
+
+/// Path of the image for a card shape zoomed in to fill it: always a
+/// center crop, even of a cover much wider than the card (where
+/// [`card_image_path`] shows it whole). The banner is a crop either way.
+pub fn card_fill_image_path(cover_path: &Path, crop: CardCrop) -> PathBuf {
+    cover_path.with_file_name(crop.fill_file_name())
 }
 
 /// The largest centered `aspect` rectangle of `img`.
@@ -148,6 +163,33 @@ pub fn is_placeholder_cover(cover_path: &Path) -> bool {
 /// needs no extra columns. `level` is 0, 1 or 2.
 pub fn blurred_hero_path(hero_path: &Path, level: usize) -> PathBuf {
     hero_path.with_file_name(format!("hero_blur_{}.jpg", level.min(2)))
+}
+
+fn write_fill_card(
+    cover: &DynamicImage,
+    cover_path: &Path,
+    crop: CardCrop,
+    cfg: IngestConfig,
+) -> Result<(), ArtError> {
+    let card = fit_height(center_crop(cover, crop.aspect()), cfg.cover_max_height);
+    save_jpeg(&card, &card_fill_image_path(cover_path, crop), 90)
+}
+
+/// Makes the zoomed-in card images for artwork ingested before they
+/// existed, from the stored cover. Does nothing when they are there.
+pub fn ensure_fill_cards(cover_path: &Path) -> Result<(), ArtError> {
+    let missing: Vec<CardCrop> = [CardCrop::Poster, CardCrop::Square]
+        .into_iter()
+        .filter(|c| !card_fill_image_path(cover_path, *c).is_file())
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let cover = open(cover_path)?;
+    for crop in missing {
+        write_fill_card(&cover, cover_path, crop, IngestConfig::default())?;
+    }
+    Ok(())
 }
 
 /// Width of the motion-blurred background texture: wider than the blur
@@ -273,6 +315,9 @@ pub fn ingest(
         };
         let card = fit_height(shaped, cfg.cover_max_height);
         save_jpeg(&card, &card_image_path(&cover_path, crop), 90)?;
+        if crop != CardCrop::Banner {
+            write_fill_card(&cover_img, &cover_path, crop, cfg)?;
+        }
     }
 
     let (w, h) = hero_img.dimensions();
@@ -379,6 +424,12 @@ mod tests {
         // The icon is whole in the middle; the fill above it is darker.
         assert!(poster.get_pixel(300, 450).0[0] > 230);
         assert!(poster.get_pixel(300, 20).0[0] < 160);
+        // Zoomed in, the same icon fills the whole card.
+        let fill = image::open(card_fill_image_path(&r.cover_path, CardCrop::Poster))
+            .unwrap()
+            .to_rgb8();
+        assert_eq!((fill.width(), fill.height()), (400, 600));
+        assert!(fill.get_pixel(200, 5).0[0] > 230);
     }
 
     #[test]

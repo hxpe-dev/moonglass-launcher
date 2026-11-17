@@ -7,11 +7,11 @@ use gpui::{
     div, img, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgb, AnyElement,
     BoxShadow, Context, Div, MouseButton, ObjectFit, SharedString, Stateful,
 };
-use moonglass_art::ingest::{blurred_hero_path, card_image_path, CardCrop};
+use moonglass_art::ingest::{blurred_hero_path, card_fill_image_path, card_image_path, CardCrop};
 use moonglass_core::{Game, Source};
 
 use super::icons::{icon, Icon};
-use super::prefs::{Ambient as AmbientMode, CardDetails, CardShape, Clock};
+use super::prefs::{Ambient as AmbientMode, CardDetails, CardFit, CardShape, Clock};
 use super::theme::{
     battery, black, ease_out_cubic, hex_color, keycap, mix, on, pill, segment, white, INK, OBSIDIAN,
 };
@@ -100,9 +100,11 @@ impl LauncherView {
         (x, l.focus_top)
     }
 
-    /// The image cropped for the current card shape. Artwork chosen before
-    /// those existed falls back to the uncropped cover.
-    fn image_for_card(&self, g: &Game) -> Option<PathBuf> {
+    /// The image for a card, per Settings → Card art, and with "Original
+    /// shape" the image's own width / height, which the card takes.
+    /// Artwork made before the shaped images existed falls back to the
+    /// uncropped cover.
+    fn image_for_card(&mut self, g: &Game) -> Option<(PathBuf, Option<f32>)> {
         let cover = PathBuf::from(g.cover_path.as_deref()?);
         let crop = match self.prefs.card_shape {
             CardShape::Poster => CardCrop::Poster,
@@ -110,7 +112,34 @@ impl LauncherView {
             CardShape::Banner => CardCrop::Banner,
         };
         let card = card_image_path(&cover, crop);
-        Some(if card.is_file() { card } else { cover })
+        let fallback = if card.is_file() { card } else { cover.clone() };
+        Some(match self.prefs.card_fit {
+            CardFit::Fit => (fallback, None),
+            CardFit::Fill => {
+                let fill = card_fill_image_path(&cover, crop);
+                (if fill.is_file() { fill } else { fallback }, None)
+            }
+            CardFit::Original => {
+                // Banners show the hero art, the other shapes the cover.
+                let source = match crop {
+                    CardCrop::Banner => g
+                        .hero_path
+                        .as_deref()
+                        .map(PathBuf::from)
+                        .filter(|p| p.is_file())
+                        .unwrap_or(cover),
+                    _ => cover,
+                };
+                let size = *self
+                    .logo_sizes
+                    .entry(source.to_string_lossy().into_owned())
+                    .or_insert_with(|| moonglass_art::dimensions(&source));
+                match size {
+                    Some((w, h)) if w > 0 && h > 0 => (source, Some(w as f32 / h as f32)),
+                    _ => (fallback, None),
+                }
+            }
+        })
     }
 
     pub(super) fn render_home(
@@ -376,6 +405,17 @@ impl LauncherView {
             if x > w || x + cw < 0.0 {
                 continue;
             }
+            // "Original shape": the card takes the art's own shape, as large
+            // as fits in its slot, centered in it; the row keeps its rhythm.
+            let art = self.image_for_card(&g);
+            let (x, cw, ch, slot_h) = match art.as_ref().and_then(|(_, a)| *a) {
+                Some(a) if a > aspect => (x, cw, cw / a, ch),
+                Some(a) => {
+                    let narrow = ch * a;
+                    (x + (cw - narrow) / 2.0, narrow, ch, ch)
+                }
+                None => (x, cw, ch, ch),
+            };
             // Startup: cards rise in one after another.
             let (rise, appear) = match intro {
                 Some(t) => {
@@ -388,6 +428,8 @@ impl LauncherView {
             let rise = rise + (1.0 - entered) * 36.0 * u;
             let appear = appear * entered;
             let y = l.center_y - ch / 2.0 + rise;
+            // Details sit under the slot, at the same height for every card.
+            let label_top = l.center_y + slot_h / 2.0 + rise + 12.0 * u;
             // The border and glow follow the focus continuously: `c` is 1 on
             // the focused card and falls to 0 one card away.
             let focus = c;
@@ -455,7 +497,7 @@ impl LauncherView {
                 .rounded(content_radius)
                 .overflow_hidden()
                 .relative();
-            if let Some(path) = self.image_for_card(&g) {
+            if let Some((path, _)) = art {
                 // The image is rounded itself (clipping by the parent is
                 // rectangular) and already has the card's shape, so its
                 // corners are the card's corners.
@@ -569,7 +611,7 @@ impl LauncherView {
                 let mut label = div()
                     .absolute()
                     .left(px(x))
-                    .top(px(y + ch + 12.0 * u))
+                    .top(px(label_top))
                     .w(px(cw))
                     .opacity(appear * (0.65 + 0.35 * c))
                     .flex()
@@ -908,6 +950,9 @@ impl LauncherView {
                 ("LB RB", "Filter", Hint::Filter),
                 ("≡", "Settings", Hint::Settings),
             ]);
+            if !searching {
+                hints.push((b, "Hold to exit", Hint::Exit));
+            }
         } else {
             hints.push(("Enter", "Play", Hint::Play));
             if searching {
@@ -918,6 +963,9 @@ impl LauncherView {
                 ("Tab", "Filter", Hint::Filter),
                 ("Ctrl+,", "Settings", Hint::Settings),
             ]);
+            if !searching {
+                hints.push(("Esc", "Hold to exit", Hint::Exit));
+            }
         }
         let mut bar = div()
             .absolute()

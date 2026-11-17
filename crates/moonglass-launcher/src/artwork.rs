@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use moonglass_art::epic_catalog::{self, Catalog};
 use moonglass_art::ingest::{
-    card_image_path, ensure_motion_hero, ingest, is_placeholder_cover, CardCrop, IngestConfig,
-    Ingested,
+    card_fill_image_path, card_image_path, ensure_fill_cards, ensure_motion_hero, ingest,
+    is_placeholder_cover, CardCrop, IngestConfig, Ingested,
 };
 use moonglass_art::rom_art;
 use moonglass_art::steamgriddb::{Client, Lookup};
@@ -240,19 +240,29 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
         }
     }
 
-    // The motion-blurred background, for artwork made before it existed.
-    let heroes: Vec<PathBuf> = db
-        .games()
-        .await?
-        .into_iter()
-        .filter_map(|g| g.hero_path.map(PathBuf::from))
+    // Images added to the pipeline later (the motion-blurred background,
+    // the zoomed-in cards), for artwork made before they existed.
+    let games = db.games().await?;
+    let heroes: Vec<PathBuf> = games
+        .iter()
+        .filter_map(|g| g.hero_path.as_ref().map(PathBuf::from))
         .filter(|h| h.is_file() && !moonglass_art::ingest::motion_hero_path(h).is_file())
         .collect();
-    if !heroes.is_empty() {
+    let covers: Vec<PathBuf> = games
+        .iter()
+        .filter_map(|g| g.cover_path.as_ref().map(PathBuf::from))
+        .filter(|c| c.is_file() && !card_fill_image_path(c, CardCrop::Poster).is_file())
+        .collect();
+    if !heroes.is_empty() || !covers.is_empty() {
         tokio::task::spawn_blocking(move || {
             for h in heroes {
                 if let Err(e) = ensure_motion_hero(&h) {
                     tracing::warn!(error = %e, "motion background not made");
+                }
+            }
+            for c in covers {
+                if let Err(e) = ensure_fill_cards(&c) {
+                    tracing::warn!(error = %e, "zoomed card images not made");
                 }
             }
         })

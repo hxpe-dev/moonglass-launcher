@@ -36,7 +36,7 @@ use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, FocusHandle, Hsla, KeyDownEvent,
-    MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
+    KeyUpEvent, MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
 };
 use moonglass_art::ingest::{blurred_hero_path, motion_hero_path};
 use moonglass_core::library::{carousel, search, visible_filters, Filter};
@@ -75,6 +75,10 @@ const PULSE_FRAME: Duration = Duration::from_millis(33);
 const CARET_BLINK_MS: u128 = 530;
 const INTRO_SECS: f32 = 1.6;
 const TOAST_SECS: u64 = 4;
+/// Holding Esc or B on the home screen this long exits Moonglass.
+const QUIT_HOLD: Duration = Duration::from_millis(1400);
+/// The exit progress appears after this, so a plain press shows nothing.
+const QUIT_HINT_DELAY: Duration = Duration::from_millis(250);
 /// After Stop, how long the game gets to close before Force stop is offered.
 const STOP_GRACE: Duration = Duration::from_secs(8);
 
@@ -167,6 +171,7 @@ enum Hint {
     Options,
     Filter,
     Settings,
+    Exit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +252,8 @@ pub struct LauncherView {
 
     spring: Spring,
     last_frame: Option<Instant>,
+    /// When Esc or B started being held on the home screen.
+    quit_hold: Option<Instant>,
     started: Instant,
     intro_start: Option<Instant>,
     ambient_from: Option<Ambient>,
@@ -433,6 +440,7 @@ impl LauncherView {
             modal_leaving: None,
             overlay: Overlay::None,
             toast: None,
+            quit_hold: None,
             browser_generation: 0,
             lifecycle: Lifecycle::new(Timing::default()),
             session: None,
@@ -754,10 +762,14 @@ impl LauncherView {
                     cx.notify();
                 }
             }
+            UiEvent::Pad(PadEvent::BackReleased) => self.end_quit_hold(cx),
             UiEvent::Pad(PadEvent::Nav(a)) => {
                 // Spec 5.4: dispatch only while focused.
                 if window.is_window_active() {
                     self.set_input(InputMode::Gamepad, cx);
+                    if a == NavAction::Back {
+                        self.start_quit_hold(cx);
+                    }
                     self.input_action(a, window, cx);
                 }
             }
@@ -945,6 +957,16 @@ impl LauncherView {
         if ctrl && key == "q" && self.session.is_none() {
             return cx.quit();
         }
+        if key == "escape" {
+            if ev.is_held {
+                // Key repeat while holding to exit is not more presses.
+                if self.quit_hold.is_some() {
+                    return;
+                }
+            } else {
+                self.start_quit_hold(cx);
+            }
+        }
         let typing = self.text_target_active();
         // With a physical keyboard, Enter finishes the on-screen keyboard
         // rather than pressing its highlighted key.
@@ -1006,6 +1028,46 @@ impl LauncherView {
         if let Some(a) = action {
             self.input_action(a, window, cx);
         }
+    }
+
+    /// Esc or B went down: on the home screen with nothing to back out of
+    /// (no search), holding it exits. Not while a game is tracked, as with
+    /// Ctrl+Q.
+    fn start_quit_hold(&mut self, cx: &mut Context<Self>) {
+        if self.quit_hold.is_none()
+            && self.is_home_idle()
+            && self.query.is_none()
+            && self.session.is_none()
+        {
+            self.quit_hold = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    fn end_quit_hold(&mut self, cx: &mut Context<Self>) {
+        if self.quit_hold.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Each frame while held: exits once held long enough, or gives up if
+    /// the home screen lost focus or something opened.
+    fn check_quit_hold(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some(t) = self.quit_hold else { return };
+        if !self.is_home_idle() || !window.is_window_active() {
+            self.quit_hold = None;
+        } else if t.elapsed() >= QUIT_HOLD {
+            cx.quit();
+        }
+    }
+
+    /// 0..=1 once the exit progress is shown, `None` before.
+    fn quit_progress(&self) -> Option<f32> {
+        let held = self.quit_hold?.elapsed();
+        (held >= QUIT_HINT_DELAY).then(|| {
+            ((held - QUIT_HINT_DELAY).as_secs_f32() / (QUIT_HOLD - QUIT_HINT_DELAY).as_secs_f32())
+                .min(1.0)
+        })
     }
 
     fn is_home_idle(&self) -> bool {
@@ -1155,6 +1217,13 @@ impl LauncherView {
             Hint::Options => NavAction::Options,
             Hint::Filter => NavAction::FilterNext,
             Hint::Settings => NavAction::OpenSettings,
+            // A click has nothing to hold: it exits at once.
+            Hint::Exit => {
+                if self.session.is_none() {
+                    cx.quit();
+                }
+                return;
+            }
         };
         self.input_action(a, window, cx);
     }
@@ -1957,7 +2026,8 @@ impl LauncherView {
         // a fraction of a second and then stop asking for frames.
         let carousel_moving = home_idle
             && (!self.spring.is_settled() || self.crossfade < 1.0 || self.intro_start.is_some());
-        let moving = carousel_moving || self.anims.get_mut().is_moving();
+        let moving =
+            carousel_moving || self.anims.get_mut().is_moving() || self.quit_hold.is_some();
         let pulsing = home_idle
             && matches!(self.screen, Screen::Home)
             && self.prefs.animate()
@@ -2071,6 +2141,7 @@ impl Render for LauncherView {
             window.on_next_frame(move |_, _| drop(splash));
         }
         self.advance_animation();
+        self.check_quit_hold(window, cx);
         let vp = window.viewport_size();
         let (w, h) = (f32::from(vp.width), f32::from(vp.height));
         let u = h / 1080.0; // 10-foot unit: 1 at 1080p
@@ -2081,6 +2152,11 @@ impl Render for LauncherView {
             .on_key_down(
                 cx.listener(|this, ev: &KeyDownEvent, window, cx| this.on_key(ev, window, cx)),
             )
+            .on_key_up(cx.listener(|this, ev: &KeyUpEvent, _, cx| {
+                if ev.keystroke.key == "escape" {
+                    this.end_quit_hold(cx);
+                }
+            }))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_wheel))
             .size_full()
@@ -2178,6 +2254,50 @@ impl Render for LauncherView {
                             .border_color(theme::white(0.14))
                             .text_size(px(18.0 * u))
                             .child(msg.clone()),
+                    ),
+            );
+        }
+        let exiting = self.glide("quit-hold", on(self.quit_progress().is_some()));
+        if exiting > 0.005 {
+            let progress = self.quit_progress().unwrap_or(0.0);
+            root = root.child(
+                div()
+                    .absolute()
+                    .bottom(px((110.0 - 30.0 * (1.0 - exiting)) * u))
+                    .left_0()
+                    .right_0()
+                    .opacity(exiting)
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .w(px(340.0 * u))
+                            .px(px(24.0 * u))
+                            .py(px(14.0 * u))
+                            .rounded(px(20.0 * u))
+                            .bg(theme::black(0.82))
+                            .border_1()
+                            .border_color(theme::white(0.14))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(10.0 * u))
+                            .text_size(px(18.0 * u))
+                            .child("Keep holding to exit Moonglass")
+                            .child(
+                                div()
+                                    .w_full()
+                                    .h(px(6.0 * u))
+                                    .rounded_full()
+                                    .bg(theme::white(0.15))
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .w(gpui::relative(progress))
+                                            .rounded_full()
+                                            .bg(theme::white(0.92)),
+                                    ),
+                            ),
                     ),
             );
         }

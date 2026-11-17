@@ -43,6 +43,14 @@ choice!(CardShape {
     Square => "Squares (1:1)",
 } default Poster);
 
+// How a game's art sits on its card when their shapes differ (a square
+// Switch icon on a poster card, say).
+choice!(CardFit {
+    Fit => "Fit whole art",
+    Fill => "Zoom to fill",
+    Original => "Original shape",
+} default Fit);
+
 choice!(FocusSize {
     Normal => "Normal",
     Large => "Large",
@@ -96,6 +104,7 @@ choice!(RecentDays {
 #[serde(default)]
 pub struct Prefs {
     pub card_shape: CardShape,
+    pub card_fit: CardFit,
     pub focus_size: FocusSize,
     pub spacing: Spacing,
     pub card_details: CardDetails,
@@ -114,6 +123,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             card_shape: CardShape::DEFAULT,
+            card_fit: CardFit::DEFAULT,
             focus_size: FocusSize::DEFAULT,
             spacing: Spacing::DEFAULT,
             card_details: CardDetails::DEFAULT,
