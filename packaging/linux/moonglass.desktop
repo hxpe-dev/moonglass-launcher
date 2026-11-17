@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Moonglass
+GenericName=Game Launcher
+Comment=Console-style launcher for your PC games
+Exec=moonglass
+Icon=moonglass
+Terminal=false
+Categories=Game;
+Keywords=games;launcher;steam;epic;emulator;controller;
+StartupWMClass=moonglass
