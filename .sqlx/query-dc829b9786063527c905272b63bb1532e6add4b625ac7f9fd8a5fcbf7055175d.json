@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE games SET store_playtime_seconds = ? WHERE id = ? AND store_playtime_seconds != ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "dc829b9786063527c905272b63bb1532e6add4b625ac7f9fd8a5fcbf7055175d"
+}

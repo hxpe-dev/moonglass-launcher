@@ -2,6 +2,7 @@
 //!
 //! * Steam: `steam:<AppID>`
 //! * Epic: `epic:<AppName>`
+//! * GOG: `gog:<product ID>`
 //! * Executable: `exe:<hash of normalized path>`
 //! * ROM: `rom:<hash of normalized path>`
 //!
@@ -21,6 +22,10 @@ impl GameId {
 
     pub fn epic(app_name: &str) -> Self {
         Self(format!("epic:{app_name}"))
+    }
+
+    pub fn gog(product_id: &str) -> Self {
+        Self(format!("gog:{product_id}"))
     }
 
     /// `normalized_path` must come from `Platform::normalize_path`.
@@ -73,6 +78,7 @@ mod tests {
     fn launcher_ids() {
         assert_eq!(GameId::steam("620").as_str(), "steam:620");
         assert_eq!(GameId::epic("Fortnite").as_str(), "epic:Fortnite");
+        assert_eq!(GameId::gog("1207658924").as_str(), "gog:1207658924");
     }
 
     #[test]

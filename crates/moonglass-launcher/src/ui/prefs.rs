@@ -2,6 +2,7 @@
 //! as one JSON value in the `settings` table and applied immediately.
 
 use moonglass_core::library::RecentWindow;
+use moonglass_core::Source;
 use serde::{Deserialize, Serialize};
 
 pub const PREFS_KEY: &str = "ui_prefs";
@@ -140,6 +141,11 @@ pub struct Prefs {
     pub restore_buttons: RestoreButtons,
     pub restore_hold: RestoreHold,
     pub launch_timeout: LaunchTimeout,
+    /// Stores whose games are shown. A store turned off is still scanned,
+    /// so turning it back on is instant and keeps its games' data.
+    pub steam_enabled: bool,
+    pub epic_enabled: bool,
+    pub gog_enabled: bool,
 }
 
 impl Default for Prefs {
@@ -163,11 +169,48 @@ impl Default for Prefs {
             restore_buttons: RestoreButtons::DEFAULT,
             restore_hold: RestoreHold::DEFAULT,
             launch_timeout: LaunchTimeout::DEFAULT,
+            steam_enabled: true,
+            epic_enabled: true,
+            gog_enabled: true,
         }
     }
 }
 
+/// The stores that can be turned off, in display order. Standalone
+/// executables and emulated games are the player's own additions and are
+/// always shown.
+pub const STORES: [Source; 3] = [Source::Steam, Source::Epic, Source::Gog];
+
+pub fn store_name(s: Source) -> &'static str {
+    match s {
+        Source::Steam => "Steam",
+        Source::Epic => "Epic",
+        Source::Gog => "GOG",
+        Source::Exe => "Apps",
+        Source::Rom => "Emulators",
+    }
+}
+
 impl Prefs {
+    /// Whether games from `source` are shown.
+    pub fn store_enabled(&self, source: Source) -> bool {
+        match source {
+            Source::Steam => self.steam_enabled,
+            Source::Epic => self.epic_enabled,
+            Source::Gog => self.gog_enabled,
+            Source::Exe | Source::Rom => true,
+        }
+    }
+
+    pub fn set_store_enabled(&mut self, source: Source, on: bool) {
+        match source {
+            Source::Steam => self.steam_enabled = on,
+            Source::Epic => self.epic_enabled = on,
+            Source::Gog => self.gog_enabled = on,
+            Source::Exe | Source::Rom => {}
+        }
+    }
+
     /// Card width / height.
     pub fn card_aspect(&self) -> f32 {
         match self.card_shape {
@@ -269,5 +312,18 @@ mod tests {
         assert_eq!(p.focus_size, FocusSize::Large);
         assert!(p.startup_animation);
         assert!(p.dismiss_launcher_window);
+        // Saved before stores could be turned off: all of them are on.
+        assert!(STORES.iter().all(|s| p.store_enabled(*s)));
+    }
+
+    #[test]
+    fn stores_turn_off_one_at_a_time() {
+        let mut p = Prefs::default();
+        p.set_store_enabled(Source::Epic, false);
+        assert!(p.store_enabled(Source::Steam));
+        assert!(!p.store_enabled(Source::Epic));
+        // The player's own additions cannot be turned off.
+        p.set_store_enabled(Source::Exe, false);
+        assert!(p.store_enabled(Source::Exe));
     }
 }

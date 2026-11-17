@@ -1,5 +1,5 @@
 //! File-system watchers (spec 5.1): every Steam `steamapps` folder, the Epic
-//! manifests folder (or Heroic's config folder on Linux), and every ROM
+//! manifests folder (or Heroic's config folders on Linux, Epic and GOG), and every ROM
 //! directory. Events are debounced by 2 seconds and collapsed into a single
 //! "rescan" signal.
 
@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use moonglass_db::Db;
-use moonglass_platform::EpicSource;
+use moonglass_platform::{EpicSource, GogSource};
 use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 
@@ -43,6 +43,13 @@ pub async fn watch_targets(db: &Db) -> anyhow::Result<Vec<(PathBuf, RecursiveMod
             }
         }
         None => {}
+    }
+    // GOG on Windows lives in the registry, which is not watched: those
+    // games are found at startup, after each game and from Settings.
+    if let Some(GogSource::Heroic { installed_json, .. }) = moonglass_platform::gog_source() {
+        if let Some(dir) = installed_json.parent() {
+            out.push((dir.to_path_buf(), RecursiveMode::NonRecursive));
+        }
     }
     for d in db.rom_directories().await? {
         let mode = if d.recursive {

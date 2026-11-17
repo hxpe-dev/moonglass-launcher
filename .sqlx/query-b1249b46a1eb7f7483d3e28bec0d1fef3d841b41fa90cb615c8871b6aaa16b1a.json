@@ -6,32 +6,68 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "path",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "path"
+          }
+        }
       },
       {
         "name": "platform",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "platform"
+          }
+        }
       },
       {
         "name": "recursive: bool",
         "ordinal": 3,
-        "type_info": "Integer"
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "recursive"
+          }
+        }
       },
       {
         "name": "file_extensions",
         "ordinal": 4,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "file_extensions"
+          }
+        }
       },
       {
         "name": "folder_marker",
         "ordinal": 5,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "folder_marker"
+          }
+        }
       }
     ],
     "parameters": {

@@ -1,5 +1,5 @@
 //! Artwork orchestration (spec 5.2): for each game without artwork, try
-//! Steam's local cache, then the Epic launcher's catalog, then SteamGridDB
+//! Steam's local cache, then the Epic launcher's or GOG's catalog, then SteamGridDB
 //! (with a key), then, for emulated games, the keyless game databases
 //! ([`moonglass_art::rom_art`]), then a placeholder; ingest the result, and
 //! store it. Locked (user-chosen) artwork is never replaced.
@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use moonglass_art::epic_catalog::{self, Catalog};
+use moonglass_art::gog_catalog;
 use moonglass_art::ingest::{
     card_fill_image_path, card_image_path, ensure_fill_cards, ensure_motion_hero, ingest,
     is_placeholder_cover, CardCrop, IngestConfig, Ingested,
@@ -29,6 +30,7 @@ static RETRIED: std::sync::Mutex<std::collections::BTreeSet<GameId>> =
 pub struct ArtSummary {
     pub from_steam: usize,
     pub from_epic: usize,
+    pub from_gog: usize,
     pub from_sgdb: usize,
     pub from_rom_db: usize,
     pub placeholders: usize,
@@ -42,6 +44,9 @@ impl std::fmt::Display for ArtSummary {
             "Artwork: {} from Steam, {} from Epic, {} from SteamGridDB",
             self.from_steam, self.from_epic, self.from_sgdb
         )?;
+        if self.from_gog > 0 {
+            write!(f, ", {} from GOG", self.from_gog)?;
+        }
         if self.from_rom_db > 0 {
             write!(f, ", {} from game databases", self.from_rom_db)?;
         }
@@ -159,7 +164,8 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
     // again each time).
     let retry = |g: &Game| {
         has_placeholder(g)
-            && ((g.source == Source::Epic && epic.is_some()) || g.source == Source::Rom)
+            && ((g.source == Source::Epic && epic.is_some())
+                || matches!(g.source, Source::Gog | Source::Rom))
             && RETRIED.lock().unwrap().insert(g.id.clone())
     };
     for g in games
@@ -185,6 +191,21 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
                         tracing::warn!(game = %g.id, error = %e, "Epic artwork download failed")
                     }
                 }
+            }
+        }
+        let mut gog_hit = false;
+        if let (Source::Gog, Some(id)) = (g.source, &g.source_id) {
+            let more = match gog_catalog::lookup(&http, id).await {
+                Ok(Some(images)) => gog_catalog::fetch(&http, &images, &found, &dir).await,
+                Ok(None) => Ok(FoundArt::default()),
+                Err(e) => Err(e),
+            };
+            match more {
+                Ok(more) => {
+                    gog_hit = more.cover.is_some();
+                    found.fill_from(more);
+                }
+                Err(e) => tracing::warn!(game = %g.id, error = %e, "GOG artwork download failed"),
             }
         }
         let mut sgdb_hit = false;
@@ -236,6 +257,8 @@ pub async fn refresh(db: &Db, cache_dir: &Path, force: bool) -> anyhow::Result<A
                     summary.from_steam += 1;
                 } else if epic_hit {
                     summary.from_epic += 1;
+                } else if gog_hit {
+                    summary.from_gog += 1;
                 } else if sgdb_hit {
                     summary.from_sgdb += 1;
                 } else if rom_hit {

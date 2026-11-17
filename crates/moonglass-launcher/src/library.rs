@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use moonglass_core::Source;
 use moonglass_db::{Db, ScanScope};
-use moonglass_platform::EpicSource;
-use moonglass_scan::{epic, heroic, roms, steam, ScanError, ScannedGame};
+use moonglass_platform::{EpicSource, GogSource};
+use moonglass_scan::{epic, gog, heroic, roms, steam, ScanError, ScannedGame};
 
 /// Settings keys.
 pub const SETTING_STEAM_ROOT: &str = "steam_root";
@@ -67,6 +67,9 @@ pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
         }
         None => summary.push("Steam: not found".into()),
     }
+    if let Some(root) = &steam_root {
+        import_steam_playtime(db, &mut summary, root).await?;
+    }
 
     // Epic: the client's manifests on Windows, Heroic on Linux.
     match moonglass_platform::epic_source() {
@@ -106,6 +109,28 @@ pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
         }
     }
 
+    // GOG: the registry on Windows (Galaxy or offline installers), Heroic
+    // on Linux. Not installed: any GOG games we knew of are gone.
+    let (label, result) = match moonglass_platform::gog_source() {
+        Some(GogSource::Registry { games, .. }) => (
+            "GOG",
+            Ok(gog::from_registry(games.into_iter().map(|g| {
+                gog::RegistryGame {
+                    product_id: g.product_id,
+                    name: g.name,
+                    path: g.path,
+                    exe: g.exe,
+                    depends_on: g.depends_on,
+                }
+            }))),
+        ),
+        Some(GogSource::Heroic { installed_json, .. }) => {
+            ("GOG (Heroic)", gog::scan_heroic(&installed_json))
+        }
+        None => ("GOG", Ok(Vec::new())),
+    };
+    apply(db, &mut summary, label, ScanScope::Gog, result, now).await?;
+
     for dir in db.rom_directories().await? {
         let label = format!("ROMs {} ({})", dir.path.display(), dir.platform);
         let normalize = |p: &Path| moonglass_platform::normalize_path(p);
@@ -139,6 +164,26 @@ pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
     }
 
     Ok(summary)
+}
+
+/// Steam's own playtime for the signed-in account (spec 5.1, Playtime).
+async fn import_steam_playtime(
+    db: &Db,
+    summary: &mut ScanSummary,
+    root: &Path,
+) -> anyhow::Result<()> {
+    let root = root.to_path_buf();
+    let times = tokio::task::spawn_blocking(move || {
+        crate::steam_accounts::signed_in(&root)
+            .map(|id| moonglass_scan::steam_accounts::playtimes(&root, &id))
+    })
+    .await?;
+    // No account known: leave the figures as they were.
+    if let Some(times) = times {
+        let n = db.set_store_playtimes(Source::Steam, &times).await?;
+        summary.push(format!("Steam playtime: {n} games"));
+    }
+    Ok(())
 }
 
 async fn apply(

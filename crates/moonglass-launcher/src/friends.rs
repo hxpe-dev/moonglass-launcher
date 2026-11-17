@@ -330,6 +330,7 @@ mod tests {
             date_added: 0,
             last_played: None,
             playtime_seconds: 0,
+            store_playtime_seconds: 0,
             is_favorite: false,
             is_hidden: false,
             is_installed: true,

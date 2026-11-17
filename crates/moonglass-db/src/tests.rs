@@ -375,3 +375,62 @@ async fn removing_an_emulator_removes_its_folders_and_games() {
     db.remove_rom_directory("romdir:ps2").await.unwrap();
     assert!(db.rom_folders().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn gog_games_are_their_own_scope() {
+    let db = db().await;
+    let gog = ScannedGame {
+        id: GameId::gog("1207658924"),
+        title: "The Witcher".into(),
+        source: Source::Gog,
+        source_id: Some("1207658924".into()),
+        launch_target: Some("C:/GOG Games/The Witcher/witcher.exe".into()),
+        install_dir: Some("C:/GOG Games/The Witcher".into()),
+        rom_directory_id: None,
+        platform: None,
+        last_played_hint: None,
+    };
+    db.reconcile(&ScanScope::Gog, &[gog], 0).await.unwrap();
+    db.reconcile(&ScanScope::Steam, &[steam("1", "A", None)], 0)
+        .await
+        .unwrap();
+    // An empty Steam scan leaves GOG alone, and the other way round.
+    db.reconcile(&ScanScope::Steam, &[], 0).await.unwrap();
+    let g = db.game(&GameId::gog("1207658924")).await.unwrap().unwrap();
+    assert_eq!(g.source, Source::Gog);
+    assert!(g.is_installed);
+    db.reconcile(&ScanScope::Gog, &[], 0).await.unwrap();
+    let g = db.game(&GameId::gog("1207658924")).await.unwrap().unwrap();
+    assert!(!g.is_installed);
+}
+
+#[tokio::test]
+async fn store_playtime_is_kept_apart_and_replaced() {
+    let db = db().await;
+    db.reconcile(
+        &ScanScope::Steam,
+        &[steam("440", "TF2", None), steam("620", "Portal 2", None)],
+        0,
+    )
+    .await
+    .unwrap();
+    let tf2 = GameId::steam("440");
+    db.record_session(&tf2, 10, 600).await.unwrap();
+    let mut map = std::collections::HashMap::new();
+    map.insert("440".to_string(), 7260);
+    assert_eq!(
+        db.set_store_playtimes(Source::Steam, &map).await.unwrap(),
+        1
+    );
+    let g = db.game(&tf2).await.unwrap().unwrap();
+    assert_eq!(g.playtime_seconds, 600);
+    assert_eq!(g.store_playtime_seconds, 7260);
+    assert_eq!(g.total_playtime(), 7260);
+    // Another account: its figures replace the first one's.
+    map.clear();
+    map.insert("620".to_string(), 60);
+    db.set_store_playtimes(Source::Steam, &map).await.unwrap();
+    let g = db.game(&tf2).await.unwrap().unwrap();
+    assert_eq!(g.store_playtime_seconds, 0);
+    assert_eq!(g.total_playtime(), 600);
+}

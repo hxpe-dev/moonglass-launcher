@@ -48,7 +48,7 @@ USAGE:
     moonglass autostart on|off|status
     moonglass paths
 
-Pills: all, recent, favorites, steam, epic, apps, emulators.
+Pills: all, recent, favorites, steam, epic, gog, apps, emulators.
 <number> is the position shown by `moonglass list`.";
 
 static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -155,7 +155,7 @@ async fn print_list(db: &Db, filter: Filter, query: Option<&str>) -> anyhow::Res
     };
     if games.iter().all(|g| !g.is_visible()) {
         println!(
-            "\n[ Add your games ]  (moonglass add-exe / add-rom-dir, or install Steam/Epic games)"
+            "\n[ Add your games ]  (moonglass add-exe / add-rom-dir, or install Steam/Epic/GOG games)"
         );
         return Ok(());
     }
@@ -170,7 +170,7 @@ async fn print_list(db: &Db, filter: Filter, query: Option<&str>) -> anyhow::Res
     for (n, &i) in order.iter().enumerate() {
         let g = &games[i];
         let fav = if g.is_favorite { "★" } else { " " };
-        let played = g.playtime_seconds;
+        let played = g.total_playtime();
         let badge = g.platform.as_deref().unwrap_or(g.source.as_str());
         println!(
             "{:>3}. {fav} {:<48} {:<12} {:>6}m  {}",
@@ -227,10 +227,21 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         })
     };
 
-    let db = Db::open(&paths.database())
+    let (db, opened) = Db::open_checked(&paths.database())
         .await
         .context("opening database")?;
+    if let Some(note) = ui::recovery_note(&opened) {
+        eprintln!("{note}");
+    }
+    let result = commands(&db, &paths, cmd, rest).await;
+    // Lets SQLite fold its log into the file before the process ends.
+    db.close().await;
+    result
+}
 
+async fn commands(db: &Db, paths: &AppPaths, cmd: &str, rest: &[String]) -> anyhow::Result<()> {
+    let db = db.clone();
+    let paths = paths.clone();
     match cmd {
         "list" => {
             library::scan_all(&db, now_unix()).await?;
@@ -561,8 +572,11 @@ fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
     // Read meanwhile, so the first frame already has the library.
     let database = paths.database();
     let loading = rt.spawn(async move {
-        let db = Db::open(&database).await.context("opening database")?;
-        let loaded = ui::Loaded::read(&db).await;
+        let (db, opened) = Db::open_checked(&database)
+            .await
+            .context("opening database")?;
+        let mut loaded = ui::Loaded::read(&db).await;
+        loaded.recovery = ui::recovery_note(&opened);
         startup_mark("library read");
         anyhow::Ok((db, loaded))
     });

@@ -117,6 +117,52 @@ pub async fn start(
                 launcher: Some(Launcher::Epic),
             })
         }
+        Source::Gog => {
+            let product_id = game
+                .source_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("GOG game without product ID"))?;
+            let install_dir = PathBuf::from(
+                game.install_dir
+                    .clone()
+                    .ok_or_else(|| anyhow!("GOG game without install folder"))?,
+            );
+            let source =
+                moonglass_platform::gog_source().ok_or_else(|| anyhow!("GOG is not available"))?;
+            let matcher = override_matcher.unwrap_or_else(|| GameMatcher::Folder {
+                install_dir: install_dir.clone(),
+            });
+            let has_client = match &source {
+                moonglass_platform::GogSource::Registry { galaxy, .. } => galaxy.is_some(),
+                moonglass_platform::GogSource::Heroic { .. } => true,
+            };
+            if has_client {
+                moonglass_platform::launch_gog(&source, product_id, &install_dir)?;
+                return Ok(Running {
+                    child: None,
+                    matcher: Some(matcher),
+                    launcher: Some(Launcher::Gog),
+                });
+            }
+            // An offline-installer game without Galaxy: its own program,
+            // with the per-game arguments, watched by its folder (GOG's
+            // programs are often small launchers that start the game).
+            let target = PathBuf::from(
+                game.launch_target
+                    .clone()
+                    .ok_or_else(|| anyhow!("GOG game without a program to start"))?,
+            );
+            let args = match game.launch_args.as_deref() {
+                Some(a) if !a.trim().is_empty() => split_args(a).context("launch arguments")?,
+                _ => Vec::new(),
+            };
+            let child = TrackedChild::spawn(&target, &args, Some(&install_dir))?;
+            Ok(Running {
+                child: Some(child),
+                matcher: Some(matcher),
+                launcher: None,
+            })
+        }
         Source::Exe => {
             let target = PathBuf::from(
                 game.launch_target

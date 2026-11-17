@@ -7,14 +7,14 @@
 //!
 //! | Capability | Here |
 //! | --- | --- |
-//! | Start a store game | [`launch_steam`], [`launch_epic`] |
+//! | Start a store game | [`launch_steam`], [`launch_epic`], [`launch_gog`] |
 //! | Track and kill a spawned game | [`TrackedChild`] |
 //! | Detect a launcher-started game | [`ProcessWatcher`] + [`GameMatcher`] |
 //! | Hide Moonglass / regain focus / dismiss the launcher window | [`window`] |
 //! | Background restore hotkey | [`hotkey`] |
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |
 //! | Single-instance guard | [`InstanceGuard`] |
-//! | Steam and Epic discovery | [`steam_root`], [`epic_source`] |
+//! | Steam, Epic and GOG discovery | [`steam_root`], [`epic_source`], [`gog_source`] |
 //! | File locations | [`AppPaths`] |
 
 use std::ffi::OsStr;
@@ -234,11 +234,46 @@ pub fn epic_source() -> Option<EpicSource> {
     imp::epic_source()
 }
 
+/// One `GOG.com\Games\<id>` registry key (Windows).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GogRegistryGame {
+    pub product_id: String,
+    pub name: String,
+    pub path: String,
+    pub exe: String,
+    pub depends_on: String,
+}
+
+/// Where GOG games are read from and how they are started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GogSource {
+    /// Windows: the games GOG Galaxy and GOG's offline installers register,
+    /// and GOG Galaxy's program if it is installed. Without Galaxy, a game
+    /// is started from its own executable.
+    Registry {
+        games: Vec<GogRegistryGame>,
+        galaxy: Option<PathBuf>,
+    },
+    /// Linux: Heroic's `gog_store/installed.json`, and the Heroic command
+    /// (as for [`EpicSource::Heroic`]).
+    Heroic {
+        installed_json: PathBuf,
+        command: Vec<String>,
+    },
+}
+
+/// `None` when no GOG games can be found on this machine, in which case
+/// the GOG source and pill do not appear.
+pub fn gog_source() -> Option<GogSource> {
+    imp::gog_source()
+}
+
 /// A launcher client whose window Moonglass may dismiss after a game exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Launcher {
     Steam,
     Epic,
+    Gog,
 }
 
 /// Outcome of [`window::regain_focus`].
@@ -279,6 +314,16 @@ pub fn join_steam_lobby(app_id: &str, lobby: &str, friend: &str) -> Result<()> {
 /// do not launch from the bare `AppName`.
 pub fn launch_epic(source: &EpicSource, app_name: &str, fallback_uri: Option<&str>) -> Result<()> {
     imp::launch_epic(source, app_name, fallback_uri)
+}
+
+/// Starts a GOG game through GOG Galaxy (Windows) or Heroic (Linux).
+/// Fails when the source has no client; the caller then starts the game's
+/// own executable.
+pub fn launch_gog(source: &GogSource, product_id: &str, install_dir: &Path) -> Result<()> {
+    if product_id.is_empty() || !product_id.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(PlatformError::Os("not a GOG product ID".into()));
+    }
+    imp::launch_gog(source, product_id, install_dir)
 }
 
 /// A standalone executable or emulator started by Moonglass, placed in a Job

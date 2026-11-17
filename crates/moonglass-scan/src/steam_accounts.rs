@@ -16,7 +16,7 @@
 //! An account that never signed in on this computer has no `userdata`;
 //! only the games whose install uses its own license count for it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use keyvalues_parser::Obj;
@@ -84,6 +84,55 @@ pub fn accounts(steam_root: &Path) -> Vec<SteamAccount> {
     out
 }
 
+fn local_config(steam_root: &Path, steam_id: &str) -> Option<Obj<'static>> {
+    let id = account_id(steam_id)?;
+    let path = steam_root
+        .join("userdata")
+        .join(id.to_string())
+        .join("config")
+        .join("localconfig.vdf");
+    let text = read_to_string(&path).ok()?;
+    match parse_vdf(&path, &text) {
+        Ok(store) => Some(store),
+        Err(e) => {
+            tracing::warn!(error = %e, "Steam account settings unreadable");
+            None
+        }
+    }
+}
+
+/// A child object, matching the key regardless of case: Steam writes
+/// `apps` in some versions and `Apps` in others.
+fn child<'a>(obj: &'a Obj<'_>, key: &str) -> Option<&'a Obj<'a>> {
+    obj.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .and_then(|(_, v)| v.first()?.get_obj())
+}
+
+/// Total time the account has played each game, in seconds, by AppID:
+/// Steam's own count (`Software/Valve/Steam/apps/<id>/Playtime`, in
+/// minutes, in the account's `localconfig.vdf`), which includes play
+/// outside Moonglass and on other computers once Steam has synced it.
+/// Empty when the file is missing or unreadable.
+pub fn playtimes(steam_root: &Path, steam_id: &str) -> HashMap<String, i64> {
+    let Some(store) = local_config(steam_root, steam_id) else {
+        return HashMap::new();
+    };
+    let apps = child(&store, "Software")
+        .and_then(|o| child(o, "Valve"))
+        .and_then(|o| child(o, "Steam"))
+        .and_then(|o| child(o, "apps"));
+    let Some(apps) = apps else {
+        return HashMap::new();
+    };
+    apps.iter()
+        .filter_map(|(id, v)| {
+            let minutes: i64 = get_str(v.first()?.get_obj()?, "Playtime")?.parse().ok()?;
+            (minutes > 0).then(|| (id.to_string(), minutes * 60))
+        })
+        .collect()
+}
+
 /// What one account can play, from its local files.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Access {
@@ -107,20 +156,8 @@ impl Access {
     /// leaves only the account's own licenses.
     pub fn load(steam_root: &Path, steam_id: &str) -> Self {
         let mut access = Access::own_only(steam_id);
-        let Some(id) = account_id(steam_id) else {
-            return access;
-        };
-        let path = steam_root
-            .join("userdata")
-            .join(id.to_string())
-            .join("config")
-            .join("localconfig.vdf");
-        let Ok(text) = read_to_string(&path) else {
-            return access;
-        };
-        match parse_vdf(&path, &text) {
-            Ok(store) => access.read(&store),
-            Err(e) => tracing::warn!(error = %e, "Steam account settings unreadable"),
+        if let Some(store) = local_config(steam_root, steam_id) {
+            access.read(&store);
         }
         access
     }
@@ -187,6 +224,37 @@ mod tests {
         assert_eq!(a[0].persona_name, "new");
         assert!(!a[0].remembers_password);
         assert_eq!(a[1].persona_name, "Old");
+    }
+
+    #[test]
+    fn playtime_from_local_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(
+            &tmp.path().join("userdata/1/config/localconfig.vdf"),
+            r#""UserLocalConfigStore"
+{
+    "Software"
+    {
+        "Valve"
+        {
+            "Steam"
+            {
+                "Apps"
+                {
+                    "440" { "LastPlayed" "1704827823" "Playtime" "121" }
+                    "730" { "LastPlayed" "1778532009" "Playtime2wks" "5" }
+                    "620" { "Playtime" "0" }
+                    "70" { "Playtime" "x" }
+                }
+            }
+        }
+    }
+}"#,
+        );
+        let p = playtimes(tmp.path(), &steam_id64(1));
+        assert_eq!(p.len(), 1);
+        assert_eq!(p["440"], 121 * 60);
+        assert!(playtimes(tmp.path(), &steam_id64(2)).is_empty());
     }
 
     #[test]

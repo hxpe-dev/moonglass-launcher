@@ -44,6 +44,7 @@ fn source_label(g: &Game) -> String {
     match g.source {
         Source::Steam => "STEAM".into(),
         Source::Epic => "EPIC".into(),
+        Source::Gog => "GOG".into(),
         Source::Exe => "APP".into(),
         Source::Rom => g
             .platform
@@ -60,14 +61,17 @@ fn is_placeholder_cover(g: &Game) -> bool {
 }
 
 fn playtime(g: &Game) -> Option<String> {
-    (g.playtime_seconds >= 60).then(|| {
-        let m = g.playtime_seconds / 60;
-        if m >= 60 {
-            format!("{}h {:02}m", m / 60, m % 60)
-        } else {
-            format!("{m} min")
-        }
-    })
+    let total = g.total_playtime();
+    (total >= 60).then(|| duration_text(total / 60))
+}
+
+/// `45 min`, `3h 05m`.
+fn duration_text(minutes: i64) -> String {
+    if minutes >= 60 {
+        format!("{}h {:02}m", minutes / 60, minutes % 60)
+    } else {
+        format!("{minutes} min")
+    }
 }
 
 impl LauncherView {
@@ -737,6 +741,55 @@ impl LauncherView {
         root.child(hero.child(meta))
     }
 
+    /// Controller status: battery where the OS reports it.
+    pub(super) fn controller_status(&self, u: f32) -> Div {
+        let pad = &self.controller;
+        let connected = pad.connected || self.xinput_power.is_some();
+        let mut s = div()
+            .flex()
+            .items_center()
+            .gap(px(10.0 * u))
+            .text_size(px(18.0 * u));
+        if !connected {
+            s = s.text_color(white(0.5)).child("No controller");
+        } else {
+            s = s.text_color(white(0.85)).child("Controller");
+            match (pad.battery, self.xinput_power) {
+                (Some(p), _) => {
+                    s = s.child(battery(p as f32 / 100.0, u));
+                    if pad.charging {
+                        s = s.child(
+                            div()
+                                .text_size(px(14.0 * u))
+                                .text_color(white(0.7))
+                                .child("charging"),
+                        );
+                    }
+                }
+                (None, Some(moonglass_platform::PadPower::Level(l))) => {
+                    s = s.child(battery(l as f32 / 3.0, u));
+                }
+                (None, Some(moonglass_platform::PadPower::Wired)) => {
+                    s = s.child(
+                        div()
+                            .text_size(px(14.0 * u))
+                            .text_color(white(0.7))
+                            .child("wired"),
+                    );
+                }
+                (None, None) => {}
+            }
+        }
+        s
+    }
+
+    pub(super) fn clock_text(&self) -> String {
+        match self.prefs.clock {
+            Clock::H24 => chrono::Local::now().format("%H:%M").to_string(),
+            Clock::H12 => chrono::Local::now().format("%-I:%M %p").to_string(),
+        }
+    }
+
     fn render_top_bar(&self, w: f32, u: f32, alpha: f32, cx: &mut Context<Self>) -> Div {
         // Filter pills (clickable).
         let mut pills = div().flex().gap(px(6.0 * u));
@@ -860,51 +913,8 @@ impl LauncherView {
                     .child(icon(Icon::Keyboard, 22.0 * u, white(1.0))),
             );
 
-        // Controller status: battery where the OS reports it.
-        let status: Div = {
-            let pad = &self.controller;
-            let connected = pad.connected || self.xinput_power.is_some();
-            let mut s = div()
-                .flex()
-                .items_center()
-                .gap(px(10.0 * u))
-                .text_size(px(18.0 * u));
-            if !connected {
-                s = s.text_color(white(0.5)).child("No controller");
-            } else {
-                s = s.text_color(white(0.85)).child("Controller");
-                match (pad.battery, self.xinput_power) {
-                    (Some(p), _) => {
-                        s = s.child(battery(p as f32 / 100.0, u));
-                        if pad.charging {
-                            s = s.child(
-                                div()
-                                    .text_size(px(14.0 * u))
-                                    .text_color(white(0.7))
-                                    .child("charging"),
-                            );
-                        }
-                    }
-                    (None, Some(moonglass_platform::PadPower::Level(l))) => {
-                        s = s.child(battery(l as f32 / 3.0, u));
-                    }
-                    (None, Some(moonglass_platform::PadPower::Wired)) => {
-                        s = s.child(
-                            div()
-                                .text_size(px(14.0 * u))
-                                .text_color(white(0.7))
-                                .child("wired"),
-                        );
-                    }
-                    (None, None) => {}
-                }
-            }
-            s
-        };
-        let clock = match self.prefs.clock {
-            Clock::H24 => chrono::Local::now().format("%H:%M").to_string(),
-            Clock::H12 => chrono::Local::now().format("%-I:%M %p").to_string(),
-        };
+        let status = self.controller_status(u);
+        let clock = self.clock_text();
         let gear = div()
             .id("gear")
             .size(px(40.0 * u))
@@ -1085,17 +1095,28 @@ impl LauncherView {
                 c
             }
             Overlay::Playing { stop } => {
-                let since = self
+                let since_secs = self
                     .session
                     .as_ref()
                     .and_then(|s| s.running_since)
-                    .map(|t| t.elapsed().as_secs() / 60)
+                    .map(|t| t.elapsed().as_secs())
                     .unwrap_or(0);
-                let playing_for = if since == 0 {
+                let since = since_secs / 60;
+                let mut playing_for = if since == 0 {
                     "Started just now".to_string()
                 } else {
-                    format!("Playing for {since} min")
+                    format!("Playing for {}", duration_text(since as i64))
                 };
+                // The game's total so far, this session included. A
+                // store's count may already hold part of this session
+                // (Steam updates it while the game runs); counting it again
+                // is a small overstatement at most, until the next scan.
+                if let Some(g) = self.session.as_ref().map(|s| &s.game) {
+                    let total = (g.total_playtime() + since_secs as i64) / 60;
+                    if total > since as i64 && total >= 1 {
+                        playing_for.push_str(&format!(" · {} in total", duration_text(total)));
+                    }
+                }
                 let logo = self.session.as_ref().and_then(|s| {
                     let p = s.game.logo_path.clone()?;
                     let (lw, lh) = self.image_size(Path::new(&p))?;
@@ -1133,11 +1154,23 @@ impl LauncherView {
                     ),
                     StopState::Forcing => ("Stopping…".to_string(), false, None),
                 };
+                // The time and the controller's battery, which a game in
+                // full screen hides: the reason to look at Moonglass mid-game.
+                let status = div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(48.0 * u))
+                    .text_color(white(0.85))
+                    .child(div().text_size(px(22.0 * u)).child(self.clock_text()))
+                    .child(self.controller_status(u));
                 let mut c = div()
                     .flex()
                     .flex_col()
                     .items_center()
                     .gap(px(22.0 * u))
+                    .child(status)
                     .child(
                         div()
                             .text_size(px(16.0 * u))

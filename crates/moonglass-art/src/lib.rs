@@ -4,6 +4,7 @@
 //! 1. user override (handled by the caller: locked artwork is never replaced),
 //! 2. Steam's local library cache ([`steam_cache`]),
 //! 3. the Epic Games Launcher's local catalog, for Epic games ([`epic_catalog`]),
+//!    and GOG's public catalog, for GOG games ([`gog_catalog`]),
 //! 4. SteamGridDB, with the user's API key ([`steamgriddb`]),
 //! 5. for emulated games, keyless game databases: Switch eShop images by
 //!    title ID, libretro box art for older systems ([`rom_art`]),
@@ -21,6 +22,7 @@ use thiserror::Error;
 
 pub mod color;
 pub mod epic_catalog;
+pub mod gog_catalog;
 pub mod ingest;
 mod net;
 pub mod placeholder;
@@ -48,6 +50,8 @@ pub enum ArtError {
     TooLarge(String),
     #[error("SteamGridDB: {0}")]
     Api(String),
+    #[error("GOG catalog: {0}")]
+    Gog(String),
     #[error("Epic catalog {path}: {message}")]
     Catalog { path: PathBuf, message: String },
 }

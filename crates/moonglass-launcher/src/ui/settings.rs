@@ -10,6 +10,8 @@ use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedStrin
 use super::browser::scroll_to_show;
 use super::gamepad::{Family, NavAction};
 use super::icons::{icon, Icon};
+use moonglass_core::Source;
+
 use super::prefs::{Choice, Prefs};
 use super::theme::{black, keycap, mix, on, selected, white, INK};
 use super::LauncherView;
@@ -62,6 +64,8 @@ pub enum Item {
     ShowHidden,
     Rescan,
     LibraryInfo,
+    /// Whether a store's games are shown (Steam, Epic, GOG).
+    Store(Source),
     SteamAccount,
     SteamPlayableOnly,
     SteamFolder,
@@ -115,6 +119,9 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::ShowHidden,
             Item::Rescan,
             Item::LibraryInfo,
+            Item::Store(Source::Steam),
+            Item::Store(Source::Epic),
+            Item::Store(Source::Gog),
             Item::SteamAccount,
             Item::SteamPlayableOnly,
             Item::SteamFolder,
@@ -167,6 +174,7 @@ impl Item {
             | Item::ReducedMotion
             | Item::ShowHidden
             | Item::SteamPlayableOnly
+            | Item::Store(_)
             | Item::StartAtLogin
             | Item::DismissLauncher => Kind::Toggle,
             Item::AddGame
@@ -208,6 +216,11 @@ impl Item {
             Item::ShowHidden => "Show hidden games",
             Item::Rescan => "Rescan library now",
             Item::LibraryInfo => "Library",
+            Item::Store(s) => match s {
+                Source::Steam => "Show Steam games",
+                Source::Epic => "Show Epic games",
+                _ => "Show GOG games",
+            },
             Item::SteamAccount => "Steam account",
             Item::SteamPlayableOnly => "Only Steam games this account can play",
             Item::SteamFolder => "Steam folder",
@@ -221,7 +234,7 @@ impl Item {
             Item::RefreshArt => "Refresh all artwork",
             Item::ArtInfo => "Sources",
             Item::StartAtLogin => "Start Moonglass at login",
-            Item::DismissLauncher => "Send Steam / Epic to the tray after a game",
+            Item::DismissLauncher => "Send Steam / Epic / GOG to the tray after a game",
             Item::RestoreHotkey => "Return to Moonglass during a game",
             Item::RestoreButtons => "Return to Moonglass: buttons",
             Item::RestoreHold => "Return to Moonglass: hold for",
@@ -254,6 +267,49 @@ pub struct SettingsInfo {
     pub family: Family,
     pub keyboard_hotkey: bool,
     pub logs: String,
+    /// Each store: how many of its games are installed, and whether the
+    /// store itself was found on this computer.
+    pub stores: Vec<(Source, usize, bool)>,
+}
+
+fn store_value(s: Source, info: &SettingsInfo) -> String {
+    let (games, found) = info
+        .stores
+        .iter()
+        .find(|(x, ..)| *x == s)
+        .map_or((0, false), |&(_, n, f)| (n, f));
+    match (games, found) {
+        (0, false) => "Not found on this computer".into(),
+        (1, _) => "1 game".into(),
+        (n, _) => format!("{n} games"),
+    }
+}
+
+/// Whether a toggle row is on. Most toggles show only "On" / "Off"; a
+/// store row shows its number of games instead, next to the switch.
+fn toggle_on(item: Item, prefs: &Prefs, value: &str) -> bool {
+    match item {
+        Item::Store(s) => prefs.store_enabled(s),
+        _ => value == "On",
+    }
+}
+
+/// An on/off switch; `t` goes from 0 (off) to 1 (on). Shared with setup.
+pub(super) fn toggle_switch(t: f32, u: f32) -> Div {
+    div()
+        .flex_none()
+        .w(px(52.0 * u))
+        .h(px(28.0 * u))
+        .rounded_full()
+        .p(px(3.0 * u))
+        .bg(mix(white(0.25), rgb(0x5A8DEE).into(), t))
+        .child(
+            div()
+                .ml(px(24.0 * u * t))
+                .size(px(22.0 * u))
+                .rounded_full()
+                .bg(gpui::white()),
+        )
 }
 
 pub struct SettingsState {
@@ -330,6 +386,7 @@ impl SettingsState {
             Item::RestoreHold => prefs.restore_hold = prefs.restore_hold.step(delta),
             Item::LaunchTimeout => prefs.launch_timeout = prefs.launch_timeout.step(delta),
             Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
+            Item::Store(s) => prefs.set_store_enabled(s, !prefs.store_enabled(s)),
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
             _ => return false,
         }
@@ -450,6 +507,7 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::ShowHidden => on_off(prefs.show_hidden).into(),
         Item::SteamAccount => info.steam_account.clone(),
         Item::SteamPlayableOnly => on_off(prefs.steam_playable_only).into(),
+        Item::Store(s) => store_value(s, info),
         Item::SteamFolder => info.steam_folder.clone(),
         Item::SteamIgnored => info.steam_ignored.clone(),
         Item::RestoreButtons => prefs.restore_buttons.label().into(),
@@ -468,7 +526,7 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::FriendsInfo => info.friends.clone(),
         Item::RefreshArt => "Refresh".into(),
         Item::ArtInfo => {
-            "Steam's cache, Epic's catalog, SteamGridDB (with a key), Switch and retro game databases, then a placeholder".into()
+            "Steam's cache, Epic's catalog, GOG's catalog, SteamGridDB (with a key), Switch and retro game databases, then a placeholder".into()
         }
         Item::StartAtLogin => on_off(info.start_at_login).into(),
         Item::DismissLauncher => on_off(prefs.dismiss_launcher_window).into(),
@@ -600,21 +658,23 @@ impl LauncherView {
                 }
                 Kind::Toggle => {
                     // The knob slides and the track changes color.
-                    let t = self.glide(("settings-toggle", st.section, i), on(v == "On"));
-                    div()
-                        .flex_none()
-                        .w(px(52.0 * u))
-                        .h(px(28.0 * u))
-                        .rounded_full()
-                        .p(px(3.0 * u))
-                        .bg(mix(white(0.25), rgb(0x5A8DEE).into(), t))
-                        .child(
-                            div()
-                                .ml(px(24.0 * u * t))
-                                .size(px(22.0 * u))
-                                .rounded_full()
-                                .bg(gpui::white()),
-                        )
+                    let is_on = toggle_on(item, prefs, &v);
+                    let t = self.glide(("settings-toggle", st.section, i), on(is_on));
+                    let switch = toggle_switch(t, u);
+                    match item {
+                        // A store's number of games sits beside its switch.
+                        Item::Store(_) => div()
+                            .flex()
+                            .items_center()
+                            .gap(px(14.0 * u))
+                            .child(
+                                div()
+                                    .text_color(mix(white(0.6), rgb(0x3A3D45).into(), lit))
+                                    .child(v),
+                            )
+                            .child(switch),
+                        _ => switch,
+                    }
                 }
                 Kind::Action => div()
                     .px(px(14.0 * u))

@@ -1,5 +1,6 @@
-//! First-run setup (spec 3, First-Run Flow): the games found, emulators and
-//! ROM folders, a SteamGridDB key, then the carousel. Every step can be
+//! First-run setup (spec 3, First-Run Flow): the games found and which
+//! stores to show, emulators and ROM folders, a SteamGridDB key, then the
+//! carousel. Every step can be
 //! skipped. It opens on the first start with an empty library, from the
 //! "Add your games" card, and from Settings → System.
 
@@ -8,6 +9,8 @@ use moonglass_core::Source;
 
 use super::gamepad::NavAction;
 use super::osk::{Osk, TextTarget};
+use super::prefs::{store_name, STORES};
+use super::settings::toggle_switch;
 use super::theme::{black, keycap, on, selected, white};
 use super::{InputMode, LauncherView, Modal, Screen};
 
@@ -34,6 +37,8 @@ impl Step {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupAction {
     Next,
+    /// Show or hide a store's games.
+    ToggleStore(Source),
     AddEmulator,
     EnterSgdbKey,
     Finish,
@@ -76,11 +81,43 @@ impl SetupState {
     }
 }
 
-/// The buttons of a step, first is the default.
-fn buttons(step: Step, has_emulators: bool, key_set: bool) -> Vec<(&'static str, SetupAction)> {
+/// A store found on this computer, as the first step lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoreRow {
+    pub source: Source,
+    pub games: usize,
+}
+
+/// The buttons of a step, first is the default. On the first step, each
+/// store found is a switch (all on until the player turns one off), then
+/// Continue.
+fn buttons(
+    step: Step,
+    stores: &[StoreRow],
+    has_emulators: bool,
+    key_set: bool,
+) -> Vec<(String, SetupAction)> {
+    let v = |rows: Vec<(&str, SetupAction)>| {
+        rows.into_iter()
+            .map(|(l, a)| (l.to_string(), a))
+            .collect::<Vec<_>>()
+    };
     match step {
-        Step::Welcome => vec![("Continue", SetupAction::Next)],
-        Step::Emulators => vec![
+        Step::Welcome => stores
+            .iter()
+            .map(|r| {
+                (
+                    format!(
+                        "{} · {}",
+                        store_name(r.source),
+                        count_label(r.games, "game", "games")
+                    ),
+                    SetupAction::ToggleStore(r.source),
+                )
+            })
+            .chain([("Continue".to_string(), SetupAction::Next)])
+            .collect(),
+        Step::Emulators => v(vec![
             (
                 if has_emulators {
                     "Add another emulator"
@@ -93,8 +130,8 @@ fn buttons(step: Step, has_emulators: bool, key_set: bool) -> Vec<(&'static str,
                 if has_emulators { "Continue" } else { "Skip" },
                 SetupAction::Next,
             ),
-        ],
-        Step::Artwork => vec![
+        ]),
+        Step::Artwork => v(vec![
             (
                 if key_set {
                     "Change the key"
@@ -104,8 +141,8 @@ fn buttons(step: Step, has_emulators: bool, key_set: bool) -> Vec<(&'static str,
                 SetupAction::EnterSgdbKey,
             ),
             (if key_set { "Continue" } else { "Skip" }, SetupAction::Next),
-        ],
-        Step::Done => vec![("Start playing", SetupAction::Finish)],
+        ]),
+        Step::Done => v(vec![("Start playing", SetupAction::Finish)]),
     }
 }
 
@@ -121,7 +158,11 @@ impl LauncherView {
         self.search_focused = false;
         self.set_modal(Modal::None);
         self.setup_leaving = None;
-        self.screen = Screen::Setup(SetupState::new());
+        let mut st = SetupState::new();
+        // The store switches come first; start on Continue so a quick
+        // press never turns a store off.
+        st.selected = self.stores_found.len();
+        self.screen = Screen::Setup(st);
     }
 
     /// Leaves setup for the carousel, and remembers it was done.
@@ -138,8 +179,24 @@ impl LauncherView {
         cx.notify();
     }
 
-    fn setup_buttons(&self, step: Step) -> Vec<(&'static str, SetupAction)> {
-        buttons(step, !self.emulators.is_empty(), self.sgdb_key_set)
+    fn setup_stores(&self) -> Vec<StoreRow> {
+        STORES
+            .into_iter()
+            .filter(|s| self.stores_found.contains(s))
+            .map(|source| StoreRow {
+                source,
+                games: self.store_game_count(source),
+            })
+            .collect()
+    }
+
+    fn setup_buttons(&self, step: Step) -> Vec<(String, SetupAction)> {
+        buttons(
+            step,
+            &self.setup_stores(),
+            !self.emulators.is_empty(),
+            self.sgdb_key_set,
+        )
     }
 
     fn run_setup_action(&mut self, action: SetupAction, cx: &mut Context<Self>) {
@@ -148,6 +205,7 @@ impl LauncherView {
         };
         match action {
             SetupAction::Next => st.next(),
+            SetupAction::ToggleStore(s) => return self.toggle_store(s, cx),
             SetupAction::Finish => return self.finish_setup(cx),
             SetupAction::AddEmulator => self.open_preset_menu(),
             SetupAction::EnterSgdbKey => self.set_modal(Modal::Keyboard(Osk::new(
@@ -165,6 +223,10 @@ impl LauncherView {
         let buttons = self.setup_buttons(st.step);
         let n = buttons.len();
         let pick = buttons[st.selected.min(n - 1)].1;
+        // Left / right flip a store's switch, as in Settings.
+        if let (SetupAction::ToggleStore(s), NavAction::Left | NavAction::Right) = (pick, a) {
+            return self.toggle_store(s, cx);
+        }
         let Screen::Setup(st) = &mut self.screen else {
             return;
         };
@@ -202,25 +264,27 @@ impl LauncherView {
                 let found = if !self.scanned {
                     "Looking for your games…".to_string()
                 } else {
-                    let steam = installed(Source::Steam);
-                    let epic = installed(Source::Epic);
-                    if steam + epic == 0 {
-                        "No Steam or Epic games were found on this computer.".into()
-                    } else {
-                        format!(
-                            "Found {} on Steam and {} on Epic.",
-                            count_label(steam, "game", "games"),
-                            count_label(epic, "game", "games"),
-                        )
+                    let stores: Vec<String> = STORES
+                        .into_iter()
+                        .map(|s| (installed(s), store_name(s)))
+                    .filter(|(n, _)| *n > 0)
+                    .map(|(n, name)| format!("{} on {name}", count_label(n, "game", "games")))
+                    .collect();
+                    match stores.as_slice() {
+                        [] => "No Steam, Epic or GOG games were found on this computer.".into(),
+                        [one] => format!("Found {one}."),
+                        [rest @ .., last] => format!("Found {} and {last}.", rest.join(", ")),
                     }
                 };
-                (
-                    "Welcome to Moonglass".into(),
-                    vec![
-                        found,
-                        "Games installed later appear by themselves.".into(),
-                    ],
-                )
+                let mut lines = vec![found];
+                if !self.stores_found.is_empty() {
+                    lines.push(
+                        "Turn off the stores whose games you don't want to see. Settings → Library can change this later."
+                            .into(),
+                    );
+                }
+                lines.push("Games installed later appear by themselves.".into());
+                ("Welcome to Moonglass".into(), lines)
             }
             Step::Emulators => {
                 let mut lines = vec![
@@ -234,7 +298,7 @@ impl LauncherView {
             Step::Artwork => (
                 "Artwork".into(),
                 vec![
-                    "Steam, Epic and Switch games get their artwork without any setup.".into(),
+                    "Steam, Epic, GOG and Switch games get their artwork without any setup.".into(),
                     "For other games, a free SteamGridDB key (steamgriddb.com, Preferences → API) finds covers by title.".into(),
                     if self.sgdb_key_set {
                         "A key is saved.".into()
@@ -244,7 +308,7 @@ impl LauncherView {
                 ],
             ),
             Step::Done => {
-                let n = self.games.iter().filter(|g| g.is_visible()).count();
+                let n = self.shown.iter().filter(|g| g.is_visible()).count();
                 (
                     "You're all set".into(),
                     vec![
@@ -290,18 +354,27 @@ impl LauncherView {
             );
         }
         let mut list = div().flex().flex_col().gap(px(6.0 * u));
-        for (i, (label, _)) in self.setup_buttons(st.step).into_iter().enumerate() {
+        for (i, (label, action)) in self.setup_buttons(st.step).into_iter().enumerate() {
             let lit = self.glide(("setup-button", st.step.index(), i), on(i == st.selected));
-            list = list.child(
-                selected(div().id(("setup-button", i)), lit)
-                    .px(px(22.0 * u))
-                    .py(px(14.0 * u))
-                    .rounded(px(16.0 * u))
-                    .cursor_pointer()
-                    .when(i != st.selected, |d| d.hover(|s| s.bg(white(0.08))))
-                    .on_click(cx.listener(move |this, _, _, cx| this.setup_click(i, cx)))
-                    .child(label),
-            );
+            let mut row = selected(div().id(("setup-button", i)), lit)
+                .px(px(22.0 * u))
+                .py(px(14.0 * u))
+                .rounded(px(16.0 * u))
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .justify_between()
+                .when(i != st.selected, |d| d.hover(|s| s.bg(white(0.08))))
+                .on_click(cx.listener(move |this, _, _, cx| this.setup_click(i, cx)))
+                .child(SharedString::from(label));
+            if let SetupAction::ToggleStore(s) = action {
+                let k = self.glide(
+                    ("setup-store", store_name(s)),
+                    on(self.prefs.store_enabled(s)),
+                );
+                row = row.child(toggle_switch(k, u));
+            }
+            list = list.child(row);
         }
         let gamepad = self.input == InputMode::Gamepad;
         let hint = |k: &str, l: &str| -> Div {
@@ -396,11 +469,42 @@ mod tests {
 
     #[test]
     fn skip_turns_into_continue() {
-        assert_eq!(buttons(Step::Emulators, false, false)[1].0, "Skip");
-        assert_eq!(buttons(Step::Emulators, true, false)[1].0, "Continue");
+        assert_eq!(buttons(Step::Emulators, &[], false, false)[1].0, "Skip");
+        assert_eq!(buttons(Step::Emulators, &[], true, false)[1].0, "Continue");
         assert_eq!(
-            buttons(Step::Artwork, false, true)[0].1,
+            buttons(Step::Artwork, &[], false, true)[0].1,
             SetupAction::EnterSgdbKey
         );
+    }
+
+    #[test]
+    fn welcome_lists_found_stores_then_continue() {
+        let rows = [
+            StoreRow {
+                source: Source::Steam,
+                games: 31,
+            },
+            StoreRow {
+                source: Source::Gog,
+                games: 1,
+            },
+        ];
+        let b = buttons(Step::Welcome, &rows, false, false);
+        assert_eq!(
+            b,
+            [
+                (
+                    "Steam · 31 games".to_string(),
+                    SetupAction::ToggleStore(Source::Steam)
+                ),
+                (
+                    "GOG · 1 game".to_string(),
+                    SetupAction::ToggleStore(Source::Gog)
+                ),
+                ("Continue".to_string(), SetupAction::Next),
+            ]
+        );
+        // Nothing found: only Continue.
+        assert_eq!(buttons(Step::Welcome, &[], false, false).len(), 1);
     }
 }

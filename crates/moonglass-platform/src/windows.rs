@@ -16,7 +16,8 @@ use windows::Win32::System::JobObjects::{
     QueryInformationJobObject, TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
 };
 use windows::Win32::System::Registry::{
-    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
+    RegCloseKey, RegDeleteKeyValueW, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE,
@@ -25,8 +26,8 @@ use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 use crate::{
-    name_matches, within_normalized, AppPaths, EpicSource, PlatformError, Prepared, ProcessInfo,
-    Result,
+    name_matches, within_normalized, AppPaths, EpicSource, GogRegistryGame, GogSource,
+    PlatformError, Prepared, ProcessInfo, Result,
 };
 
 /// Windows reads the background restore combination with its own XInput
@@ -106,12 +107,16 @@ pub fn system_folders() -> Vec<PathBuf> {
 // ---------------------------------------------------------------- registry
 
 fn reg_get_string(subkey: &str, value: &str) -> Option<String> {
+    reg_get_string_in(HKEY_CURRENT_USER, subkey, value)
+}
+
+fn reg_get_string_in(root: HKEY, subkey: &str, value: &str) -> Option<String> {
     let subkey = HSTRING::from(subkey);
     let value = HSTRING::from(value);
     let mut len: u32 = 0;
     unsafe {
         let rc = RegGetValueW(
-            HKEY_CURRENT_USER,
+            root,
             &subkey,
             &value,
             RRF_RT_REG_SZ,
@@ -124,7 +129,7 @@ fn reg_get_string(subkey: &str, value: &str) -> Option<String> {
         }
         let mut buf = vec![0u16; (len as usize).div_ceil(2)];
         let rc = RegGetValueW(
-            HKEY_CURRENT_USER,
+            root,
             &subkey,
             &value,
             RRF_RT_REG_SZ,
@@ -140,6 +145,39 @@ fn reg_get_string(subkey: &str, value: &str) -> Option<String> {
     }
 }
 
+/// Names of a registry key's subkeys.
+fn reg_subkeys(root: HKEY, subkey: &str) -> Vec<String> {
+    let subkey = HSTRING::from(subkey);
+    let mut key = HKEY::default();
+    let mut out = Vec::new();
+    unsafe {
+        if RegOpenKeyExW(root, &subkey, None, KEY_READ, &mut key) != ERROR_SUCCESS {
+            return out;
+        }
+        for i in 0.. {
+            // Registry key names are at most 255 characters.
+            let mut buf = [0u16; 256];
+            let mut len = buf.len() as u32;
+            let rc = RegEnumKeyExW(
+                key,
+                i,
+                Some(windows::core::PWSTR(buf.as_mut_ptr())),
+                &mut len,
+                None,
+                None,
+                None,
+                None,
+            );
+            if rc != ERROR_SUCCESS {
+                break;
+            }
+            out.push(String::from_utf16_lossy(&buf[..len as usize]));
+        }
+        let _ = RegCloseKey(key);
+    }
+    out
+}
+
 // ------------------------------------------------------ launcher discovery
 
 pub fn steam_root() -> Option<PathBuf> {
@@ -151,6 +189,44 @@ pub fn epic_source() -> Option<EpicSource> {
     let program_data = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
     let dir = PathBuf::from(program_data).join(r"Epic\EpicGamesLauncher\Data\Manifests");
     dir.is_dir().then_some(EpicSource::EpicManifests(dir))
+}
+
+const GOG_KEY: &str = r"SOFTWARE\WOW6432Node\GOG.com";
+
+/// GOG Galaxy's program: from its registry key, else its default folder.
+fn gog_galaxy() -> Option<PathBuf> {
+    reg_get_string_in(
+        HKEY_LOCAL_MACHINE,
+        &format!(r"{GOG_KEY}\GalaxyClient\paths"),
+        "client",
+    )
+    .map(|dir| PathBuf::from(dir).join("GalaxyClient.exe"))
+    .filter(|p| p.is_file())
+    .or_else(|| {
+        let pf = std::env::var_os("ProgramFiles(x86)")
+            .unwrap_or_else(|| r"C:\Program Files (x86)".into());
+        Some(PathBuf::from(pf).join(r"GOG Galaxy\GalaxyClient.exe")).filter(|p| p.is_file())
+    })
+}
+
+pub fn gog_source() -> Option<GogSource> {
+    let games_key = format!(r"{GOG_KEY}\Games");
+    let games: Vec<GogRegistryGame> = reg_subkeys(HKEY_LOCAL_MACHINE, &games_key)
+        .into_iter()
+        .map(|id| {
+            let key = format!(r"{games_key}\{id}");
+            let get = |v: &str| reg_get_string_in(HKEY_LOCAL_MACHINE, &key, v).unwrap_or_default();
+            GogRegistryGame {
+                name: get("gameName"),
+                path: get("path"),
+                exe: get("exe"),
+                depends_on: get("dependsOn"),
+                product_id: id,
+            }
+        })
+        .collect();
+    let galaxy = gog_galaxy();
+    (!games.is_empty() || galaxy.is_some()).then_some(GogSource::Registry { games, galaxy })
 }
 
 // ---------------------------------------------------------------- launching
@@ -214,6 +290,28 @@ pub fn launch_epic(source: &EpicSource, app_name: &str, fallback_uri: Option<&st
             )),
         },
         EpicSource::Heroic { .. } => Err(PlatformError::Os("Heroic is not used on Windows".into())),
+    }
+}
+
+pub fn launch_gog(source: &GogSource, product_id: &str, install_dir: &Path) -> Result<()> {
+    match source {
+        GogSource::Registry {
+            galaxy: Some(galaxy),
+            ..
+        } => {
+            // Galaxy is usually running already: this hands the request
+            // over and exits.
+            Command::new(galaxy)
+                .arg("/command=runGame")
+                .arg(format!("/gameId={product_id}"))
+                .arg(format!("/path={}", install_dir.display()))
+                .spawn()?;
+            Ok(())
+        }
+        GogSource::Registry { galaxy: None, .. } => {
+            Err(PlatformError::Os("GOG Galaxy is not installed".into()))
+        }
+        GogSource::Heroic { .. } => Err(PlatformError::Os("Heroic is not used on Windows".into())),
     }
 }
 
@@ -786,6 +884,7 @@ pub mod window {
         match l {
             Launcher::Steam => (&["steamwebhelper.exe", "steam.exe"], "Steam"),
             Launcher::Epic => (&["epicgameslauncher.exe"], "Epic Games Launcher"),
+            Launcher::Gog => (&["galaxyclient.exe"], "GOG Galaxy"),
         }
     }
 

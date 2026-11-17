@@ -12,6 +12,7 @@ use crate::text;
 pub enum Source {
     Steam,
     Epic,
+    Gog,
     /// Standalone executable, whatever its file type.
     Exe,
     Rom,
@@ -22,6 +23,7 @@ impl Source {
         match self {
             Source::Steam => "steam",
             Source::Epic => "epic",
+            Source::Gog => "gog",
             Source::Exe => "exe",
             Source::Rom => "rom",
         }
@@ -31,16 +33,18 @@ impl Source {
         Some(match s {
             "steam" => Source::Steam,
             "epic" => Source::Epic,
+            "gog" => Source::Gog,
             "exe" => Source::Exe,
             "rom" => Source::Rom,
             _ => return None,
         })
     }
 
-    /// Steam and Epic games run inside their client and are never killed by
-    /// Moonglass (spec 5.4); executables and ROMs are Moonglass's own children.
+    /// Steam, Epic and GOG games run inside their client and are never
+    /// killed by Moonglass (spec 5.4); executables and ROMs are Moonglass's
+    /// own children.
     pub fn is_launcher(self) -> bool {
-        matches!(self, Source::Steam | Source::Epic)
+        matches!(self, Source::Steam | Source::Epic | Source::Gog)
     }
 }
 
@@ -69,7 +73,10 @@ pub struct Game {
     pub artwork_locked: bool,
     pub date_added: i64,
     pub last_played: Option<i64>,
+    /// Sessions started from Moonglass.
     pub playtime_seconds: i64,
+    /// What the store reports (Steam), including play elsewhere.
+    pub store_playtime_seconds: i64,
     pub is_favorite: bool,
     pub is_hidden: bool,
     pub is_installed: bool,
@@ -79,6 +86,13 @@ impl Game {
     /// Shown in the carousel and search results.
     pub fn is_visible(&self) -> bool {
         self.is_installed && !self.is_hidden
+    }
+
+    /// Total time played, as shown. The store's count already includes the
+    /// sessions Moonglass recorded, so the two are not added; whichever is
+    /// larger is the better-informed one.
+    pub fn total_playtime(&self) -> i64 {
+        self.playtime_seconds.max(self.store_playtime_seconds)
     }
 }
 
@@ -121,17 +135,19 @@ pub enum Filter {
     Favorites,
     Steam,
     Epic,
+    Gog,
     Apps,
     Emulators,
 }
 
 impl Filter {
-    pub const ORDER: [Filter; 7] = [
+    pub const ORDER: [Filter; 8] = [
         Filter::All,
         Filter::Recent,
         Filter::Favorites,
         Filter::Steam,
         Filter::Epic,
+        Filter::Gog,
         Filter::Apps,
         Filter::Emulators,
     ];
@@ -143,6 +159,7 @@ impl Filter {
             Filter::Favorites => "Favorites",
             Filter::Steam => "Steam",
             Filter::Epic => "Epic",
+            Filter::Gog => "GOG",
             Filter::Apps => "Apps",
             Filter::Emulators => "Emulators",
         }
@@ -158,6 +175,7 @@ impl Filter {
             Filter::Favorites => game.is_favorite,
             Filter::Steam => game.source == Source::Steam,
             Filter::Epic => game.source == Source::Epic,
+            Filter::Gog => game.source == Source::Gog,
             Filter::Apps => game.source == Source::Exe,
             Filter::Emulators => game.source == Source::Rom,
         }
@@ -229,6 +247,7 @@ pub(crate) mod tests {
             date_added: 0,
             last_played: None,
             playtime_seconds: 0,
+            store_playtime_seconds: 0,
             is_favorite: false,
             is_hidden: false,
             is_installed: true,

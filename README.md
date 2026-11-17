@@ -19,7 +19,7 @@ opens the carousel (or first-time setup on an empty library).
 | Launch, exit detection, focus return, Now Playing with Stop / Force stop | Done on Windows |
 | Notification when Moonglass cannot come back to the front | Done; Linux untested |
 | Restore hotkey (controller hold, `Ctrl+Alt+Home`), with its buttons and hold time in Settings | Done; the controller hold is untested |
-| Artwork: Steam's cache, Epic's catalog (Windows), SteamGridDB, Switch and libretro art for emulated games, placeholder | Done |
+| Artwork: Steam's cache, Epic's catalog (Windows), GOG's catalog, SteamGridDB, Switch and libretro art for emulated games, placeholder | Done |
 | Carousel, ambient lighting (including the motion blur background), card art fitting, startup animation, interface animations | Done |
 | Gamepad, keyboard and mouse, with hints that follow the device; hold Esc / B to exit | Done |
 | Search and on-screen keyboard | Done |
@@ -31,6 +31,11 @@ opens the carousel (or first-time setup on an empty library).
 | Steam friends in your games, Join, borrowed-game warning (5.6) | Done; not yet tried with a key |
 | Steam account switcher, and the library limited to what the account can play (5.7) | Done on Windows; Linux untested |
 | Steam folder and "not a game" Steam apps in Settings | Done |
+| GOG games: GOG Galaxy and offline installers (Windows), Heroic (Linux), keyless artwork | Done; not yet tried with a real GOG install on either platform |
+| Steam's own playtime for the signed-in account, shown with Moonglass's (5.1) | Done on Windows |
+| Now Playing shows the time, controller battery and total playtime | Done |
+| Turning Steam, Epic or GOG off, in Settings → Library and in first-time setup | Done |
+| Library database checked on every start, backed up, repaired from the backup when damaged, closed cleanly; SQLite 3.51.3 (spec 6) | Done on Windows |
 | Releasing images that are no longer drawn | Done |
 | Packaging: Windows `.exe` and zip, Linux tarball and AppImage, release workflow | Done; the Linux packaging and the workflow have not run yet |
 
@@ -63,6 +68,11 @@ Not done yet:
   changes from the next start.
 * Epic's namespaced-URI fallback is manual (`moonglass launch --epic-fallback`).
 * The CPU target while a game runs needs a change in GPUI (spec 9).
+* GOG with a real install: Galaxy's `/command=runGame` launch, the Galaxy
+  window title used to send it to the tray ("GOG Galaxy"), and Heroic's GOG
+  files. GOG games installed while Moonglass runs on Windows appear after the
+  next game or a rescan (the registry is not watched).
+* Epic and GOG playtime is not imported: both keep it on their servers only.
 
 ## Releases
 
@@ -89,7 +99,7 @@ The log records how long startup took (`startup: first frame ms=…`).
 crates/
   moonglass-core      IDs, title normalization, ordering/filters/search,
                       launch templates, launch state machine (pure, no OS)
-  moonglass-scan      Steam / Epic / Heroic / ROM file parsing
+  moonglass-scan      Steam / Epic / GOG / Heroic / ROM file parsing
   moonglass-db        sqlx + SQLite, migrations, reconciliation, settings
   moonglass-platform  everything OS-specific (windows.rs / linux.rs)
   moonglass-art       artwork sources and ingestion
@@ -108,7 +118,7 @@ cargo test --workspace
 Queries are compile-time checked against the metadata in `.sqlx/`, so no
 database is needed to build (`SQLX_OFFLINE=true` is set in
 `.cargo/config.toml`). After changing a query or migration, install
-`sqlx-cli` (`cargo install sqlx-cli --no-default-features --features sqlite`)
+`sqlx-cli` 0.9 (`cargo install sqlx-cli --version "^0.9" --no-default-features --features sqlite`)
 and run `scripts/sqlx-prepare.sh`.
 
 ## Using the debug build

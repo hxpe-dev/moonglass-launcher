@@ -13,6 +13,7 @@ use moonglass_core::{GameId, Source};
 use thiserror::Error;
 
 pub mod epic;
+pub mod gog;
 pub mod heroic;
 pub mod roms;
 pub mod steam;
@@ -54,9 +55,10 @@ pub struct ScannedGame {
     pub id: GameId,
     pub title: String,
     pub source: Source,
-    /// Steam AppID or Epic AppName.
+    /// Steam AppID, Epic AppName or GOG product ID.
     pub source_id: Option<String>,
-    /// ROM path (ROMs only; executables are added by the user, not scanned).
+    /// ROM path, or a GOG game's own program (executables are added by
+    /// the user, not scanned).
     pub launch_target: Option<String>,
     pub install_dir: Option<String>,
     pub rom_directory_id: Option<String>,

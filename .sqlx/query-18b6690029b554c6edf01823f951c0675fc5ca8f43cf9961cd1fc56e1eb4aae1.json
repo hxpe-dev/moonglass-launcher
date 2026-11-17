@@ -6,22 +6,46 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "path",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "path"
+          }
+        }
       },
       {
         "name": "emulator_id",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "emulator_id"
+          }
+        }
       },
       {
         "name": "platform",
         "ordinal": 3,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rom_directories",
+            "name": "platform"
+          }
+        }
       }
     ],
     "parameters": {

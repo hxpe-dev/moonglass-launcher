@@ -43,7 +43,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --version "^0.8" --no-default-features --features sqlite --locked
+        run: cargo install sqlx-cli --version "^0.9" --no-default-features --features sqlite --locked
       - name: Check query metadata
         run: |
           export DATABASE_URL="sqlite:$RUNNER_TEMP/sqlx-check.db"

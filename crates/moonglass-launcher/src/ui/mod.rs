@@ -110,6 +110,23 @@ pub struct Loaded {
     steam_root_manual: Option<String>,
     /// Steam apps marked as not games.
     steam_ignored: Vec<u32>,
+    /// Said on the first frame when the library had to be recovered.
+    pub recovery: Option<String>,
+}
+
+/// What to tell the player after [`Db::open_checked`], if anything.
+pub fn recovery_note(opened: &moonglass_db::Opened) -> Option<String> {
+    match opened {
+        moonglass_db::Opened::Healthy => None,
+        moonglass_db::Opened::Restored { .. } => Some(
+            "Your library file was damaged, so its last good copy was restored. Changes since the last start are lost."
+                .into(),
+        ),
+        moonglass_db::Opened::Fresh { .. } => Some(
+            "Your library file was damaged and had no good copy, so Moonglass started a new one. Your games are found again; favorites and settings are reset."
+                .into(),
+        ),
+    }
 }
 
 impl Loaded {
@@ -145,6 +162,7 @@ impl Loaded {
                 .ok()
                 .flatten()
                 .unwrap_or(false),
+            recovery: None,
         }
     }
 }
@@ -340,6 +358,9 @@ pub struct LauncherView {
     /// The restore hotkey's buttons and hold time, read by its threads.
     restore_config: Arc<moonglass_platform::RestoreConfig>,
     steam_root_manual: Option<String>,
+    /// Stores found on this computer (their client, or installed games),
+    /// refreshed with each library load.
+    stores_found: Vec<Source>,
     steam_ignored: Vec<u32>,
     sgdb_key_set: bool,
     start_at_login: bool,
@@ -545,7 +566,10 @@ impl LauncherView {
             settings_leaving: None,
             modal: Modal::None,
             modal_leaving: None,
-            overlay: Overlay::None,
+            overlay: match loaded.recovery.clone() {
+                Some(note) => Overlay::Message(note),
+                None => Overlay::None,
+            },
             toast: None,
             quit_hold: None,
             browser_generation: 0,
@@ -561,6 +585,7 @@ impl LauncherView {
             hotkey,
             restore_config,
             steam_root_manual: loaded.steam_root_manual,
+            stores_found: Vec::new(),
             steam_ignored: loaded.steam_ignored,
             sgdb_key_set: loaded.sgdb_key_set,
             start_at_login: moonglass_platform::start_at_login().unwrap_or(false),
@@ -714,6 +739,8 @@ impl LauncherView {
         if self.prefs.steam_playable_only {
             self.shown.retain(|g| self.steam.can_play(g));
         }
+        // Stores turned off in Settings or setup.
+        self.shown.retain(|g| self.prefs.store_enabled(g.source));
         self.filters = visible_filters(&self.shown, now, recent);
         if !self.filters.contains(&self.filter) {
             self.filter = Filter::All;
@@ -845,6 +872,7 @@ impl LauncherView {
                     .flatten();
                 let first = !self.loaded;
                 self.games = games;
+                self.refresh_stores_found();
                 self.steam_apps_changed();
                 // New or changed artwork comes with a library reload.
                 self.forget_file_facts();
@@ -1365,9 +1393,51 @@ impl LauncherView {
         });
     }
 
+    /// Which stores are on this computer: their client was found, or some
+    /// of their games are installed. Setup offers these to turn off.
+    fn refresh_stores_found(&mut self) {
+        let client = |s: Source| match s {
+            Source::Steam => {
+                self.steam_root_manual.is_some() || moonglass_platform::steam_root().is_some()
+            }
+            Source::Epic => moonglass_platform::epic_source().is_some(),
+            Source::Gog => moonglass_platform::gog_source().is_some(),
+            Source::Exe | Source::Rom => false,
+        };
+        let found: Vec<Source> = prefs::STORES
+            .into_iter()
+            .filter(|&s| client(s) || self.games.iter().any(|g| g.is_installed && g.source == s))
+            .collect();
+        // Setup's first step lists them above Continue: keep Continue
+        // selected when the list changes under it.
+        if let Screen::Setup(st) = &mut self.screen {
+            if st.step == setup::Step::Welcome && st.selected == self.stores_found.len() {
+                st.selected = found.len();
+            }
+        }
+        self.stores_found = found;
+    }
+
+    /// Installed games from a store, whether or not it is shown.
+    pub(super) fn store_game_count(&self, s: Source) -> usize {
+        self.games
+            .iter()
+            .filter(|g| g.is_installed && g.source == s)
+            .count()
+    }
+
+    /// Turns a store's games on or off, from Settings or setup.
+    pub(super) fn toggle_store(&mut self, s: Source, cx: &mut Context<Self>) {
+        let on = !self.prefs.store_enabled(s);
+        self.prefs.set_store_enabled(s, on);
+        self.apply_prefs();
+        self.save_prefs();
+        cx.notify();
+    }
+
     /// Nothing to show at all: the carousel is the "Add your games" card.
     pub(super) fn library_empty(&self) -> bool {
-        self.loaded && self.games.iter().all(|g| !g.is_visible()) && !self.prefs.show_hidden
+        self.loaded && self.shown.iter().all(|g| !g.is_visible()) && !self.prefs.show_hidden
     }
 
     fn is_home_idle(&self) -> bool {
@@ -2129,6 +2199,10 @@ impl LauncherView {
                 .collect(),
             family: self.controller.family,
             keyboard_hotkey: self.hotkey.availability().keyboard,
+            stores: prefs::STORES
+                .into_iter()
+                .map(|s| (s, self.store_game_count(s), self.stores_found.contains(&s)))
+                .collect(),
             logs: self.backend.paths.log_dir.display().to_string(),
         }
     }
@@ -2393,7 +2467,7 @@ impl LauncherView {
         );
     }
 
-    /// Spec 5.3: after a Steam or Epic game, a client window left in front
+    /// Spec 5.3: after a Steam, Epic or GOG game, a client window left in front
     /// goes to the tray (unless turned off in Settings).
     fn dismiss_launcher(&self, game: &Game) {
         if !self.prefs.dismiss_launcher_window {
@@ -2402,6 +2476,7 @@ impl LauncherView {
         let launcher = match game.source {
             Source::Steam => moonglass_platform::Launcher::Steam,
             Source::Epic => moonglass_platform::Launcher::Epic,
+            Source::Gog => moonglass_platform::Launcher::Gog,
             Source::Exe | Source::Rom => return,
         };
         let closed = moonglass_platform::window::dismiss_launcher_window(launcher);
@@ -2881,6 +2956,7 @@ pub fn run(
     let app = Application::new().with_assets(icons::Assets);
     let (backend, loaded) = start()?;
     let backend = Arc::new(backend);
+    let closing = backend.clone();
     app.run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1600.), px(900.)), cx);
         let windowed = std::env::var_os("MOONGLASS_WINDOWED").is_some();
@@ -2903,6 +2979,20 @@ pub fn run(
             return;
         }
         cx.on_window_closed(|cx| cx.quit()).detach();
+        // Close the library before the process ends, so SQLite folds its
+        // log into the file (spec 6). GPUI waits only briefly for quit
+        // handlers, so this blocks here instead, for at most 3 seconds.
+        cx.on_app_quit(move |_| {
+            let db = closing.db.clone();
+            let done = closing.rt.block_on(async move {
+                tokio::time::timeout(Duration::from_secs(3), db.close()).await
+            });
+            if done.is_err() {
+                tracing::warn!("the library did not close in time");
+            }
+            async {}
+        })
+        .detach();
         cx.activate(true);
     });
     Ok(())

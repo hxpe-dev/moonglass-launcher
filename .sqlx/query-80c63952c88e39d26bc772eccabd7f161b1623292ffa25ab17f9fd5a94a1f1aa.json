@@ -6,32 +6,68 @@
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "id"
+          }
+        }
       },
       {
         "name": "name",
         "ordinal": 1,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "name"
+          }
+        }
       },
       {
         "name": "executable_path",
         "ordinal": 2,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "executable_path"
+          }
+        }
       },
       {
         "name": "launch_template",
         "ordinal": 3,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "launch_template"
+          }
+        }
       },
       {
         "name": "file_extensions",
         "ordinal": 4,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "file_extensions"
+          }
+        }
       },
       {
         "name": "folder_marker",
         "ordinal": 5,
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emulators",
+            "name": "folder_marker"
+          }
+        }
       }
     ],
     "parameters": {

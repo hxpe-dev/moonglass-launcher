@@ -34,9 +34,36 @@ pub enum DbError {
     },
     #[error("stored game {id} has unknown source {found}")]
     BadSource { id: String, found: String },
+    #[error("{path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;
+
+mod health;
+pub use health::Opened;
+
+impl DbError {
+    /// SQLite reported the file as damaged or not a database at all
+    /// (`SQLITE_CORRUPT`, `SQLITE_NOTADB`).
+    pub fn is_damage(&self) -> bool {
+        let e = match self {
+            DbError::Sqlx(e) => e,
+            DbError::Migrate(sqlx::migrate::MigrateError::Execute(e)) => e,
+            _ => return false,
+        };
+        let sqlx::Error::Database(d) = e else {
+            return false;
+        };
+        d.code()
+            .and_then(|c| c.parse::<i32>().ok())
+            .is_some_and(|c| matches!(c & 0xff, 11 | 26))
+    }
+}
 
 /// Which games one scan is authoritative for. Games inside the scope that
 /// the scan did not return are marked uninstalled; games outside it are
@@ -45,6 +72,7 @@ pub type Result<T> = std::result::Result<T, DbError>;
 pub enum ScanScope {
     Steam,
     Epic,
+    Gog,
     RomDirectory(String),
 }
 
@@ -81,29 +109,85 @@ pub struct Db {
 
 impl Db {
     /// Opens (creating if needed) the database file and applies migrations.
+    /// Prefer [`Db::open_checked`], which also checks the file and recovers
+    /// from damage.
     pub async fn open(path: &Path) -> Result<Self> {
+        let db = Self::connect_file(path).await?;
+        MIGRATOR.run(&db.pool).await?;
+        Ok(db)
+    }
+
+    /// Connects without migrating, so the file can be checked first.
+    ///
+    /// One connection per process: every read and write goes through it,
+    /// one at a time. The library is small, and two connections of one
+    /// process racing a checkpoint against a write is what SQLite's
+    /// WAL-reset bug needs (fixed in SQLite 3.51.3, which is bundled; one
+    /// connection keeps the race away regardless).
+    pub(crate) async fn connect_file(path: &Path) -> Result<Self> {
         let opts = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
             .foreign_keys(true)
             .journal_mode(SqliteJournalMode::Wal);
-        Self::connect(opts, 4).await
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await?;
+        Ok(Self { pool })
     }
 
     /// A private in-memory database, for tests and tools.
     pub async fn open_in_memory() -> Result<Self> {
         let opts = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
         // One connection: each in-memory connection is its own database.
-        Self::connect(opts, 1).await
-    }
-
-    async fn connect(opts: SqliteConnectOptions, max: u32) -> Result<Self> {
         let pool = SqlitePoolOptions::new()
-            .max_connections(max)
+            .max_connections(1)
             .connect_with(opts)
             .await?;
         MIGRATOR.run(&pool).await?;
         Ok(Self { pool })
+    }
+
+    /// Closes the connection. SQLite then copies the write-ahead log into
+    /// the database file and deletes it, so the next start begins from one
+    /// complete file. Call it before the process exits.
+    pub async fn close(&self) {
+        self.pool.close().await;
+    }
+
+    /// `PRAGMA integrity_check`: `Ok(vec![])` when the file is sound,
+    /// otherwise SQLite's description of each problem.
+    pub async fn integrity_problems(&self) -> Result<Vec<String>> {
+        let rows: Vec<String> = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().filter(|r| r != "ok").collect())
+    }
+
+    /// Copies the write-ahead log into the database file and empties it.
+    pub async fn checkpoint(&self) -> Result<()> {
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Writes a consistent copy of the whole database to `dest`, which must
+    /// not exist yet.
+    pub async fn copy_to(&self, dest: &Path) -> Result<()> {
+        sqlx::query("VACUUM INTO ?")
+            .bind(dest.to_string_lossy().into_owned())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The SQLite library in use, such as "3.51.3".
+    pub async fn sqlite_version(&self) -> Result<String> {
+        Ok(sqlx::query_scalar("SELECT sqlite_version()")
+            .fetch_one(&self.pool)
+            .await?)
     }
 
     // ---------------------------------------------------------------- games
@@ -117,7 +201,7 @@ impl Db {
                       track_by_folder AS "track_by_folder: bool",
                       cover_path, hero_path, logo_path, dominant_color, accent_color,
                       artwork_locked AS "artwork_locked: bool",
-                      date_added, last_played, playtime_seconds,
+                      date_added, last_played, playtime_seconds, store_playtime_seconds,
                       is_favorite AS "is_favorite: bool",
                       is_hidden AS "is_hidden: bool",
                       is_installed AS "is_installed: bool"
@@ -138,7 +222,7 @@ impl Db {
                       track_by_folder AS "track_by_folder: bool",
                       cover_path, hero_path, logo_path, dominant_color, accent_color,
                       artwork_locked AS "artwork_locked: bool",
-                      date_added, last_played, playtime_seconds,
+                      date_added, last_played, playtime_seconds, store_playtime_seconds,
                       is_favorite AS "is_favorite: bool",
                       is_hidden AS "is_hidden: bool",
                       is_installed AS "is_installed: bool"
@@ -165,6 +249,7 @@ impl Db {
         let (source, rom_dir): (&str, Option<&str>) = match scope {
             ScanScope::Steam => ("steam", None),
             ScanScope::Epic => ("epic", None),
+            ScanScope::Gog => ("gog", None),
             ScanScope::RomDirectory(id) => ("rom", Some(id.as_str())),
         };
 
@@ -363,6 +448,49 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Replaces the store-reported playtime of every game from `source`
+    /// with `seconds` (by `source_id`); games missing from it get 0. Used
+    /// for Steam, whose count belongs to the signed-in account, so a
+    /// switch of account replaces the figures. Returns how many games
+    /// have a figure.
+    pub async fn set_store_playtimes(
+        &self,
+        source: Source,
+        seconds: &std::collections::HashMap<String, i64>,
+    ) -> Result<usize> {
+        let src = source.as_str();
+        let mut tx = self.pool.begin().await?;
+        let ids = sqlx::query!(
+            r#"SELECT id AS "id!", source_id FROM games WHERE source = ?"#,
+            src
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut with_time = 0;
+        for row in ids {
+            let s = row
+                .source_id
+                .as_deref()
+                .and_then(|k| seconds.get(k))
+                .copied()
+                .unwrap_or(0)
+                .max(0);
+            if s > 0 {
+                with_time += 1;
+            }
+            sqlx::query!(
+                "UPDATE games SET store_playtime_seconds = ? WHERE id = ? AND store_playtime_seconds != ?",
+                s,
+                row.id,
+                s
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(with_time)
     }
 
     /// Stores ingested artwork. Ignored for a game whose artwork the user
@@ -596,6 +724,7 @@ struct GameRow {
     date_added: i64,
     last_played: Option<i64>,
     playtime_seconds: i64,
+    store_playtime_seconds: i64,
     is_favorite: bool,
     is_hidden: bool,
     is_installed: bool,
@@ -631,6 +760,7 @@ impl GameRow {
             date_added: self.date_added,
             last_played: self.last_played,
             playtime_seconds: self.playtime_seconds,
+            store_playtime_seconds: self.store_playtime_seconds,
             is_favorite: self.is_favorite,
             is_hidden: self.is_hidden,
             is_installed: self.is_installed,

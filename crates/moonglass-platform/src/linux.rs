@@ -10,8 +10,8 @@ use std::time::Duration;
 use rustix::process::{kill_process_group, test_kill_process_group, Pid, Signal};
 
 use crate::{
-    name_matches, within_normalized, AppPaths, EpicSource, PlatformError, Prepared, ProcessInfo,
-    Result,
+    name_matches, within_normalized, AppPaths, EpicSource, GogSource, PlatformError, Prepared,
+    ProcessInfo, Result,
 };
 
 /// evdev delivers controller input without focus, so the gamepad thread
@@ -129,30 +129,44 @@ pub fn steam_root() -> Option<PathBuf> {
         .find(|p| p.join("steamapps").is_dir())
 }
 
-pub fn epic_source() -> Option<EpicSource> {
+/// Heroic's config folder and the command that runs it: the native
+/// install first, then the Flatpak.
+fn heroic() -> Option<(PathBuf, Vec<String>)> {
     let home = home().ok()?;
     let config = directories::BaseDirs::new()?.config_dir().to_path_buf();
-    let legendary = "heroic/legendaryConfig/legendary/installed.json";
-
     let native_cmd = on_path("heroic")
         .or_else(|| Some(PathBuf::from("/opt/Heroic/heroic")).filter(|p| p.is_file()));
     if let Some(cmd) = native_cmd {
-        return Some(EpicSource::Heroic {
-            installed_json: config.join(legendary),
-            command: vec![cmd.to_string_lossy().into_owned()],
-        });
+        return Some((
+            config.join("heroic"),
+            vec![cmd.to_string_lossy().into_owned()],
+        ));
     }
     if flatpak_installed(HEROIC_FLATPAK_ID, &home) {
-        return Some(EpicSource::Heroic {
-            installed_json: home
-                .join(".var/app")
+        return Some((
+            home.join(".var/app")
                 .join(HEROIC_FLATPAK_ID)
-                .join("config")
-                .join(legendary),
-            command: vec!["flatpak".into(), "run".into(), HEROIC_FLATPAK_ID.into()],
-        });
+                .join("config/heroic"),
+            vec!["flatpak".into(), "run".into(), HEROIC_FLATPAK_ID.into()],
+        ));
     }
     None
+}
+
+pub fn epic_source() -> Option<EpicSource> {
+    let (config, command) = heroic()?;
+    Some(EpicSource::Heroic {
+        installed_json: config.join("legendaryConfig/legendary/installed.json"),
+        command,
+    })
+}
+
+pub fn gog_source() -> Option<GogSource> {
+    let (config, command) = heroic()?;
+    Some(GogSource::Heroic {
+        installed_json: config.join("gog_store/installed.json"),
+        command,
+    })
 }
 
 // ---------------------------------------------------------------- launching
@@ -234,6 +248,25 @@ pub fn launch_epic(source: &EpicSource, app_name: &str, _fallback_uri: Option<&s
         }
         EpicSource::EpicManifests(_) => Err(PlatformError::Os(
             "the Epic Games Launcher is not available on Linux".into(),
+        )),
+    }
+}
+
+pub fn launch_gog(source: &GogSource, product_id: &str, _install_dir: &Path) -> Result<()> {
+    match source {
+        GogSource::Heroic { command, .. } => {
+            let (program, pre) = command
+                .split_first()
+                .ok_or_else(|| PlatformError::Os("empty Heroic command".into()))?;
+            spawn_detached(
+                Command::new(program)
+                    .args(pre)
+                    .arg("--no-gui")
+                    .arg(format!("heroic://launch?appName={product_id}&runner=gog")),
+            )
+        }
+        GogSource::Registry { .. } => Err(PlatformError::Os(
+            "GOG Galaxy is not available on Linux".into(),
         )),
     }
 }
