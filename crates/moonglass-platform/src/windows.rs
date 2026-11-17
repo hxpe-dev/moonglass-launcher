@@ -972,18 +972,31 @@ pub mod hotkey {
     ) {
         let mut held_since: Option<Instant> = None;
         let mut fired = false;
+        // Asking an empty XInput slot is slow, so only connected slots are
+        // polled; empty ones are looked at again every two seconds.
+        let mut connected = [false; 4];
+        let mut last_probe: Option<Instant> = None;
         loop {
             if !armed.load(Ordering::Relaxed) {
                 held_since = None;
                 fired = false;
+                last_probe = None;
                 // Idle cost while no game runs.
                 std::thread::sleep(Duration::from_millis(250));
                 continue;
             }
+            let probe = last_probe.is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
+            if probe {
+                last_probe = Some(Instant::now());
+            }
             let mut any = false;
-            for i in 0..4 {
+            for (i, slot) in connected.iter_mut().enumerate() {
+                if !*slot && !probe {
+                    continue;
+                }
                 let mut st = XINPUT_STATE::default();
-                if unsafe { XInputGetState(i, &mut st) } == 0 && combo_down(&st, config.combo()) {
+                *slot = unsafe { XInputGetState(i as u32, &mut st) } == 0;
+                if *slot && combo_down(&st, config.combo()) {
                     any = true;
                 }
             }

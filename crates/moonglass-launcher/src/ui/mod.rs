@@ -443,9 +443,15 @@ impl LauncherView {
         // files are read again only when something changed.
         let steam_tx = tx.clone();
         let steam_db = backend.db.clone();
+        let steam_paused = restore_armed.clone();
         backend.rt.spawn(async move {
             let mut last = None;
             loop {
+                // Nothing to show while a game is tracked.
+                if steam_paused.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    continue;
+                }
                 if let Ok(Some(root)) = crate::library::steam_root(&steam_db).await {
                     let probe = root.clone();
                     let now = tokio::task::spawn_blocking(move || {
@@ -2540,7 +2546,11 @@ async fn poll_game(
         let alive = {
             let mut guard = running.lock().unwrap();
             let Some(r) = guard.as_mut() else { break };
-            watcher.refresh();
+            // A game tracked as Moonglass's own child needs no process
+            // list (spec 7: CPU while a game runs).
+            if r.matcher.is_some() {
+                watcher.refresh();
+            }
             if req > done_request {
                 done_request = req;
                 if req == STOP_POLITE {
