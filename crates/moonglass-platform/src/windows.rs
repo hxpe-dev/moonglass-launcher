@@ -877,7 +877,8 @@ pub mod hotkey {
         RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_HOME,
     };
     use windows::Win32::UI::Input::XboxController::{
-        XInputGetState, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START, XINPUT_STATE,
+        XInputGetState, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB,
+        XINPUT_GAMEPAD_START, XINPUT_STATE,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, WM_APP, WM_HOTKEY, WM_USER,
@@ -905,7 +906,10 @@ pub mod hotkey {
     impl RestoreHotkey {
         /// Starts the two background threads. `on_restore` runs on one of
         /// them; it should only post a message to the UI.
-        pub fn start(hold: Duration, on_restore: impl Fn() + Send + Sync + 'static) -> Self {
+        pub fn start(
+            config: Arc<crate::RestoreConfig>,
+            on_restore: impl Fn() + Send + Sync + 'static,
+        ) -> Self {
             let armed = Arc::new(AtomicBool::new(false));
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(on_restore);
 
@@ -914,7 +918,7 @@ pub mod hotkey {
                 let cb = cb.clone();
                 std::thread::Builder::new()
                     .name("moonglass-xinput".into())
-                    .spawn(move || xinput_loop(hold, &armed, &*cb))
+                    .spawn(move || xinput_loop(&config, &armed, &*cb))
                     .ok();
             }
 
@@ -951,12 +955,21 @@ pub mod hotkey {
         }
     }
 
-    fn combo_down(state: &XINPUT_STATE) -> bool {
-        let want = XINPUT_GAMEPAD_BACK.0 | XINPUT_GAMEPAD_START.0;
+    fn combo_down(state: &XINPUT_STATE, combo: crate::RestoreCombo) -> bool {
+        let want = match combo {
+            crate::RestoreCombo::ViewMenu => XINPUT_GAMEPAD_BACK.0 | XINPUT_GAMEPAD_START.0,
+            crate::RestoreCombo::StickClicks => {
+                XINPUT_GAMEPAD_LEFT_THUMB.0 | XINPUT_GAMEPAD_RIGHT_THUMB.0
+            }
+        };
         state.Gamepad.wButtons.0 & want == want
     }
 
-    fn xinput_loop(hold: Duration, armed: &AtomicBool, cb: &(dyn Fn() + Send + Sync)) {
+    fn xinput_loop(
+        config: &crate::RestoreConfig,
+        armed: &AtomicBool,
+        cb: &(dyn Fn() + Send + Sync),
+    ) {
         let mut held_since: Option<Instant> = None;
         let mut fired = false;
         loop {
@@ -970,13 +983,13 @@ pub mod hotkey {
             let mut any = false;
             for i in 0..4 {
                 let mut st = XINPUT_STATE::default();
-                if unsafe { XInputGetState(i, &mut st) } == 0 && combo_down(&st) {
+                if unsafe { XInputGetState(i, &mut st) } == 0 && combo_down(&st, config.combo()) {
                     any = true;
                 }
             }
             match (any, held_since) {
                 (true, None) => held_since = Some(Instant::now()),
-                (true, Some(t)) if !fired && t.elapsed() >= hold => {
+                (true, Some(t)) if !fired && t.elapsed() >= config.hold() => {
                     fired = true;
                     cb();
                 }
@@ -1076,7 +1089,9 @@ pub mod hotkey {
 
         #[test]
         fn keyboard_hotkey_is_held_only_while_armed() {
-            let hotkey = RestoreHotkey::start(Duration::from_secs(2), || {});
+            let config =
+                crate::RestoreConfig::new(crate::RestoreCombo::ViewMenu, Duration::from_secs(2));
+            let hotkey = RestoreHotkey::start(config, || {});
             if !hotkey.availability().keyboard {
                 // Another program owns Ctrl+Alt+Home on this machine.
                 return;

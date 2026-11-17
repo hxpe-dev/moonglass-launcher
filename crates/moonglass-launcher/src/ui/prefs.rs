@@ -94,6 +94,24 @@ choice!(Clock {
     H12 => "12-hour",
 } default H24);
 
+choice!(RestoreButtons {
+    ViewMenu => "View + Menu",
+    Sticks => "Both sticks pressed in",
+} default ViewMenu);
+
+choice!(RestoreHold {
+    S1 => "1 second",
+    S2 => "2 seconds",
+    S3 => "3 seconds",
+} default S2);
+
+choice!(LaunchTimeout {
+    M1 => "1 minute",
+    M3 => "3 minutes",
+    M5 => "5 minutes",
+    M10 => "10 minutes",
+} default M3);
+
 choice!(RecentDays {
     D7 => "7 days",
     D30 => "30 days",
@@ -119,6 +137,9 @@ pub struct Prefs {
     /// Hide Steam games the signed-in Steam account cannot play.
     pub steam_playable_only: bool,
     pub dismiss_launcher_window: bool,
+    pub restore_buttons: RestoreButtons,
+    pub restore_hold: RestoreHold,
+    pub launch_timeout: LaunchTimeout,
 }
 
 impl Default for Prefs {
@@ -139,6 +160,9 @@ impl Default for Prefs {
             show_hidden: false,
             steam_playable_only: true,
             dismiss_launcher_window: true,
+            restore_buttons: RestoreButtons::DEFAULT,
+            restore_hold: RestoreHold::DEFAULT,
+            launch_timeout: LaunchTimeout::DEFAULT,
         }
     }
 }
@@ -194,6 +218,32 @@ impl Prefs {
             RecentDays::D30 => RecentWindow::Days30,
             RecentDays::D90 => RecentWindow::Days90,
         }
+    }
+
+    pub fn restore_combo(&self) -> moonglass_platform::RestoreCombo {
+        match self.restore_buttons {
+            RestoreButtons::ViewMenu => moonglass_platform::RestoreCombo::ViewMenu,
+            RestoreButtons::Sticks => moonglass_platform::RestoreCombo::StickClicks,
+        }
+    }
+
+    pub fn restore_hold_time(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(match self.restore_hold {
+            RestoreHold::S1 => 1,
+            RestoreHold::S2 => 2,
+            RestoreHold::S3 => 3,
+        })
+    }
+
+    pub fn give_up_after(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(
+            60 * match self.launch_timeout {
+                LaunchTimeout::M1 => 1,
+                LaunchTimeout::M3 => 3,
+                LaunchTimeout::M5 => 5,
+                LaunchTimeout::M10 => 10,
+            },
+        )
     }
 
     pub fn animate(&self) -> bool {

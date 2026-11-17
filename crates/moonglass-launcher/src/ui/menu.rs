@@ -21,6 +21,11 @@ pub enum MenuAction {
     RemoveEmulator,
     /// Sign Steam in with this account (SteamID64).
     SwitchSteamAccount(String),
+    ChooseSteamFolder,
+    /// Forget the chosen Steam folder and find it again.
+    AutoSteamFolder,
+    /// Count this Steam app as a game again.
+    UnignoreSteamApp(u32),
 }
 
 pub struct MenuRow {

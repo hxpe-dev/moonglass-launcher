@@ -596,7 +596,6 @@ pub mod window {
 /// global-shortcuts portal are not implemented yet; until they are, only the
 /// gamepad combination is offered and Settings says so.
 pub mod hotkey {
-    use std::time::Duration;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Availability {
@@ -609,7 +608,10 @@ pub mod hotkey {
     }
 
     impl RestoreHotkey {
-        pub fn start(_hold: Duration, _on_restore: impl Fn() + Send + Sync + 'static) -> Self {
+        pub fn start(
+            _config: std::sync::Arc<crate::RestoreConfig>,
+            _on_restore: impl Fn() + Send + Sync + 'static,
+        ) -> Self {
             Self {
                 availability: Availability {
                     gamepad: true,

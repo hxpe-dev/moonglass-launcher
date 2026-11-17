@@ -51,6 +51,8 @@ icons! {
     ArrowRight => "arrow-right.svg",
     ChevronLeft => "chevron-left.svg",
     ChevronRight => "chevron-right.svg",
+    ChevronUp => "chevron-up.svg",
+    ChevronDown => "chevron-down.svg",
     Drive => "drive.svg",
     Folder => "folder.svg",
     File => "file.svg",

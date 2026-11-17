@@ -22,6 +22,8 @@ pub enum Opt {
     WorkingDir,
     WatchProcess,
     TrackByFolder,
+    /// A Steam app that is a tool, not a game: left out of the library.
+    NotAGame,
     Remove,
 }
 
@@ -55,6 +57,9 @@ impl OptionsMenu {
         items.push(Opt::WatchProcess);
         if game.source == Source::Exe {
             items.push(Opt::TrackByFolder);
+        }
+        if game.source == Source::Steam {
+            items.push(Opt::NotAGame);
         }
         if own {
             items.push(Opt::Remove);
@@ -100,6 +105,8 @@ impl OptionsMenu {
                 "Launcher-style executable: {}",
                 if g.track_by_folder { "On" } else { "Off" }
             ),
+            Opt::NotAGame if self.confirm_remove => "Press again: it is not a game".into(),
+            Opt::NotAGame => "Not a game (a tool): leave it out".into(),
             Opt::Remove if self.confirm_remove => "Press again to remove".into(),
             Opt::Remove => "Remove from Moonglass".into(),
         }
@@ -137,7 +144,7 @@ impl LauncherView {
         let mut list = div().flex().flex_col().gap(px(4.0 * u));
         for (i, o) in m.items.iter().copied().enumerate() {
             let sel = i == m.selected;
-            let danger = o == Opt::Remove;
+            let danger = matches!(o, Opt::Remove | Opt::NotAGame);
             let lit = self.glide(("opt", i), on(sel));
             list = list.child(
                 selected(div().id(("opt", i)), lit)

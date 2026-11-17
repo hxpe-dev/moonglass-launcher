@@ -60,6 +60,8 @@ pub enum Item {
     LibraryInfo,
     SteamAccount,
     SteamPlayableOnly,
+    SteamFolder,
+    SteamIgnored,
     SteamKey,
     FriendsInfo,
     /// An emulator profile, by its position in the list.
@@ -71,6 +73,9 @@ pub enum Item {
     StartAtLogin,
     DismissLauncher,
     RestoreHotkey,
+    RestoreButtons,
+    RestoreHold,
+    LaunchTimeout,
     RunSetup,
     Logs,
     Version,
@@ -108,6 +113,8 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::LibraryInfo,
             Item::SteamAccount,
             Item::SteamPlayableOnly,
+            Item::SteamFolder,
+            Item::SteamIgnored,
             Item::SteamKey,
             Item::FriendsInfo,
         ],
@@ -116,6 +123,9 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::StartAtLogin,
             Item::DismissLauncher,
             Item::RestoreHotkey,
+            Item::RestoreButtons,
+            Item::RestoreHold,
+            Item::LaunchTimeout,
             Item::RunSetup,
             Item::Logs,
             Item::Version,
@@ -145,7 +155,10 @@ impl Item {
             | Item::Blur
             | Item::Glow
             | Item::Clock
-            | Item::Recent => Kind::Choice,
+            | Item::Recent
+            | Item::RestoreButtons
+            | Item::RestoreHold
+            | Item::LaunchTimeout => Kind::Choice,
             Item::StartupAnimation
             | Item::ReducedMotion
             | Item::ShowHidden
@@ -158,6 +171,8 @@ impl Item {
             | Item::AddEmulator
             | Item::SteamKey
             | Item::SteamAccount
+            | Item::SteamFolder
+            | Item::SteamIgnored
             | Item::SgdbKey
             | Item::RefreshArt
             | Item::RunSetup
@@ -191,6 +206,8 @@ impl Item {
             Item::LibraryInfo => "Library",
             Item::SteamAccount => "Steam account",
             Item::SteamPlayableOnly => "Only Steam games this account can play",
+            Item::SteamFolder => "Steam folder",
+            Item::SteamIgnored => "Steam apps that are not games",
             Item::SteamKey => "Steam friends: Web API key",
             Item::FriendsInfo => "Friends",
             // Drawn with the profile's own name.
@@ -202,6 +219,9 @@ impl Item {
             Item::StartAtLogin => "Start Moonglass at login",
             Item::DismissLauncher => "Send Steam / Epic to the tray after a game",
             Item::RestoreHotkey => "Return to Moonglass during a game",
+            Item::RestoreButtons => "Return to Moonglass: buttons",
+            Item::RestoreHold => "Return to Moonglass: hold for",
+            Item::LaunchTimeout => "Stop waiting for a game after",
             Item::RunSetup => "First-time setup",
             Item::Logs => "Logs",
             Item::Version => "Version",
@@ -218,6 +238,10 @@ pub struct SettingsInfo {
     pub steam_key_set: bool,
     /// The signed-in Steam account, as the Steam account row shows it.
     pub steam_account: String,
+    /// The Steam folder, as its row shows it.
+    pub steam_folder: String,
+    /// The Steam apps marked as not games, as their row shows them.
+    pub steam_ignored: String,
     /// What the friends feature last reported.
     pub friends: String,
     pub start_at_login: bool,
@@ -293,6 +317,9 @@ impl SettingsState {
             Item::StartupAnimation => prefs.startup_animation = !prefs.startup_animation,
             Item::ReducedMotion => prefs.reduced_motion = !prefs.reduced_motion,
             Item::ShowHidden => prefs.show_hidden = !prefs.show_hidden,
+            Item::RestoreButtons => prefs.restore_buttons = prefs.restore_buttons.step(delta),
+            Item::RestoreHold => prefs.restore_hold = prefs.restore_hold.step(delta),
+            Item::LaunchTimeout => prefs.launch_timeout = prefs.launch_timeout.step(delta),
             Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
             _ => return false,
@@ -377,12 +404,15 @@ fn on_off(b: bool) -> &'static str {
 }
 
 /// Names of the View and Menu buttons on each controller family.
-pub fn restore_combo(f: Family) -> &'static str {
-    match f {
-        Family::Xbox => "Hold View + Menu for 2 seconds",
-        Family::PlayStation => "Hold Share (Create) + Options for 2 seconds",
-        Family::Nintendo => "Hold − (Minus) + + (Plus) for 2 seconds",
-    }
+pub fn restore_combo(f: Family, prefs: &Prefs) -> String {
+    use super::prefs::RestoreButtons;
+    let buttons = match (prefs.restore_buttons, f) {
+        (RestoreButtons::ViewMenu, Family::Xbox) => "View + Menu",
+        (RestoreButtons::ViewMenu, Family::PlayStation) => "Share (Create) + Options",
+        (RestoreButtons::ViewMenu, Family::Nintendo) => "− (Minus) + + (Plus)",
+        (RestoreButtons::Sticks, _) => "both sticks pressed in",
+    };
+    format!("Hold {buttons} for {}", prefs.restore_hold.label())
 }
 
 fn key_state(set: bool) -> &'static str {
@@ -411,6 +441,11 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::ShowHidden => on_off(prefs.show_hidden).into(),
         Item::SteamAccount => info.steam_account.clone(),
         Item::SteamPlayableOnly => on_off(prefs.steam_playable_only).into(),
+        Item::SteamFolder => info.steam_folder.clone(),
+        Item::SteamIgnored => info.steam_ignored.clone(),
+        Item::RestoreButtons => prefs.restore_buttons.label().into(),
+        Item::RestoreHold => prefs.restore_hold.label().into(),
+        Item::LaunchTimeout => prefs.launch_timeout.label().into(),
         Item::Rescan => "Rescan".into(),
         Item::LibraryInfo => format!("{} games, {} hidden", info.games, info.hidden),
         Item::Emulator(i) => info
@@ -428,9 +463,12 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::DismissLauncher => on_off(prefs.dismiss_launcher_window).into(),
         Item::RestoreHotkey => {
             if info.keyboard_hotkey {
-                format!("{} · or Ctrl + Alt + Home", restore_combo(info.family))
+                format!(
+                    "{} · or Ctrl + Alt + Home",
+                    restore_combo(info.family, prefs)
+                )
             } else {
-                restore_combo(info.family).to_string()
+                restore_combo(info.family, prefs)
             }
         }
         Item::RunSetup => "Open".into(),
@@ -495,8 +533,33 @@ impl LauncherView {
         }
 
         let section = SECTIONS[st.section];
+        // As many rows as fit between the heading and the footer; the
+        // window follows the selected row.
+        let items = st.items();
+        let fit = (((h - 420.0 * u) / (70.0 * u)).floor() as usize).max(3);
+        let start = st
+            .item
+            .saturating_sub(fit / 2)
+            .min(items.len().saturating_sub(fit));
+        let end = (start + fit).min(items.len());
+        let more = |shown: bool| {
+            div()
+                .h(px(16.0 * u))
+                .flex()
+                .justify_center()
+                .when(shown, |d| {
+                    d.child(icon(Icon::ChevronDown, 16.0 * u, white(0.45)))
+                })
+        };
         let mut rows = div().flex().flex_col().gap(px(4.0 * u));
-        for (i, item) in st.items().into_iter().enumerate() {
+        if start > 0 {
+            rows = rows.child(div().h(px(16.0 * u)).flex().justify_center().child(icon(
+                Icon::ChevronUp,
+                16.0 * u,
+                white(0.45),
+            )));
+        }
+        for (i, item) in items.into_iter().enumerate().take(end).skip(start) {
             let sel = i == st.item && !st.in_sections;
             let lit = self.glide(("settings-row", st.section, i), on(sel));
             let kind = item.kind();
@@ -595,7 +658,7 @@ impl LauncherView {
                     .relative()
                     .left(px((1.0 - entered) * 32.0 * u))
                     .opacity(entered)
-                    .child(rows),
+                    .child(rows.when(end < st.items().len(), |r| r.child(more(true)))),
             );
 
         let hint = |k: &str, l: &str| {

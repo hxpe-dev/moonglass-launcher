@@ -98,6 +98,12 @@ impl Lifecycle {
         self.state
     }
 
+    /// Settings → System: how long a launch may take before giving up.
+    /// Applies from the next launch.
+    pub fn set_give_up_after(&mut self, after: Duration) {
+        self.timing.give_up_after = after;
+    }
+
     /// Gamepad navigation is dispatched only in Idle (spec 5.4).
     pub fn accepts_navigation(&self) -> bool {
         self.state == State::Idle

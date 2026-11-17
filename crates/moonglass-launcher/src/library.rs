@@ -11,8 +11,8 @@ use moonglass_platform::EpicSource;
 use moonglass_scan::{epic, heroic, roms, steam, ScanError, ScannedGame};
 
 /// Settings keys.
-const SETTING_STEAM_ROOT: &str = "steam_root";
-const SETTING_STEAM_DENY: &str = "steam_extra_deny_app_ids";
+pub const SETTING_STEAM_ROOT: &str = "steam_root";
+pub const SETTING_STEAM_DENY: &str = "steam_extra_deny_app_ids";
 
 /// Scans and artwork refreshes are started from several places (startup,
 /// file watchers, Settings, the end of a game). They run one at a time, so
@@ -24,6 +24,8 @@ pub async fn steam_root(db: &Db) -> anyhow::Result<Option<PathBuf>> {
     Ok(db
         .setting::<String>(SETTING_STEAM_ROOT)
         .await?
+        // Empty: chosen in Settings to be found automatically.
+        .filter(|p| !p.trim().is_empty())
         .map(Into::into)
         .or_else(moonglass_platform::steam_root))
 }

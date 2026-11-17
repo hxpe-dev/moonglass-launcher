@@ -131,7 +131,7 @@ pub fn spawn(
     tx: UnboundedSender<PadEvent>,
     restore_armed: Arc<AtomicBool>,
     watch_restore: bool,
-    restore_hold: Duration,
+    restore: Arc<moonglass_platform::RestoreConfig>,
 ) {
     let spawned = std::thread::Builder::new()
         .name("moonglass-gamepad".into())
@@ -230,12 +230,20 @@ pub fn spawn(
 
                 // Background restore combination (platforms that use this thread).
                 if watch_restore && restore_armed.load(Ordering::Relaxed) {
+                    let (a, b) = match restore.combo() {
+                        moonglass_platform::RestoreCombo::ViewMenu => {
+                            (Button::Select, Button::Start)
+                        }
+                        moonglass_platform::RestoreCombo::StickClicks => {
+                            (Button::LeftThumb, Button::RightThumb)
+                        }
+                    };
                     let down = gilrs
                         .gamepads()
-                        .any(|(_, p)| p.is_pressed(Button::Select) && p.is_pressed(Button::Start));
+                        .any(|(_, p)| p.is_pressed(a) && p.is_pressed(b));
                     match (down, combo_since) {
                         (true, None) => combo_since = Some(Instant::now()),
-                        (true, Some(t)) if !combo_fired && t.elapsed() >= restore_hold => {
+                        (true, Some(t)) if !combo_fired && t.elapsed() >= restore.hold() => {
                             combo_fired = true;
                             let _ = tx.unbounded_send(PadEvent::Restore);
                         }

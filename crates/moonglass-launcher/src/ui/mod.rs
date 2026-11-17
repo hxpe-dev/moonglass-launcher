@@ -101,6 +101,10 @@ pub struct Loaded {
     emulators: Vec<EmulatorInfo>,
     games: Vec<Game>,
     setup_done: bool,
+    /// The Steam folder chosen in Settings, if any.
+    steam_root_manual: Option<String>,
+    /// Steam apps marked as not games.
+    steam_ignored: Vec<u32>,
 }
 
 impl Loaded {
@@ -118,6 +122,18 @@ impl Loaded {
             sgdb_key_set: key.ok().flatten().is_some_and(|k| !k.trim().is_empty()),
             emulators: emulators::load(db).await.unwrap_or_default(),
             games: db.games().await.unwrap_or_default(),
+            steam_root_manual: db
+                .setting::<String>(crate::library::SETTING_STEAM_ROOT)
+                .await
+                .ok()
+                .flatten()
+                .filter(|p| !p.trim().is_empty()),
+            steam_ignored: db
+                .setting::<Vec<u32>>(crate::library::SETTING_STEAM_DENY)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
             setup_done: db
                 .setting::<bool>(setup::SETTING_SETUP_DONE)
                 .await
@@ -305,6 +321,10 @@ pub struct LauncherView {
     xinput_power: Option<PadPower>,
     restore_armed: Arc<AtomicBool>,
     hotkey: RestoreHotkey,
+    /// The restore hotkey's buttons and hold time, read by its threads.
+    restore_config: Arc<moonglass_platform::RestoreConfig>,
+    steam_root_manual: Option<String>,
+    steam_ignored: Vec<u32>,
     sgdb_key_set: bool,
     start_at_login: bool,
 
@@ -360,13 +380,17 @@ impl LauncherView {
         .detach();
 
         let restore_armed = Arc::new(AtomicBool::new(false));
+        let restore_config = moonglass_platform::RestoreConfig::new(
+            loaded.prefs.restore_combo(),
+            loaded.prefs.restore_hold_time(),
+        );
         let pad_tx = tx.clone();
         let (pad_sender, mut pad_rx) = unbounded::<PadEvent>();
         gamepad::spawn(
             pad_sender,
             restore_armed.clone(),
             moonglass_platform::GAMEPAD_RESTORE_VIA_GILRS,
-            Duration::from_secs(2),
+            restore_config.clone(),
         );
         backend.rt.spawn(async move {
             while let Some(e) = pad_rx.next().await {
@@ -381,7 +405,7 @@ impl LauncherView {
         });
 
         let hk_tx = tx.clone();
-        let hotkey = RestoreHotkey::start(Duration::from_secs(2), move || {
+        let hotkey = RestoreHotkey::start(restore_config.clone(), move || {
             let _ = hk_tx.unbounded_send(UiEvent::Restore);
         });
 
@@ -503,13 +527,19 @@ impl LauncherView {
             toast: None,
             quit_hold: None,
             browser_generation: 0,
-            lifecycle: Lifecycle::new(Timing::default()),
+            lifecycle: Lifecycle::new(Timing {
+                give_up_after: loaded.prefs.give_up_after(),
+                ..Timing::default()
+            }),
             session: None,
             last_session_id: 0,
             controller: ControllerStatus::default(),
             xinput_power: None,
             restore_armed,
             hotkey,
+            restore_config,
+            steam_root_manual: loaded.steam_root_manual.clone(),
+            steam_ignored: loaded.steam_ignored.clone(),
             sgdb_key_set: loaded.sgdb_key_set,
             start_at_login: moonglass_platform::start_at_login().unwrap_or(false),
             splash,
@@ -728,6 +758,9 @@ impl LauncherView {
     }
 
     fn apply_prefs(&mut self) {
+        self.restore_config
+            .set(self.prefs.restore_combo(), self.prefs.restore_hold_time());
+        self.lifecycle.set_give_up_after(self.prefs.give_up_after());
         let keep = self.current().map(|g| g.id.to_string());
         self.recompute(keep);
         // Background blur level may have changed.
@@ -1669,6 +1702,16 @@ impl LauncherView {
                 self.picked_emulator_program(preset, emulator, path)
             }
             Purpose::RomFolder(emulator) => self.picked_rom_folder(emulator, path),
+            Purpose::SteamFolder => {
+                if path.join("steamapps").is_dir() {
+                    self.set_steam_folder(Some(path));
+                } else {
+                    self.toast = Some((
+                        "That is not a Steam folder: it has no steamapps folder".into(),
+                        Instant::now(),
+                    ));
+                }
+            }
             Purpose::WorkingDir(id) => {
                 let Some(g) = self.stored(&id).cloned() else {
                     return;
@@ -1842,6 +1885,14 @@ impl LauncherView {
                     Ok(None)
                 });
             }
+            Opt::NotAGame => {
+                if !m.confirm_remove {
+                    m.confirm_remove = true;
+                } else if let Some(app) = g.source_id.as_deref().and_then(|a| a.parse().ok()) {
+                    self.set_modal(Modal::None);
+                    self.set_steam_ignored(app, true, cx);
+                }
+            }
             Opt::Remove => {
                 if !m.confirm_remove {
                     m.confirm_remove = true;
@@ -1855,6 +1906,111 @@ impl LauncherView {
             }
         }
         cx.notify();
+    }
+
+    // ------------------------------------------------- Steam folder, apps
+
+    fn open_steam_folder_menu(&mut self) {
+        let mut rows = vec![menu::MenuRow::new(
+            "Choose the Steam folder…",
+            menu::MenuAction::ChooseSteamFolder,
+        )];
+        if self.steam_root_manual.is_some() {
+            rows.push(menu::MenuRow::new(
+                "Find it automatically",
+                menu::MenuAction::AutoSteamFolder,
+            ));
+        }
+        self.set_modal(Modal::Menu(Menu {
+            title: "Steam folder".into(),
+            note: Some(
+                "Moonglass finds Steam by itself. Choose its folder only if your games are missing."
+                    .into(),
+            ),
+            rows,
+            selected: 0,
+            armed: false,
+            emulator: None,
+            steam_accounts: false,
+        }));
+    }
+
+    /// `None` goes back to finding Steam automatically. Rescans.
+    pub(super) fn set_steam_folder(&mut self, path: Option<PathBuf>) {
+        self.set_modal(Modal::None);
+        self.steam_root_manual = path.as_ref().map(|p| p.to_string_lossy().into_owned());
+        // Empty means "find it automatically".
+        let value = self.steam_root_manual.clone().unwrap_or_default();
+        self.toast = Some(("Rescanning…".into(), Instant::now()));
+        self.db_task(move |db, cache| async move {
+            db.set_setting(crate::library::SETTING_STEAM_ROOT, &value)
+                .await?;
+            let s = crate::library::scan_all(&db, now_unix()).await?;
+            crate::artwork::refresh(&db, &cache, false).await?;
+            Ok(Some(s.lines.join(" · ")))
+        });
+    }
+
+    fn open_steam_ignored_menu(&mut self, cx: &mut Context<Self>) {
+        if self.steam_ignored.is_empty() {
+            return self.toast(
+                "None yet: choose \"Not a game\" in a Steam app's Options",
+                cx,
+            );
+        }
+        let title_of = |app: u32| {
+            let id = moonglass_core::GameId::steam(&app.to_string());
+            self.games
+                .iter()
+                .find(|g| g.id == id)
+                .map_or_else(|| format!("App {app}"), |g| g.title.clone())
+        };
+        let rows = self
+            .steam_ignored
+            .iter()
+            .map(|&app| {
+                menu::MenuRow::new(
+                    format!("{}  ·  count as a game again", title_of(app)),
+                    menu::MenuAction::UnignoreSteamApp(app),
+                )
+            })
+            .collect();
+        self.set_modal(Modal::Menu(Menu {
+            title: "Steam apps that are not games".into(),
+            note: Some("Left out of the library. Choose one to list it again.".into()),
+            rows,
+            selected: 0,
+            armed: false,
+            emulator: None,
+            steam_accounts: false,
+        }));
+    }
+
+    /// Marks a Steam app as not a game (`ignore`), or as a game again, and
+    /// rescans.
+    fn set_steam_ignored(&mut self, app: u32, ignore: bool, cx: &mut Context<Self>) {
+        self.steam_ignored.retain(|&a| a != app);
+        if ignore {
+            self.steam_ignored.push(app);
+        }
+        if matches!(self.modal, Modal::Menu(_)) {
+            self.set_modal(Modal::None);
+        }
+        let list = self.steam_ignored.clone();
+        self.toast(
+            if ignore {
+                "Left out of the library"
+            } else {
+                "Listed again"
+            },
+            cx,
+        );
+        self.db_task(move |db, _| async move {
+            db.set_setting(crate::library::SETTING_STEAM_DENY, &list)
+                .await?;
+            crate::library::scan_all(&db, now_unix()).await?;
+            Ok(None)
+        });
     }
 
     // ----------------------------------------------------------- settings
@@ -1879,6 +2035,16 @@ impl LauncherView {
             hidden: installed.filter(|g| g.is_hidden).count(),
             sgdb_key_set: self.sgdb_key_set,
             steam_key_set: self.friends_status != friends::Status::Off,
+            steam_folder: match (&self.steam_root_manual, moonglass_platform::steam_root()) {
+                (Some(p), _) => format!("{p} · change…"),
+                (None, Some(p)) => format!("Found: {} · change…", p.display()),
+                (None, None) => "Not found · choose…".into(),
+            },
+            steam_ignored: match self.steam_ignored.len() {
+                0 => "None · use a game's Options to add one".into(),
+                1 => "1 app · show…".into(),
+                n => format!("{n} apps · show…"),
+            },
             steam_account: match (&self.steam_switching, self.steam.active_account()) {
                 (Some(to), _) => format!("Switching to {to}…"),
                 (None, Some(a)) if self.steam.can_switch() => {
@@ -1945,6 +2111,8 @@ impl LauncherView {
             SettingsCmd::Run(item) => match item {
                 Item::AddGame => self.open_browser(Purpose::AddExecutable),
                 Item::SteamAccount => self.open_steam_accounts(cx),
+                Item::SteamFolder => self.open_steam_folder_menu(),
+                Item::SteamIgnored => self.open_steam_ignored_menu(cx),
                 Item::RunSetup => {
                     if let Screen::Settings(st) = std::mem::replace(&mut self.screen, Screen::Home)
                     {

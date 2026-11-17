@@ -308,6 +308,9 @@ impl LauncherView {
                 });
             }
             (MenuAction::SwitchSteamAccount(id), _) => self.switch_steam_account(&id, cx),
+            (MenuAction::ChooseSteamFolder, _) => self.open_browser(Purpose::SteamFolder),
+            (MenuAction::AutoSteamFolder, _) => self.set_steam_folder(None),
+            (MenuAction::UnignoreSteamApp(app), _) => self.set_steam_ignored(app, false, cx),
             (MenuAction::RemoveEmulator, Some(info)) => {
                 let e = info.emulator;
                 self.set_modal(Modal::None);

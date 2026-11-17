@@ -28,6 +28,8 @@ pub enum Purpose {
     },
     /// A ROM folder for this emulator profile.
     RomFolder(String),
+    /// Where Steam is installed.
+    SteamFolder,
 }
 
 impl Purpose {
@@ -38,12 +40,16 @@ impl Purpose {
             Purpose::WorkingDir(_) => "Working directory: choose a folder",
             Purpose::EmulatorProgram { .. } => "Emulator: choose its program",
             Purpose::RomFolder(_) => "ROM folder: choose the folder with the games",
+            Purpose::SteamFolder => "Steam folder: choose where Steam is installed",
         }
     }
 
     /// Picks a folder rather than a file.
     fn picks_folder(&self) -> bool {
-        matches!(self, Purpose::WorkingDir(_) | Purpose::RomFolder(_))
+        matches!(
+            self,
+            Purpose::WorkingDir(_) | Purpose::RomFolder(_) | Purpose::SteamFolder
+        )
     }
 
     fn wants_file(&self, path: &Path) -> bool {
@@ -56,7 +62,7 @@ impl Purpose {
                     .iter()
                     .any(|x| e.eq_ignore_ascii_case(x))
             }),
-            Purpose::WorkingDir(_) | Purpose::RomFolder(_) => false,
+            Purpose::WorkingDir(_) | Purpose::RomFolder(_) | Purpose::SteamFolder => false,
         }
     }
 }

@@ -35,6 +35,53 @@ mod imp;
 
 pub use imp::{hotkey, window};
 
+/// The controller buttons held to return to Moonglass during a game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RestoreCombo {
+    /// View + Menu (Back + Start).
+    #[default]
+    ViewMenu,
+    /// Both sticks pressed in (L3 + R3).
+    StickClicks,
+}
+
+/// The restore hotkey's buttons and hold time, shared with the threads
+/// that watch for it so a change in Settings applies at once.
+#[derive(Debug)]
+pub struct RestoreConfig {
+    combo: std::sync::atomic::AtomicU8,
+    hold_ms: std::sync::atomic::AtomicU32,
+}
+
+impl RestoreConfig {
+    pub fn new(combo: RestoreCombo, hold: Duration) -> std::sync::Arc<Self> {
+        let c = Self {
+            combo: Default::default(),
+            hold_ms: Default::default(),
+        };
+        c.set(combo, hold);
+        std::sync::Arc::new(c)
+    }
+
+    pub fn set(&self, combo: RestoreCombo, hold: Duration) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.combo.store(combo as u8, Relaxed);
+        self.hold_ms
+            .store(hold.as_millis().min(u32::MAX as u128) as u32, Relaxed);
+    }
+
+    pub fn combo(&self) -> RestoreCombo {
+        match self.combo.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => RestoreCombo::StickClicks,
+            _ => RestoreCombo::ViewMenu,
+        }
+    }
+
+    pub fn hold(&self) -> Duration {
+        Duration::from_millis(self.hold_ms.load(std::sync::atomic::Ordering::Relaxed) as u64)
+    }
+}
+
 /// Which platform this build is for, for logs and Settings text only.
 pub const PLATFORM_NAME: &str = imp::PLATFORM_NAME;
 
