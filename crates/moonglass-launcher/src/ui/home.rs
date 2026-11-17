@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, img, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgb, AnyElement,
+    div, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgb, AnyElement,
     BoxShadow, Context, Div, MouseButton, ObjectFit, SharedString, Stateful,
 };
 use moonglass_art::ingest::{blurred_hero_path, card_fill_image_path, card_image_path, CardCrop};
@@ -275,7 +275,7 @@ impl LauncherView {
             };
             if let Some(bg) = image.filter(|p| p.is_file()) {
                 root = root.child(
-                    img(bg)
+                    self.image(bg)
                         .absolute()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
@@ -350,7 +350,7 @@ impl LauncherView {
             }
             let smear = (REST + (1.0 - REST) * speed.max(1.0 - settle)).min(1.0);
             let layer = |path: PathBuf| {
-                img(path)
+                self.image(path)
                     .absolute()
                     .top_0()
                     .h_full()
@@ -510,7 +510,7 @@ impl LauncherView {
                 // rectangular) and already has the card's shape, so its
                 // corners are the card's corners.
                 inner = inner.child(
-                    img(path)
+                    self.image(path)
                         .absolute()
                         .size_full()
                         .rounded(content_radius)
@@ -688,7 +688,7 @@ impl LauncherView {
                 let (max_w, max_h) = (w * 0.34, h * 0.11);
                 let k = (max_w / lw.max(1) as f32).min(max_h / lh.max(1) as f32);
                 hero.child(
-                    img(PathBuf::from(path))
+                    self.image(PathBuf::from(path))
                         .w(px(lw as f32 * k))
                         .h(px(lh as f32 * k)),
                 )
@@ -1099,7 +1099,7 @@ impl LauncherView {
                 let headline: AnyElement = match logo {
                     Some((p, lw, lh)) => {
                         let k = ((w * 0.45) / lw.max(1) as f32).min((h * 0.18) / lh.max(1) as f32);
-                        img(PathBuf::from(p))
+                        self.image(PathBuf::from(p))
                             .w(px(lw as f32 * k))
                             .h(px(lh as f32 * k))
                             .into_any_element()

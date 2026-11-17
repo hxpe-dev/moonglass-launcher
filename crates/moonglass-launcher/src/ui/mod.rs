@@ -16,6 +16,7 @@ mod emulators;
 mod gamepad;
 mod home;
 mod icons;
+mod images;
 mod menu;
 mod options;
 mod osk;
@@ -303,6 +304,8 @@ pub struct LauncherView {
     /// Every animated value except the carousel position (see [`anim`]).
     /// In a cell because drawing code only has `&self`.
     anims: RefCell<Anims>,
+    /// Images drawn and when, so idle ones can be released.
+    drawn_images: RefCell<images::DrawnImages>,
 
     screen: Screen,
     /// Settings while it fades out after closing.
@@ -519,6 +522,7 @@ impl LauncherView {
             caret_epoch: Instant::now(),
             repaint_pending: false,
             anims: RefCell::new(Anims::new()),
+            drawn_images: RefCell::default(),
             screen: Screen::Home,
             settings_leaving: None,
             modal: Modal::None,
@@ -2249,6 +2253,9 @@ impl LauncherView {
                     stop: StopState::Idle,
                 };
                 moonglass_platform::window::hide_for_game(raw_window(window));
+                // Nothing is drawn while the game runs: keep only the
+                // images of the last moments (the backdrop).
+                self.release_images(Duration::from_secs(1), window, cx);
             }
             Effect::LaunchAbandoned { reason } => {
                 let title = self.session_title();
@@ -2762,6 +2769,7 @@ impl Render for LauncherView {
                     ),
             );
         }
+        self.release_idle_images(window, cx);
         self.schedule_next_frame(window, cx);
         root
     }
