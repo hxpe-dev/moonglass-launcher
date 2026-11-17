@@ -9,25 +9,47 @@ The full design is in [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1 and 2 are implemented and Phase 3 is nearly complete. Everything
-runs on Windows; the Linux code compiles but has not been run yet. Running
-`moonglass` with no arguments opens the carousel.
+All three phases are implemented. Everything runs on Windows; the Linux code
+compiles but has not been run yet. Running `moonglass` with no arguments
+opens the carousel (or first-time setup on an empty library).
 
 | Area | State |
 | --- | --- |
 | Database, logs, single instance, scanners, file watchers | Done |
 | Launch, exit detection, focus return, Now Playing with Stop / Force stop | Done on Windows |
-| Restore hotkey (controller hold, `Ctrl+Alt+Home`) | Done; the controller hold is untested |
-| Artwork: Steam's cache, Epic's catalog (Windows), SteamGridDB, placeholder | Done |
-| Carousel, ambient lighting, startup animation, interface animations | Done |
-| Gamepad, keyboard and mouse, with hints that follow the device | Done |
+| Notification when Moonglass cannot come back to the front | Done; Linux untested |
+| Restore hotkey (controller hold, `Ctrl+Alt+Home`), with its buttons and hold time in Settings | Done; the controller hold is untested |
+| Artwork: Steam's cache, Epic's catalog (Windows), SteamGridDB, Switch and libretro art for emulated games, placeholder | Done |
+| Carousel, ambient lighting (including the motion blur background), card art fitting, startup animation, interface animations | Done |
+| Gamepad, keyboard and mouse, with hints that follow the device; hold Esc / B to exit | Done |
 | Search and on-screen keyboard | Done |
 | Settings: Appearance, Library, Emulators, Artwork, System | Done |
-| File browser, Add a game, per-game Options | Done |
-| Emulator profiles, presets (Switch included) and ROM folders | Done; not yet tried with a real emulator |
+| First-time setup | Done |
+| File browser, Add a game (also by dropping a program on the window), per-game Options | Done; dropping is untested |
+| Emulator profiles, presets (Switch included, Flatpaks found on Linux) and ROM folders | Done; Flatpak detection untested |
 | Launch options for Steam games | Done; not yet tried with a game |
 | Steam friends in your games, Join, borrowed-game warning (5.6) | Done; not yet tried with a key |
-| First-run flow, packaging, performance checks (spec 7) | Not yet |
+| Steam account switcher, and the library limited to what the account can play (5.7) | Done on Windows; Linux untested |
+| Steam folder and "not a game" Steam apps in Settings | Done |
+| Releasing images that are no longer drawn | Done |
+| Packaging: Windows `.exe` and zip, Linux tarball and AppImage, release workflow | Done; the Linux packaging and the workflow have not run yet |
+
+### Performance (spec 7)
+
+Measured on Windows 11 with the release build and a library of 36 games:
+
+| Measure | Target | Measured |
+| --- | --- | --- |
+| Cold start to the first carousel frame | Under 2 s | About 0.62 s |
+| Memory, idle on the carousel | | 83 MB |
+| Memory after scrolling the whole library | | 169 MB, back to 100 MB once unused images are released |
+| Memory while a game runs | Under 150 MB | 80-88 MB |
+| CPU while a game runs | Under 0.5% of one core | 1.4-2.4%, all of it GPUI's vsync thread (spec 9) |
+| Frames rendered while a game runs | Zero | None drawn (the window is minimized) |
+| Back in front after the game exits | Under 2 s after the 5 s grace period | 0.2-1.1 s after it |
+
+Scrolling smoothness and search latency have not been measured with a
+frame-time tool. Linux has not been measured.
 
 Not done yet:
 
@@ -35,17 +57,23 @@ Not done yet:
   Proton detection, and Steam's registry running-state signal (use
   `moonglass steam-signal <game>` while playing).
 * Linux: the keyboard restore hotkey, the X11 launcher-window close request,
-  the desktop notification when focus cannot be regained, Epic artwork
-  without a SteamGridDB key, and Flatpak detection in the emulator presets.
-* Settings for the manual Steam folder, extra Steam apps to leave out, extra
-  helper processes to ignore, and the launch timeout. The values are read
-  but nothing in the interface writes them.
+  and Epic artwork without a SteamGridDB key.
+* Extra helper processes to ignore can be stored but not edited in Settings.
 * A ROM folder added in Settings is scanned at once but only watched for
   changes from the next start.
-* Images far from the focused card are not released: only nearby cards are
-  drawn, but GPUI's image cache keeps what it decoded.
 * Epic's namespaced-URI fallback is manual (`moonglass launch --epic-fallback`).
-* Drag-and-drop to add a game, and the "Add your games" card opening setup.
+* The CPU target while a game runs needs a change in GPUI (spec 9).
+
+## Releases
+
+```bash
+cargo build --release -p moonglass-launcher
+powershell -File scripts\package-windows.ps1   # Windows: dist\*.exe and *.zip
+scripts/package-linux.sh                         # Linux: dist/*.tar.gz and *.AppImage
+```
+
+Pushing a tag such as `v0.2.0` builds both on GitHub and attaches them to a
+release.
 
 ### Development
 
@@ -95,6 +123,8 @@ moonglass add-emulator dolphin Dolphin "C:\Emu\Dolphin.exe" "-b -e \"{rom}\"" ".
 moonglass add-rom-dir "D:\ROMs\GameCube" dolphin GameCube
 moonglass options 3 --watch RealGame.exe --track-folder
 moonglass autostart on
+moonglass steam-accounts             # remembered Steam accounts, what the signed-in one can play
+moonglass steam-switch 2             # sign Steam in with account 2 (restarts Steam)
 ```
 
 Set `MOONGLASS_LOG=debug` for verbose logs; `moonglass paths` shows where they are.
