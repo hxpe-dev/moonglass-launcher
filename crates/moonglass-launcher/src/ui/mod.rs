@@ -85,6 +85,8 @@ const TOAST_SECS: u64 = 4;
 const QUIT_HOLD: Duration = Duration::from_millis(1400);
 /// The exit progress appears after this, so a plain press shows nothing.
 const QUIT_HINT_DELAY: Duration = Duration::from_millis(250);
+/// The bar is full this long before the exit, to show it was done.
+const QUIT_DONE_BEAT: Duration = Duration::from_millis(200);
 /// After Stop, how long the game gets to close before Force stop is offered.
 const STOP_GRACE: Duration = Duration::from_secs(8);
 
@@ -954,6 +956,7 @@ impl LauncherView {
                         b.loading = false;
                         b.dir = dir;
                         b.selected = 0;
+                        b.top = 0;
                         match result {
                             Ok(e) => {
                                 b.entries = e;
@@ -1217,12 +1220,15 @@ impl LauncherView {
         }
     }
 
-    /// 0..=1 once the exit progress is shown, `None` before.
+    /// 0..=1 once the exit progress is shown, `None` before. Eased: it
+    /// starts gently and speeds up, then is full for a short beat before
+    /// the exit.
     fn quit_progress(&self) -> Option<f32> {
         let held = self.quit_hold?.elapsed();
+        let fill = QUIT_HOLD - QUIT_DONE_BEAT - QUIT_HINT_DELAY;
         (held >= QUIT_HINT_DELAY).then(|| {
-            ((held - QUIT_HINT_DELAY).as_secs_f32() / (QUIT_HOLD - QUIT_HINT_DELAY).as_secs_f32())
-                .min(1.0)
+            let t = ((held - QUIT_HINT_DELAY).as_secs_f32() / fill.as_secs_f32()).min(1.0);
+            t * t * (3.0 - 2.0 * t)
         })
     }
 
@@ -2789,9 +2795,29 @@ impl Render for LauncherView {
                     ),
             );
         }
-        let exiting = self.glide("quit-hold", on(self.quit_progress().is_some()));
-        if exiting > 0.005 {
-            let progress = self.quit_progress().unwrap_or(0.0);
+        let held = self.quit_progress();
+        let exiting = self.glide("quit-hold", on(held.is_some()));
+        // While held the fill follows the hold exactly; let go and it
+        // drains back instead of vanishing.
+        let progress = {
+            let v = self.glide("quit-fill", held.unwrap_or(0.0));
+            if let Some(p) = held {
+                self.anims.borrow_mut().set("quit-fill", p);
+                p
+            } else {
+                v
+            }
+        };
+        // Lights up once full, just before the exit.
+        let done = self.glide("quit-done", on(held.is_some_and(|p| p >= 1.0)));
+        if exiting > 0.005 || progress > 0.005 {
+            // The screen darkens as the hold goes on.
+            root = root.child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .bg(theme::black(0.6 * progress)),
+            );
             root = root.child(
                 div()
                     .absolute()
@@ -2802,24 +2828,30 @@ impl Render for LauncherView {
                     .flex()
                     .justify_center()
                     .child(
+                        // Grows a little as it fills.
                         div()
-                            .w(px(340.0 * u))
+                            .w(px((340.0 + 24.0 * progress) * u))
                             .px(px(24.0 * u))
-                            .py(px(14.0 * u))
+                            .py(px((14.0 + 2.0 * progress) * u))
                             .rounded(px(20.0 * u))
                             .bg(theme::black(0.82))
                             .border_1()
-                            .border_color(theme::white(0.14))
+                            .border_color(theme::white(0.14 + 0.5 * done))
                             .flex()
                             .flex_col()
                             .items_center()
                             .gap(px(10.0 * u))
                             .text_size(px(18.0 * u))
-                            .child("Keep holding to exit Moonglass")
+                            .text_color(theme::white(0.8 + 0.2 * progress))
+                            .child(if done > 0.5 {
+                                "Exiting Moonglass"
+                            } else {
+                                "Keep holding to exit Moonglass"
+                            })
                             .child(
                                 div()
                                     .w_full()
-                                    .h(px(6.0 * u))
+                                    .h(px((6.0 + 2.0 * progress) * u))
                                     .rounded_full()
                                     .bg(theme::white(0.15))
                                     .child(
@@ -2827,7 +2859,7 @@ impl Render for LauncherView {
                                             .h_full()
                                             .w(gpui::relative(progress))
                                             .rounded_full()
-                                            .bg(theme::white(0.92)),
+                                            .bg(theme::white(0.75 + 0.25 * progress)),
                                     ),
                             ),
                     ),

@@ -13,7 +13,8 @@ use super::icons::{icon, Icon};
 use super::theme::{black, keycap, mix, on, selected, white, INK};
 use super::LauncherView;
 
-/// Rows shown at once; the list scrolls around the selection.
+/// Rows shown at once. The list scrolls only when the selection would
+/// leave them, and just far enough to keep it at the top or bottom edge.
 const VISIBLE_ROWS: usize = 11;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,8 +92,26 @@ pub struct Browser {
     pub dir: Option<PathBuf>,
     pub entries: Vec<Entry>,
     pub selected: usize,
+    /// The first row shown.
+    pub top: usize,
     pub loading: bool,
     pub error: Option<String>,
+}
+
+/// The first row to show of a list of `len` rows, `shown` at a time, so
+/// that `selected` is on screen. The list keeps its place (`top`) while the
+/// selection is on screen; past an edge it scrolls just far enough to show
+/// the selection on that edge, as file explorers do.
+pub(super) fn scroll_to_show(top: usize, selected: usize, shown: usize, len: usize) -> usize {
+    let shown = shown.max(1);
+    let top = if selected < top {
+        selected
+    } else if selected >= top + shown {
+        selected + 1 - shown
+    } else {
+        top
+    };
+    top.min(len.saturating_sub(shown))
 }
 
 /// What the view should do after a browser action.
@@ -166,6 +185,7 @@ impl Browser {
             dir: None,
             entries: Vec::new(),
             selected: 0,
+            top: 0,
             loading: true,
             error: None,
         }
@@ -193,7 +213,19 @@ impl Browser {
         }
     }
 
+    /// Scrolls just enough to show the selected row: it stays where it is
+    /// while it is on screen, and sits at the edge it went past otherwise.
+    fn follow(&mut self) {
+        self.top = scroll_to_show(self.top, self.selected, VISIBLE_ROWS, self.entries.len());
+    }
+
     pub fn nav(&mut self, a: NavAction) -> BrowserResult {
+        let r = self.nav_inner(a);
+        self.follow();
+        r
+    }
+
+    fn nav_inner(&mut self, a: NavAction) -> BrowserResult {
         let n = self.entries.len();
         match a {
             NavAction::Up if n > 0 => self.selected = (self.selected + n - 1) % n,
@@ -223,6 +255,7 @@ impl Browser {
             self.activate(i)
         } else {
             self.selected = i;
+            self.follow();
             BrowserResult::Nothing
         }
     }
@@ -235,16 +268,16 @@ impl Browser {
             let i = (self.selected + step) % n;
             if self.entries[i].label.to_lowercase().starts_with(ch) {
                 self.selected = i;
+                self.follow();
                 return;
             }
         }
     }
 
+    /// The wheel scrolls the list and leaves the selection where it is.
     pub fn wheel(&mut self, steps: isize) {
-        let n = self.entries.len() as isize;
-        if n > 0 {
-            self.selected = (self.selected as isize + steps).clamp(0, n - 1) as usize;
-        }
+        let last = self.entries.len().saturating_sub(VISIBLE_ROWS) as isize;
+        self.top = (self.top as isize + steps).clamp(0, last) as usize;
     }
 }
 
@@ -258,10 +291,7 @@ impl LauncherView {
         shown: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let start = b
-            .selected
-            .saturating_sub(VISIBLE_ROWS / 2)
-            .min(b.entries.len().saturating_sub(VISIBLE_ROWS));
+        let start = b.top.min(b.entries.len().saturating_sub(VISIBLE_ROWS));
         let end = (start + VISIBLE_ROWS).min(b.entries.len());
 
         let mut list = div().flex().flex_col().gap(px(4.0 * u));
@@ -275,7 +305,10 @@ impl LauncherView {
                 EntryKind::File => Icon::File,
                 EntryKind::UseThisFolder => Icon::Check,
             };
-            let lit = self.glide(("browse-row", i), on(sel));
+            // Keyed by the row's place on screen, not its entry: when the
+            // list scrolls at an edge, the highlight stays put while the
+            // names move under it, instead of fading out one row over.
+            let lit = self.glide(("browse-slot", i - start), on(sel));
             list = list.child(
                 selected(div().id(("browse-row", i)), lit)
                     .flex()
@@ -464,5 +497,38 @@ mod tests {
         );
         assert!(matches!(b.click(1), BrowserResult::Nothing));
         assert!(matches!(b.click(1), BrowserResult::Open(Some(_))));
+    }
+
+    #[test]
+    fn the_list_scrolls_only_at_its_edges() {
+        let mut b = Browser::new(Purpose::AddExecutable);
+        b.entries = (0..30)
+            .map(|i| Entry {
+                label: format!("d{i:02}"),
+                path: PathBuf::from(format!("d{i:02}")),
+                kind: EntryKind::Dir,
+            })
+            .collect();
+        // Moving down inside the shown rows does not scroll.
+        for _ in 0..VISIBLE_ROWS - 1 {
+            b.nav(NavAction::Down);
+        }
+        assert_eq!((b.selected, b.top), (VISIBLE_ROWS - 1, 0));
+        // One past the bottom scrolls by one; the selection is the last row.
+        b.nav(NavAction::Down);
+        assert_eq!((b.selected, b.top), (VISIBLE_ROWS, 1));
+        // Going back up does not scroll until the top edge is passed.
+        for _ in 0..VISIBLE_ROWS - 1 {
+            b.nav(NavAction::Up);
+        }
+        assert_eq!((b.selected, b.top), (1, 1));
+        b.nav(NavAction::Up);
+        assert_eq!((b.selected, b.top), (0, 0));
+        // Wrapping to the end shows the last page.
+        b.nav(NavAction::Up);
+        assert_eq!((b.selected, b.top), (29, 30 - VISIBLE_ROWS));
+        // The wheel scrolls without moving the selection.
+        b.wheel(-100);
+        assert_eq!((b.selected, b.top), (29, 0));
     }
 }

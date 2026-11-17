@@ -3,8 +3,11 @@
 //! glass panels over the blurred backdrop. Every change applies immediately
 //! and is saved.
 
+use std::cell::Cell;
+
 use gpui::{div, prelude::*, px, rgb, AnyElement, Context, Div, Hsla, SharedString};
 
+use super::browser::scroll_to_show;
 use super::gamepad::{Family, NavAction};
 use super::icons::{icon, Icon};
 use super::prefs::{Choice, Prefs};
@@ -260,6 +263,9 @@ pub struct SettingsState {
     pub in_sections: bool,
     /// How many emulator profiles exist (rows of the Emulators section).
     emulators: usize,
+    /// The first item row shown. How many rows fit is known only when
+    /// drawing, so drawing moves it.
+    top: Cell<usize>,
 }
 
 /// What Settings asks the view to do.
@@ -280,6 +286,7 @@ impl SettingsState {
             item: 0,
             in_sections: true,
             emulators,
+            top: Cell::new(0),
         }
     }
 
@@ -300,6 +307,7 @@ impl SettingsState {
     fn set_section(&mut self, s: usize) {
         self.section = s % SECTIONS.len();
         self.item = 0;
+        self.top.set(0);
     }
 
     /// Changes a choice or toggle. Returns whether prefs changed.
@@ -536,14 +544,12 @@ impl LauncherView {
         }
 
         let section = SECTIONS[st.section];
-        // As many rows as fit between the heading and the footer; the
-        // window follows the selected row.
+        // As many rows as fit between the heading and the footer. The
+        // list scrolls only when the selected row would leave them.
         let items = st.items();
         let fit = (((h - 420.0 * u) / (70.0 * u)).floor() as usize).max(3);
-        let start = st
-            .item
-            .saturating_sub(fit / 2)
-            .min(items.len().saturating_sub(fit));
+        let start = scroll_to_show(st.top.get(), st.item, fit, items.len());
+        st.top.set(start);
         let end = (start + fit).min(items.len());
         let more = |shown: bool| {
             div()
@@ -564,7 +570,9 @@ impl LauncherView {
         }
         for (i, item) in items.into_iter().enumerate().take(end).skip(start) {
             let sel = i == st.item && !st.in_sections;
-            let lit = self.glide(("settings-row", st.section, i), on(sel));
+            // Keyed by the row's place on screen, so a scroll at an edge
+            // leaves the highlight where it is.
+            let lit = self.glide(("settings-row", st.section, i - start), on(sel));
             let kind = item.kind();
             let label = match item {
                 Item::Emulator(n) => info
