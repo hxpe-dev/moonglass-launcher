@@ -36,8 +36,9 @@ use std::time::{Duration, Instant};
 use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, FocusHandle, Hsla, KeyDownEvent,
-    KeyUpEvent, MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, Application, Bounds, Context, ExternalPaths, FocusHandle, Hsla,
+    KeyDownEvent, KeyUpEvent, MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds,
+    WindowOptions,
 };
 use moonglass_art::ingest::{blurred_hero_path, motion_hero_path};
 use moonglass_core::library::{carousel, search, visible_filters, Filter};
@@ -1654,20 +1655,7 @@ impl LauncherView {
 
     fn picked(&mut self, purpose: Purpose, path: PathBuf) {
         match purpose {
-            Purpose::AddExecutable => {
-                self.db_task(move |db, cache| async move {
-                    let title = path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned();
-                    let normalized = moonglass_platform::normalize_path(&path);
-                    db.add_executable(&normalized, &path.to_string_lossy(), &title, now_unix())
-                        .await?;
-                    let _ = crate::artwork::refresh(&db, &cache, false).await;
-                    Ok(Some(format!("Added {title}")))
-                });
-            }
+            Purpose::AddExecutable => self.add_executable(path),
             Purpose::Artwork(id) => {
                 let Some(g) = self.stored(&id).cloned() else {
                     return;
@@ -1698,6 +1686,53 @@ impl LauncherView {
                     Ok(Some(format!("Working directory set for {}", g.title)))
                 });
             }
+        }
+    }
+
+    /// Adds a standalone executable as a game.
+    fn add_executable(&self, path: PathBuf) {
+        self.db_task(move |db, cache| async move {
+            let title = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let normalized = moonglass_platform::normalize_path(&path);
+            db.add_executable(&normalized, &path.to_string_lossy(), &title, now_unix())
+                .await?;
+            let _ = crate::artwork::refresh(&db, &cache, false).await;
+            Ok(Some(format!("Added {title}")))
+        });
+    }
+
+    /// Files dropped on the window (spec 2, Standalone Executables):
+    /// programs are added as games.
+    fn dropped(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        self.set_input(InputMode::Mouse, cx);
+        if self.session.is_some() || !matches!(self.modal, Modal::None) {
+            return;
+        }
+        let (programs, others): (Vec<_>, Vec<_>) = paths
+            .iter()
+            .cloned()
+            .partition(|p| moonglass_platform::is_launchable(p));
+        for p in programs {
+            self.add_executable(p);
+        }
+        if let Some(other) = others.first() {
+            let name = other
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let what = if cfg!(windows) {
+                "a program (.exe)"
+            } else {
+                "an executable file"
+            };
+            self.toast(
+                format!("{name} is not {what}; only programs can be added"),
+                cx,
+            );
         }
     }
 
@@ -2400,6 +2435,9 @@ impl Render for LauncherView {
                 }
             }))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_drop(
+                cx.listener(|this, paths: &ExternalPaths, _, cx| this.dropped(paths.paths(), cx)),
+            )
             .on_scroll_wheel(cx.listener(Self::on_wheel))
             .size_full()
             .relative()
