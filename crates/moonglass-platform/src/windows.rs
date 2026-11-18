@@ -919,6 +919,9 @@ pub mod window {
     }
 
     impl Splash {
+        /// Closes the splash window (dropping it does the same).
+        pub fn close(self) {}
+
         /// Call on the thread that will run the UI, and drop it there: the
         /// window belongs to that thread.
         pub fn show() -> Option<Self> {

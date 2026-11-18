@@ -729,6 +729,8 @@ pub mod window {
         pub fn show() -> Option<Self> {
             None
         }
+
+        pub fn close(self) {}
     }
 
     /// No-op: Moonglass stays fullscreen underneath the game.

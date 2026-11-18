@@ -2843,8 +2843,9 @@ impl Render for LauncherView {
             self.drawn = true;
             crate::startup_mark("first frame");
             // The splash goes once this frame is on screen.
-            let splash = self.splash.take();
-            window.on_next_frame(move |_, _| drop(splash));
+            if let Some(splash) = self.splash.take() {
+                window.on_next_frame(move |_, _| splash.close());
+            }
         }
         self.advance_animation();
         self.advance_pulse(window.is_window_active());
