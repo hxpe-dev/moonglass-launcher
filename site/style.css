@@ -1,0 +1,262 @@
+/* Moonglass, built around its startup wordmark: M O O N G L A S S, light
+   and spaced, white on black. Hairline rules, small mono labels, no glow. */
+
+:root {
+  --bg: #000;
+  --text: rgba(255, 255, 255, 0.95);
+  --text-2: rgba(255, 255, 255, 0.66);
+  --text-3: rgba(255, 255, 255, 0.42);
+  --line: rgba(255, 255, 255, 0.14);
+  --rule: 1px solid var(--line);
+  --sans: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+  --pad: clamp(20px, 3.4vw, 44px);
+  --spread: 0.56em;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  padding: 0 clamp(10px, 2vw, 28px);
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 16.5px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p, figure { margin: 0; }
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+::selection { background: #fff; color: #000; }
+:focus-visible { outline: 1px solid #fff; outline-offset: 4px; }
+
+.label {
+  font: 400 11.5px/1.5 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* The frame, and a dot wherever a rule meets it. */
+.frame {
+  max-width: 1320px;
+  margin: 0 auto;
+  border-left: var(--rule);
+  border-right: var(--rule);
+}
+.rule { position: relative; border-top: var(--rule); }
+.rule::before, .rule::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+}
+.rule::before { left: -3px; }
+.rule::after { right: -3px; }
+
+/* ------------------------------------------------------------ opening */
+
+.opening {
+  position: relative;
+  height: 100svh;
+  min-height: 560px;
+  display: grid;
+  place-items: center;
+}
+.corner { position: absolute; margin: 0; }
+.corner.tl { top: var(--pad); left: var(--pad); display: flex; align-items: center; gap: 28px; }
+.corner.tr { top: var(--pad); right: var(--pad); }
+.corner.bl { bottom: var(--pad); left: var(--pad); }
+.corner.br { bottom: var(--pad); right: var(--pad); }
+.corner.bc { bottom: var(--pad); left: 50%; transform: translateX(-50%); font-size: 14px; }
+a.label:hover, .nav a:hover { color: var(--text); }
+
+.mark img { border-radius: 6px; }
+.nav { display: flex; gap: 24px; font: 400 11.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+
+.center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: clamp(48px, 8vh, 88px) clamp(28px, 6vw, 96px);
+}
+
+/* Thin crop marks around the wordmark, as on a print proof. */
+.crop i {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 0 solid rgba(255, 255, 255, 0.4);
+  animation: arrive 1s ease 0.9s both;
+}
+.crop i:nth-child(1) { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.crop i:nth-child(2) { top: 0; right: 0; border-top-width: 1px; border-right-width: 1px; }
+.crop i:nth-child(3) { bottom: 0; left: 0; border-bottom-width: 1px; border-left-width: 1px; }
+.crop i:nth-child(4) { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+
+/* The startup wordmark: it fades in and opens up, as in the app. */
+.wordmark {
+  font: 200 clamp(24px, 6vw, 100px)/1 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: var(--spread);
+  margin-right: calc(var(--spread) * -1);
+  color: var(--text);
+  white-space: nowrap;
+  animation: open-up 1.6s cubic-bezier(0.22, 0.8, 0.24, 1) both;
+}
+@keyframes open-up {
+  from { opacity: 0; letter-spacing: 0.4em; margin-right: -0.4em; }
+}
+
+.tagline { margin-top: clamp(22px, 3vw, 36px); }
+.cta { margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.quiet { font-size: 14px; color: var(--text-3); }
+.quiet:hover { color: var(--text); }
+
+.tagline, .cta, .corner { animation: arrive 1s ease 0.9s both; }
+@keyframes arrive { from { opacity: 0; } }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-size: 15px;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.pill:hover, .pill.solid { background: #fff; color: #000; border-color: #fff; }
+.pill.solid:hover { background: rgba(255, 255, 255, 0.82); }
+
+/* ----------------------------------------------------------- sections */
+
+.intro-text { padding: clamp(72px, 12vh, 140px) var(--pad); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 20px 40px; }
+.statement {
+  font: 300 clamp(24px, 2.9vw, 40px)/1.28 var(--sans);
+  letter-spacing: -0.005em;
+  max-width: 24em;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr);
+  gap: 16px 40px;
+  padding: clamp(56px, 9vh, 104px) var(--pad);
+  border-bottom: var(--rule);
+}
+.head h2, .head .head-text { grid-column: 2; }
+h2 {
+  font: 300 clamp(34px, 4.4vw, 62px)/1.06 var(--sans);
+  letter-spacing: -0.015em;
+}
+.head-text { color: var(--text-2); max-width: 34em; }
+
+.cells { display: grid; }
+.cells.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cells.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cells.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cell { padding: var(--pad); border-right: var(--rule); border-bottom: var(--rule); }
+.cells.two .cell:nth-child(2n), .cells.three .cell:nth-child(3n), .cells.four .cell:nth-child(4n) { border-right: 0; }
+.cell h3 { margin-top: 28px; font: 400 21px/1.25 var(--sans); letter-spacing: -0.005em; }
+.cell p:not(.label) { margin-top: 10px; color: var(--text-2); font-size: 15.5px; }
+#features .cell:nth-last-child(-n + 3), #download .cell { border-bottom: 0; }
+
+/* Charts: Moonglass solid, the others in outline. */
+.chart figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 28px; }
+.chart figcaption h3 { margin: 0; }
+.chart ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.chart li {
+  display: grid;
+  grid-template-columns: 10em minmax(0, 1fr) 3.4em;
+  align-items: center;
+  gap: 14px;
+  font: 400 12px/1.2 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.chart b { display: block; height: 12px; width: var(--w); min-width: 2px; border: 1px solid rgba(255, 255, 255, 0.4); }
+.chart em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.chart li.me { color: var(--text); }
+.chart li.me b { background: #fff; border-color: #fff; }
+.chart li.me em { color: var(--text); }
+/* Moonglass's CPU bar in two parts: solid with the glow off, the rest is
+   what the glow adds. */
+.chart li.me b.split { background: rgba(255, 255, 255, 0.3); border-color: rgba(255, 255, 255, 0.3); }
+.chart b.split i { display: block; width: var(--part); height: 100%; background: #fff; }
+.legend { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 18px; height: 10px; background: #fff; }
+.swatch.dim { background: rgba(255, 255, 255, 0.3); }
+.chart .note { margin-top: 14px; font-size: 14px; }
+
+.table-wrap { padding: var(--pad); overflow-x: auto; }
+table { width: 100%; min-width: 640px; border-collapse: collapse; font: 400 12.5px/1.3 var(--mono); }
+caption { text-align: left; padding-bottom: 16px; }
+th, td { text-align: left; padding: 12px 14px 12px 0; border-bottom: var(--rule); color: var(--text-2); font-weight: 400; }
+thead th { color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
+td:nth-child(2) { color: var(--text); }
+.fine { margin-top: 18px; font-size: 13.5px; color: var(--text-3); max-width: 60em; }
+.fine a { color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+
+.dl h3 { margin-top: 14px; font: 300 40px/1.1 var(--sans); }
+.dl-links { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* Footer */
+footer .cell { display: flex; flex-direction: column; gap: 10px; border-bottom: 0; }
+footer nav a { font-size: 15px; color: var(--text-2); }
+footer nav a:hover { color: var(--text); }
+footer nav .label { margin-bottom: 6px; }
+.foot-mark { border-radius: 9px; }
+
+.giant {
+  padding: clamp(40px, 7vw, 96px) var(--pad);
+  text-align: center;
+  font: 200 clamp(20px, 7.4vw, 104px)/1 var(--sans);
+  text-transform: uppercase;
+  letter-spacing: var(--spread);
+  text-indent: var(--spread);
+  white-space: nowrap;
+  color: var(--text);
+  user-select: none;
+}
+.legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding: 16px var(--pad); }
+
+/* -------------------------------------------------------- small screens */
+
+@media (max-width: 900px) {
+  .cells.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cells.three .cell:nth-child(3n) { border-right: var(--rule); }
+  .cells.three .cell:nth-child(2n) { border-right: 0; }
+  #features .cell:nth-last-child(-n + 3) { border-bottom: var(--rule); }
+  #features .cell:nth-last-child(-n + 2) { border-bottom: 0; }
+  .cells.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cells.four .cell:nth-child(2n) { border-right: 0; }
+  .cells.four .cell:nth-child(-n + 2) { border-bottom: var(--rule); }
+  .intro-text, .head { grid-template-columns: minmax(0, 1fr); }
+  .head h2, .head .head-text { grid-column: 1; }
+}
+
+@media (max-width: 640px) {
+  .nav { display: none; }
+  .corner.bl, .corner.bc { display: none; }
+  .cells.two, .cells.three { grid-template-columns: minmax(0, 1fr); }
+  .cells.two .cell, .cells.three .cell { border-right: 0 !important; border-bottom: var(--rule) !important; }
+  #features .cell:last-child, #download .cell:last-child { border-bottom: 0 !important; }
+  .chart li { grid-template-columns: 7.6em minmax(0, 1fr) 3em; gap: 10px; font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .wordmark, .tagline, .cta, .corner, .crop i { animation: none; }
+}

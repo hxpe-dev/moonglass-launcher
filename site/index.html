@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moonglass · A game launcher for the couch</title>
+  <meta name="description" content="Moonglass puts your Steam, Epic, GOG and emulated games on one full-screen shelf you browse with a controller. For Windows and Linux.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@200;300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="frame">
+
+  <!-- The opening: the wordmark from Moonglass's startup, and little else. -->
+  <section class="opening" aria-label="Moonglass">
+    <header class="corner tl">
+      <a href="#" class="mark" aria-label="Moonglass"><img src="logo.svg" alt="" width="22" height="22"></a>
+      <nav class="nav" aria-label="Sections">
+        <a href="#features">Features</a>
+        <a href="#benchmarks">Benchmarks</a>
+        <a href="#download">Download</a>
+      </nav>
+    </header>
+    <a class="corner tr label" href="https://github.com/hxpe-dev/moonglass-launcher">GitHub ↗</a>
+
+    <div class="center">
+      <span class="crop" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <h1 class="wordmark">Moonglass</h1>
+      <p class="tagline label">A game launcher for the couch</p>
+      <div class="cta">
+        <a class="pill" href="#download">Download for Windows</a>
+        <a class="quiet" href="#download">Linux preview →</a>
+      </div>
+    </div>
+
+    <p class="corner bl label">Steam · Epic · GOG · Emulators</p>
+    <p class="corner br label">v0.1.0 · Windows 10 &amp; 11</p>
+    <a class="corner bc label" href="#about" aria-label="Scroll to read more">↓</a>
+  </section>
+
+  <section id="about" class="rule intro-text">
+    <p class="label">00 / Moonglass</p>
+    <p class="statement">One full-screen shelf for your Steam, Epic, GOG and emulated games, made to be browsed from the couch with a controller. It starts in under a second, and while you play, it does nothing at all.</p>
+  </section>
+
+  <section id="features" class="rule">
+    <div class="head">
+      <p class="label">01 / What it does</p>
+      <h2>Every game you own.<br>Nothing you don't.</h2>
+    </div>
+    <div class="cells three">
+      <article class="cell">
+        <p class="label">01</p>
+        <h3>Every store, one shelf</h3>
+        <p>Steam, Epic and GOG games are found on their own, along with your emulators' ROM folders and any program you add.</p>
+      </article>
+      <article class="cell">
+        <p class="label">02</p>
+        <h3>Made for a controller</h3>
+        <p>Every screen works with a gamepad, setup and search included. Keyboard and mouse work too, and the hints follow what you hold.</p>
+      </article>
+      <article class="cell">
+        <p class="label">03</p>
+        <h3>The stores stay in charge</h3>
+        <p>Games start through Steam, Epic or GOG Galaxy, so achievements, cloud saves and Steam Input keep working.</p>
+      </article>
+      <article class="cell">
+        <p class="label">04</p>
+        <h3>Quiet while you play</h3>
+        <p>Nothing is drawn while a game runs. Quit and Moonglass is back in about a second; hold View and Menu to call it up any time.</p>
+      </article>
+      <article class="cell">
+        <p class="label">05</p>
+        <h3>Artwork without effort</h3>
+        <p>Covers come from your stores' own caches and catalogs, or from SteamGridDB. Set your own for any game.</p>
+      </article>
+      <article class="cell">
+        <p class="label">06</p>
+        <h3>Set it up your way</h3>
+        <p>Posters, banners or squares. Each game's colors, its art behind everything, or pure black for OLED screens.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="benchmarks" class="rule">
+    <div class="head">
+      <p class="label">02 / Benchmarks</p>
+      <h2>Measured against<br>the other launchers.</h2>
+      <p class="head-text">Moonglass, Playnite and One Game Launcher on the same PC. Shorter is better.</p>
+    </div>
+
+    <div class="cells two">
+      <figure class="cell chart">
+        <figcaption><h3>Time until loaded</h3><span class="label">Seconds</span></figcaption>
+        <ul>
+          <li class="me"><span>Moonglass</span><b style="--w:41.5%"></b><em>1.7</em></li>
+          <li><span>One Game</span><b style="--w:51.2%"></b><em>2.1</em></li>
+          <li><span>Playnite Desktop</span><b style="--w:87.8%"></b><em>3.6</em></li>
+          <li><span>Playnite Fullscreen</span><b style="--w:100%"></b><em>4.1</em></li>
+        </ul>
+      </figure>
+      <figure class="cell chart">
+        <figcaption><h3>Memory in use</h3><span class="label">MB, idle</span></figcaption>
+        <ul>
+          <li class="me"><span>Moonglass</span><b style="--w:11.8%"></b><em>79</em></li>
+          <li><span>One Game</span><b style="--w:25.7%"></b><em>172</em></li>
+          <li><span>Playnite Desktop</span><b style="--w:100%"></b><em>668</em></li>
+          <li><span>Playnite Fullscreen</span><b style="--w:97.2%"></b><em>649</em></li>
+        </ul>
+      </figure>
+      <figure class="cell chart">
+        <figcaption><h3>Install size</h3><span class="label">MB</span></figcaption>
+        <ul>
+          <li class="me"><span>Moonglass</span><b style="--w:6.4%"></b><em>28</em></li>
+          <li><span>One Game</span><b style="--w:9.5%"></b><em>41</em></li>
+          <li><span>Playnite</span><b style="--w:100%"></b><em>433</em></li>
+        </ul>
+      </figure>
+      <figure class="cell chart">
+        <figcaption><h3>CPU at rest, in front</h3><span class="label">% of one core</span></figcaption>
+        <ul>
+          <li class="me"><span>Moonglass</span><b class="split" style="--w:100%"><i style="--part:11%"></i></b><em>4.0</em></li>
+          <li><span>One Game</span><b style="--w:9.3%"></b><em>0.4</em></li>
+          <li><span>Playnite Desktop</span><b style="--w:1.8%"></b><em>0.1</em></li>
+          <li><span>Playnite Fullscreen</span><b style="--w:20.4%"></b><em>0.8</em></li>
+        </ul>
+        <p class="legend label">
+          <span><i class="swatch"></i>Glow off · 0.4</span>
+          <span><i class="swatch dim"></i>Glow on · 4.0</span>
+        </p>
+        <p class="note">The difference is the animated glow around the selected game. It can be turned off in Settings, and it stops whenever another window has the focus.</p>
+      </figure>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <caption class="label">All measurements · medians of 5 runs</caption>
+        <thead>
+          <tr><th scope="col"></th><th scope="col">Moonglass</th><th scope="col">One Game</th><th scope="col">Playnite Desktop</th><th scope="col">Playnite Fullscreen</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">First window</th><td>0.35 s</td><td>0.24 s</td><td>0.22 s</td><td>0.21 s</td></tr>
+          <tr><th scope="row">Fully loaded</th><td>1.7 s</td><td>2.1 s</td><td>3.6 s</td><td>4.1 s</td></tr>
+          <tr><th scope="row">Memory in use</th><td>79 MB</td><td>172 MB</td><td>668 MB</td><td>649 MB</td></tr>
+          <tr><th scope="row">Private memory</th><td>165 MB</td><td>122 MB</td><td>255 MB</td><td>261 MB</td></tr>
+          <tr><th scope="row">CPU at rest, in front</th><td>4.0%</td><td>0.4%</td><td>0.1%</td><td>0.8%</td></tr>
+          <tr><th scope="row">CPU at rest, minimized</th><td>1.6%</td><td>0.2%</td><td>0.0%</td><td>1.4%</td></tr>
+          <tr><th scope="row">Processes</th><td>1</td><td>1 + service</td><td>5</td><td>5</td></tr>
+          <tr><th scope="row">Install size</th><td>28 MB</td><td>41 MB</td><td colspan="2">433 MB</td></tr>
+        </tbody>
+      </table>
+      <p class="fine">Windows 11 · Ryzen 7 3700X · RTX 4060 · 32 GB · 2560×1440 at 280 Hz · libraries of 33–47 games. Playnite 10.64, One Game Launcher 2.3. "Loaded" is when the app's CPU use settles. <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/BENCH.md">Method and raw data ↗</a></p>
+    </div>
+  </section>
+
+  <section id="download" class="rule">
+    <div class="head">
+      <p class="label">03 / Download</p>
+      <h2>One file. No account.</h2>
+      <p class="head-text">Version 0.1.0. Nothing to install, and nothing left running once you close it.</p>
+    </div>
+    <div class="cells two">
+      <div class="cell dl">
+        <p class="label">Windows 10 &amp; 11 · 64-bit</p>
+        <h3>Windows</h3>
+        <div class="dl-links">
+          <a class="pill solid" href="https://github.com/hxpe-dev/moonglass-launcher/releases/latest">Download .exe</a>
+          <a class="pill" href="https://github.com/hxpe-dev/moonglass-launcher/releases/latest">.zip</a>
+        </div>
+      </div>
+      <div class="cell dl">
+        <p class="label">X11 &amp; Wayland · 64-bit · Preview</p>
+        <h3>Linux</h3>
+        <div class="dl-links">
+          <a class="pill" href="https://github.com/hxpe-dev/moonglass-launcher/releases/latest">AppImage</a>
+          <a class="pill" href="https://github.com/hxpe-dev/moonglass-launcher/releases/latest">.tar.gz</a>
+        </div>
+        <p class="fine">Built, not yet tested on real hardware.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="rule">
+    <div class="cells four">
+      <div class="cell">
+        <img src="logo.svg" alt="" width="36" height="36" class="foot-mark">
+      </div>
+      <nav class="cell" aria-label="Project">
+        <p class="label">Project</p>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher">Source code</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/releases">Releases</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/issues">Report a problem</a>
+      </nav>
+      <nav class="cell" aria-label="Read">
+        <p class="label">Read</p>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher#readme">Readme</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/SPEC.md">Specification</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/BENCH.md">Benchmarks</a>
+      </nav>
+      <nav class="cell" aria-label="This page">
+        <p class="label">This page</p>
+        <a href="#features">Features</a>
+        <a href="#benchmarks">Benchmarks</a>
+        <a href="#download">Download</a>
+      </nav>
+    </div>
+    <p class="giant rule" aria-hidden="true">Moonglass</p>
+    <div class="legal rule label">
+      <span>Moonglass 0.1.0</span>
+      <span>Not affiliated with Valve, Epic Games, GOG, Playnite or One Game Launcher</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
