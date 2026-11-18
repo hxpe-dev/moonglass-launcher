@@ -12,6 +12,7 @@
 //! | Detect a launcher-started game | [`ProcessWatcher`] + [`GameMatcher`] |
 //! | Hide Moonglass / regain focus / dismiss the launcher window | [`window`] |
 //! | Background restore hotkey | [`hotkey`] |
+//! | Quick Menu: clips and screenshots, the game's volume | [`capture`], [`game_volume`], [`set_game_volume`] |
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |
 //! | Single-instance guard | [`InstanceGuard`] |
 //! | Steam, Epic and GOG discovery | [`steam_root`], [`epic_source`], [`gog_source`] |
@@ -593,6 +594,143 @@ pub enum PadPower {
 /// (Windows). `gilrs` cannot read it there, so the UI asks here instead.
 pub fn xinput_power() -> Option<PadPower> {
     imp::xinput_power()
+}
+
+// ------------------------------------------------------- Quick Menu
+
+/// A program that already records the game and can be asked to save a clip
+/// of the last moments or a screenshot (spec 5.8). Moonglass never records
+/// anything itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureTool {
+    /// Xbox Game Bar's "Record what happened" (`Win+Alt+G`) and screenshot
+    /// (`Win+Alt+PrtScn`). Windows.
+    GameBar,
+    /// NVIDIA's Instant Replay (`Alt+F10`) and screenshot (`Alt+F1`). Windows.
+    Nvidia,
+    /// AMD Software's Instant Replay (`Ctrl+Shift+S`) and screenshot
+    /// (`Ctrl+Shift+I`). Windows.
+    Amd,
+    /// `gpu-screen-recorder` in replay mode, asked to save with `SIGUSR1`.
+    /// Linux; it has no screenshot.
+    GpuScreenRecorder,
+}
+
+/// What to save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureKind {
+    Clip,
+    Screenshot,
+}
+
+impl CaptureTool {
+    /// The tools this platform offers, in display order.
+    pub fn available() -> &'static [CaptureTool] {
+        imp::CAPTURE_TOOLS
+    }
+
+    /// The tool a new install starts with: one the OS ships (Game Bar), or
+    /// none.
+    pub fn default_here() -> Option<CaptureTool> {
+        imp::CAPTURE_DEFAULT
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CaptureTool::GameBar => "Xbox Game Bar",
+            CaptureTool::Nvidia => "NVIDIA Instant Replay",
+            CaptureTool::Amd => "AMD Instant Replay",
+            CaptureTool::GpuScreenRecorder => "gpu-screen-recorder",
+        }
+    }
+
+    pub fn takes_screenshots(self) -> bool {
+        self != CaptureTool::GpuScreenRecorder
+    }
+
+    /// Whether the game must be in front when the tool is asked: tools
+    /// driven by their keyboard shortcuts act on the foreground window.
+    pub fn needs_game_in_front(self) -> bool {
+        self != CaptureTool::GpuScreenRecorder
+    }
+}
+
+/// Asks `tool` to save a clip or a screenshot. Keyboard-driven tools act on
+/// the window in front, so call this once the game is back in front
+/// ([`CaptureTool::needs_game_in_front`]).
+pub fn capture(tool: CaptureTool, kind: CaptureKind) -> Result<()> {
+    if kind == CaptureKind::Screenshot && !tool.takes_screenshots() {
+        return Err(PlatformError::Os(format!(
+            "{} cannot take screenshots",
+            tool.name()
+        )));
+    }
+    imp::capture(tool, kind)
+}
+
+/// A game's own volume, as the OS mixer has it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GameVolume {
+    /// 0.0 to 1.0.
+    pub level: f32,
+    pub muted: bool,
+}
+
+/// The volume of the game whose processes are `pids` (their child
+/// processes included, since a game's sound often comes from a process its
+/// launcher started). `None` while the game has no audio stream.
+/// Blocking: talks to the OS mixer; call it off the UI thread.
+pub fn game_volume(pids: &[u32]) -> Option<GameVolume> {
+    if pids.is_empty() {
+        return None;
+    }
+    imp::game_volume(&with_descendants(pids))
+}
+
+/// Sets the volume of every audio stream of the game (see
+/// [`game_volume`]). Returns whether any stream was changed. Blocking.
+pub fn set_game_volume(pids: &[u32], v: GameVolume) -> bool {
+    if pids.is_empty() {
+        return false;
+    }
+    let v = GameVolume {
+        level: v.level.clamp(0.0, 1.0),
+        muted: v.muted,
+    };
+    imp::set_game_volume(&with_descendants(pids), v)
+}
+
+/// `pids` and every process started from them, at any depth. A process
+/// counts only if it started after its parent: Windows reuses the IDs of
+/// processes that ended, so an older process can name the game's ID as its
+/// (long gone) parent.
+fn with_descendants(pids: &[u32]) -> Vec<u32> {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    let started = |pid: u32| {
+        sys.process(sysinfo::Pid::from_u32(pid))
+            .map(|p| p.start_time())
+    };
+    // PID 0 is the system itself, never a game.
+    let mut out: Vec<u32> = pids.iter().copied().filter(|&p| p != 0).collect();
+    loop {
+        let before = out.len();
+        for p in sys.processes().values() {
+            let pid = p.pid().as_u32();
+            if out.contains(&pid) {
+                continue;
+            }
+            let Some(parent) = p.parent().map(|pp| pp.as_u32()) else {
+                continue;
+            };
+            if out.contains(&parent) && started(parent).is_some_and(|t| t <= p.start_time()) {
+                out.push(pid);
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
+    }
 }
 
 // ------------------------------------------------------- Steam signal

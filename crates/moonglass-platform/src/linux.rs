@@ -467,6 +467,161 @@ pub fn request_close(pids: &[u32]) {
     }
 }
 
+// ------------------------------------------------------- Quick Menu
+
+pub const CAPTURE_TOOLS: &[crate::CaptureTool] = &[crate::CaptureTool::GpuScreenRecorder];
+/// Nothing ships with the desktop that can be asked to save a clip.
+pub const CAPTURE_DEFAULT: Option<crate::CaptureTool> = None;
+
+/// gpu-screen-recorder saves its replay buffer on `SIGUSR1`.
+pub fn capture(tool: crate::CaptureTool, kind: crate::CaptureKind) -> Result<()> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+    if tool != crate::CaptureTool::GpuScreenRecorder || kind != crate::CaptureKind::Clip {
+        return Err(PlatformError::Os(format!(
+            "{} is not available on Linux",
+            tool.name()
+        )));
+    }
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    let mut found = false;
+    for p in sys.processes().values() {
+        if p.thread_kind().is_some() || p.name() != "gpu-screen-recorder" {
+            continue;
+        }
+        if let Some(pid) = Pid::from_raw(p.pid().as_u32() as i32) {
+            found |= rustix::process::kill_process(pid, Signal::USR1).is_ok();
+        }
+    }
+    if found {
+        Ok(())
+    } else {
+        Err(PlatformError::Os(
+            "gpu-screen-recorder isn't running. Start it in replay mode (-r) first.".into(),
+        ))
+    }
+}
+
+/// One PulseAudio / PipeWire playback stream, from `pactl list sink-inputs`.
+#[derive(Debug, PartialEq)]
+struct SinkInput {
+    index: u32,
+    pid: Option<u32>,
+    /// The first channel's volume, as a fraction of 100%.
+    level: f32,
+    muted: bool,
+}
+
+fn parse_sink_inputs(text: &str) -> Vec<SinkInput> {
+    let mut out = Vec::new();
+    let mut cur: Option<SinkInput> = None;
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(n) = t.strip_prefix("Sink Input #") {
+            out.extend(cur.take());
+            cur = n.trim().parse().ok().map(|index| SinkInput {
+                index,
+                pid: None,
+                level: 1.0,
+                muted: false,
+            });
+            continue;
+        }
+        let Some(c) = cur.as_mut() else { continue };
+        if let Some(m) = t.strip_prefix("Mute:") {
+            c.muted = m.trim() == "yes";
+        } else if let Some(v) = t.strip_prefix("Volume:") {
+            // "front-left: 65536 /  100% / 0.00 dB,   front-right: ..."
+            if let Some(pct) = v
+                .split('/')
+                .nth(1)
+                .and_then(|s| s.trim().trim_end_matches('%').parse::<f32>().ok())
+            {
+                c.level = pct / 100.0;
+            }
+        } else if let Some(p) = t.strip_prefix("application.process.id = ") {
+            c.pid = p.trim_matches('"').parse().ok();
+        }
+    }
+    out.extend(cur);
+    out
+}
+
+fn game_sink_inputs(pids: &[u32]) -> Vec<SinkInput> {
+    let out = Command::new("pactl")
+        .args(["list", "sink-inputs"])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    match out {
+        Ok(o) if o.status.success() => parse_sink_inputs(&String::from_utf8_lossy(&o.stdout))
+            .into_iter()
+            .filter(|s| s.pid.is_some_and(|p| pids.contains(&p)))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub fn game_volume(pids: &[u32]) -> Option<crate::GameVolume> {
+    game_sink_inputs(pids)
+        .into_iter()
+        .map(|s| crate::GameVolume {
+            level: s.level.min(1.0),
+            muted: s.muted,
+        })
+        .max_by(|a, b| a.level.total_cmp(&b.level))
+}
+
+pub fn set_game_volume(pids: &[u32], v: crate::GameVolume) -> bool {
+    let streams = game_sink_inputs(pids);
+    let pactl = |args: &[&str]| {
+        Command::new("pactl")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    let level = format!("{}%", (v.level * 100.0).round() as u32);
+    let mute = if v.muted { "1" } else { "0" };
+    let mut any = false;
+    for s in &streams {
+        let i = s.index.to_string();
+        any |= pactl(&["set-sink-input-volume", &i, &level]);
+        pactl(&["set-sink-input-mute", &i, mute]);
+    }
+    any
+}
+
+#[cfg(test)]
+mod quick_menu_tests {
+    use super::*;
+
+    #[test]
+    fn sink_inputs_parse() {
+        let text = "Sink Input #42\n\tDriver: PipeWire\n\tMute: no\n\tVolume: front-left: 52429 /  80% / -5.81 dB,   front-right: 52429 /  80% / -5.81 dB\n\tProperties:\n\t\tapplication.name = \"Game\"\n\t\tapplication.process.id = \"1234\"\nSink Input #43\n\tMute: yes\n\tVolume: mono: 65536 / 100% / 0.00 dB\n";
+        assert_eq!(
+            parse_sink_inputs(text),
+            [
+                SinkInput {
+                    index: 42,
+                    pid: Some(1234),
+                    level: 0.8,
+                    muted: false
+                },
+                SinkInput {
+                    index: 43,
+                    pid: None,
+                    level: 1.0,
+                    muted: true
+                },
+            ]
+        );
+    }
+}
+
 // ------------------------------------------------------- start at login
 
 fn autostart_file() -> Result<PathBuf> {

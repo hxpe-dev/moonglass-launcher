@@ -34,6 +34,7 @@ opens the carousel (or first-time setup on an empty library).
 | GOG games: GOG Galaxy and offline installers (Windows), Heroic (Linux), keyless artwork | Done; not yet tried with a real GOG install on either platform |
 | Steam's own playtime for the signed-in account, shown with Moonglass's (5.1) | Done on Windows |
 | Now Playing shows the time, controller battery and total playtime | Done |
+| Quick Menu on Now Playing: save a clip or screenshot through Xbox Game Bar, NVIDIA or AMD (Windows) or gpu-screen-recorder (Linux), the game's own volume, Stop (5.8) | Done on Windows; not yet tried with a game, Linux untested |
 | Turning Steam, Epic or GOG off, in Settings → Library and in first-time setup | Done |
 | Library database checked on every start, backed up, repaired from the backup when damaged, closed cleanly; SQLite 3.51.3 (spec 6) | Done on Windows |
 | Releasing images that are no longer drawn | Done |
@@ -90,7 +91,10 @@ release.
 `MOONGLASS_WINDOWED=1` opens a window instead of full screen.
 `MOONGLASS_DEV_SECOND_INSTANCE=1` lets a test window run next to a normal
 one (it shares the database).
-`MOONGLASS_DEV_SCREEN=settings` (or `search`) opens on that screen.
+`MOONGLASS_DEV_SCREEN=settings` (or `search`) opens on that screen;
+`MOONGLASS_DEV_SCREEN=quick` opens the Quick Menu over the first game
+without starting it, and `MOONGLASS_DEV_PIDS=1234,5678` lets its volume row
+control those processes.
 The log records how long startup took (`startup: first frame ms=…`).
 
 ## Layout

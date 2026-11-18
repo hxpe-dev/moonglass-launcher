@@ -1,6 +1,6 @@
 # Project Specification: **Moonglass** (Console-Style PC Game Launcher)
 
-*Spec revision 1.7.*
+*Spec revision 1.8.*
 
 ## 1. Vision & Core Philosophy
 
@@ -38,6 +38,8 @@ v1.0 ships exactly this, on both platforms:
 Deferred to post-1.0: UI sound effects and ambient audio, animated cover art, additional launchers.
 
 Added in revision 1.7: GOG as a fifth source, Steam's own playtime shown alongside Moonglass's (5.1), the time and controller battery on the Now Playing screen (5.3), turning stores off (section 3, Stores), and a library that checks and repairs itself (section 6, Keeping the library sound).
+
+Added in revision 1.8: the Quick Menu on the Now Playing screen, with clips and screenshots through the player's capture tool and the game's own volume (5.8).
 
 ### Supported Game Sources
 
@@ -112,7 +114,7 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
   * The hints follow the last input device: controller glyphs after gamepad input, key names (`Enter`, `Esc`, `Tab`, …) after keyboard or mouse input. Every hint is also a clickable button.
 
 * **Keyboard and Mouse**
-  * Keyboard: arrow keys move, `Enter` plays, `Esc` goes back or clears the search, `Tab` / `Shift+Tab` (or `PgUp` / `PgDn`) switch pills, `Home` / `End` jump to the first or last game, typing searches, `F11` toggles full screen. Holding `Esc` (or `[B]`) for about 1.4 seconds on the home screen exits Moonglass, with a filling bar after a quarter of a second; a short press does nothing more than before, and no game may be running. In the restore overlay, `Enter` returns to the game and `Del` force-quits.
+  * Keyboard: arrow keys move, `Enter` plays, `Esc` goes back or clears the search, `Tab` / `Shift+Tab` (or `PgUp` / `PgDn`) switch pills, `Home` / `End` jump to the first or last game, typing searches, `F11` toggles full screen. Holding `Esc` (or `[B]`) for about 1.4 seconds on the home screen exits Moonglass, with a filling bar after a quarter of a second; a short press does nothing more than before, and no game may be running. In the Quick Menu (5.8), the arrow keys move and change the volume, `Enter` chooses, `Esc` returns to the game and `Del` stops it.
   * Mouse: a program file dropped on the window is added as a standalone game (other files are explained in a message); clicking a card focuses it and clicking the focused card plays it; the wheel (or a touchpad swipe) moves one card per notch; pills, action-bar hints, the search clear button and overlay buttons are clickable. Hovered elements are highlighted.
 
 * **Search**
@@ -196,6 +198,8 @@ Everything OS-specific is behind one internal interface with a Windows and a Lin
 | Hide Moonglass while a game runs | Minimize the window | Stay fullscreen behind the game and stop rendering |
 | Regain focus after a game | `SetForegroundWindow` with fallbacks | Usually automatic; activation request as a fallback (5.3) |
 | Background restore hotkey | XInput poller; `RegisterHotKey` for the keyboard | `gilrs` via evdev; keyboard shortcut on X11 or through the desktop's global-shortcuts portal |
+| Ask a capture tool to save a clip or screenshot (5.8) | The tool's default shortcut, sent with `SendInput` | `SIGUSR1` to `gpu-screen-recorder` |
+| A game's own volume (5.8) | Core Audio sessions (`ISimpleAudioVolume`) of the game's processes and their children, on every active output | PulseAudio / PipeWire streams of those processes, through `pactl` |
 | Start at login | `HKCU\...\Run` registry value | `.desktop` file in `~/.config/autostart/` |
 | Single-instance guard | Named mutex | Lock file plus a Unix socket in the runtime directory |
 | Steam, Epic and GOG discovery | Registry and `ProgramData` | Known directories, including Flatpak and Snap locations |
@@ -306,7 +310,7 @@ Rules that make the folder signal reliable:
 
 * Windows: the window is minimized. Linux: the window stays fullscreen underneath the game. Wayland gives an application no way to un-minimize or raise itself, so Moonglass never minimizes there; when the game's window closes, the compositor returns focus to the fullscreen window beneath it.
 * On both platforms Moonglass renders zero frames in this state.
-* **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over the blurred backdrop (4.1), how long the game has been running and the game's total playtime with this session, the time and the controller's battery (which a full-screen game hides), and two buttons: **Return to game** (`[A]`/`Enter`) and **Stop game** (`[X]`/`Del`). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
+* **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over the blurred backdrop (4.1), how long the game has been running and the game's total playtime with this session, the time and the controller's battery (which a full-screen game hides), and the Quick Menu (5.8). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
 * **Stop game.** The first press asks the game to close normally (a window close request on Windows, `SIGTERM` on Linux) so it can save. If it is still running after 8 seconds, the button becomes **Force stop**, which terminates it (the Job Object or process group for executables and ROMs; the detected processes for Steam, Epic and GOG games). Moonglass never stops a game without the player asking.
 * Polling drops to once per second, and the process list is read only for games found through it (Steam, Epic, GOG, folder tracking); a game started as Moonglass's own child is watched through its handle alone. Background work that has nothing to show (friends, the Steam account watcher) rests. Gamepad navigation is suspended. The only input still observed is the restore hotkey (5.4).
 
@@ -326,7 +330,7 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 
 * A dedicated thread blocks on controller events and sends typed actions (`NavLeft`, `NavRight`, `NavUp`, `NavDown`, `Confirm`, `Back`, `Options`, `Search`, `FilterPrev`, `FilterNext`, `OpenSettings`) to GPUI through a channel.
 * The left stick uses a radial deadzone. Holding a direction repeats with acceleration.
-* Carousel navigation is suspended whenever the state is not Idle; the Launching and Now Playing screens take only their own buttons. Nothing is dispatched while Moonglass's window is not focused.
+* Carousel navigation is suspended whenever the state is not Idle; the Launching screen and the Quick Menu (5.8) take only their own controls. Nothing is dispatched while Moonglass's window is not focused.
 
 **Restore hotkey**
 
@@ -339,11 +343,11 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 * The `Guide` button is not offered: the public XInput API does not report it, and Windows Game Bar and Steam claim it on both platforms.
 * **Windows:** read by the XInput poller, about ten times per second, for connected controllers only (asking an empty slot is slow); empty slots are checked every two seconds. Keyboard equivalent, registered as a global hotkey: `Ctrl + Alt + Home`. This also covers controllers that XInput cannot see.
 * **Linux:** read by the `gilrs` thread, which keeps receiving events in the background and works with any controller the kernel recognizes. The keyboard equivalent is registered directly on X11 and through the desktop's global-shortcuts portal on Wayland; where the desktop offers neither, only the gamepad combination is available and Settings says so.
-* Action: bring Moonglass forward on the Now Playing screen (5.3), with **Return to game** and **Stop game**. On Wayland, if the compositor declines to bring Moonglass forward, the desktop notification from 5.3 is shown instead.
+* Action: bring Moonglass forward on the Now Playing screen (5.3), on the Quick Menu (5.8). On Wayland, if the compositor declines to bring Moonglass forward, the desktop notification from 5.3 is shown instead.
 
 ### 5.5 Settings, File Browser, and Text Entry
 
-* **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, `Recent` window, show hidden games, rescan, which stores to show (section 3, Stores; each row says how many games the store has, or that it was not found), the Steam account and whether to show only the Steam games it can play (5.7), the Steam folder (found automatically, or chosen), the Steam apps marked as not games (listed again from here), the Steam Web API key for friends, 5.6), Emulators (one row per emulator profile, and "Add an emulator" which offers the presets and then asks for the program; a profile's menu changes its program, arguments and file types, adds a ROM folder with its platform name, and removes folders or the profile, each removal asking for a second press), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller with its buttons and hold time, how long to wait for a game to start, first-time setup, logs, version, Exit Moonglass). `Ctrl+Q`, or holding `Esc` / `[B]` on the home screen, also exits when no game is running. A section with more rows than fit shows a window of them that follows the selection, with arrows where there are more. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
+* **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, `Recent` window, show hidden games, rescan, which stores to show (section 3, Stores; each row says how many games the store has, or that it was not found), the Steam account and whether to show only the Steam games it can play (5.7), the Steam folder (found automatically, or chosen), the Steam apps marked as not games (listed again from here), the Steam Web API key for friends, 5.6), Emulators (one row per emulator profile, and "Add an emulator" which offers the presets and then asks for the program; a profile's menu changes its program, arguments and file types, adds a ROM folder with its platform name, and removes folders or the profile, each removal asking for a second press), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller with its buttons and hold time, the tool for clips and screenshots with what it needs (5.8), how long to wait for a game to start, first-time setup, logs, version, Exit Moonglass). `Ctrl+Q`, or holding `Esc` / `[B]` on the home screen, also exits when no game is running. A section with more rows than fit shows a window of them that follows the selection, with arrows where there are more. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
 * **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the home folder plus the drive list on Windows, and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
 * **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch, emulator arguments and file types, platform name). Its last row has the characters arguments and paths need (`{ } " / \ : _ = + @`). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
 * **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments (standalone executables, ROM entries, and Steam games as launch options; the Epic launcher and GOG Galaxy accept none), Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch, and Not a Game for Steam apps (adds it to the deny-list, 2). Remove and Not a Game ask for a second press.
@@ -367,6 +371,30 @@ Steam has one account signed in at a time; the others it remembers (`config/logi
 * **Following Steam.** Every few seconds Moonglass reads which account Steam is signed in with, so a switch made in Steam itself is followed too.
 * **What an account can play.** Pieced together from Steam's local files: an installed game's `LastOwner`; the account's app tickets (`userdata/<account id>/config/localconfig.vdf`, `apptickets`), kept for every app it has a license for and has run or installed, free-to-play games included; and its Steam Families group (`FamilyGroup` in the same file), whose members share their libraries. An account that never signed in on this computer has only its own copies. With "Only Steam games this account can play" on (the default), other installed Steam games are left out of the carousel. Never applied when only one account is remembered. A free-to-play game the account has never run here is not recognized; turning the setting off shows everything.
 * The login names stay inside Moonglass; only display names are shown, and the login name is checked to be letters, digits and underscores before it is written anywhere.
+
+### 5.8 Quick Menu
+
+The Now Playing screen (5.3) holds a short menu: what a console's guide button offers, without drawing anything inside the game. Moonglass comes forward over the game, which keeps running behind it; without the focus, the game stops taking the controller, so the menu needs no input hooks of its own.
+
+* **Why not an in-game overlay.** Drawing inside the game means injecting a library into its process and hooking its rendering. Anti-cheat software (Easy Anti-Cheat, BattlEye, Vanguard) blocks or flags unknown injected code, every graphics API needs its own hooks, and a crash in the overlay is a crash of the game. Moonglass stays outside the game, as it stays outside the store clients (section 1, Native Integrity).
+* **Rows**, top to bottom, moved through with up and down (or the mouse); `[A]`/`Enter` chooses:
+  * **Return to game** (also `[B]`/`Esc`). Moonglass hides and the game is in front again.
+  * **Save a clip**, when a capture tool is chosen. Asks the tool to save the moments just played.
+  * **Take a screenshot**, when the tool takes screenshots.
+  * **Game volume.** Left and right change the game's own volume in 10% steps (the OS mixer's per-program volume, not the system volume); `[A]` mutes or unmutes; raising it unmutes. The volume belongs to every audio stream of the game's processes and the processes they started, so a game behind its own launcher is covered. "No sound from the game" while it has none. Read whenever the menu appears.
+  * **Stop game** (also `[X]`/`Del`), then Force stop, as in 5.3.
+* **Capture tools.** Moonglass never records. It asks a tool that already records the game, chosen in Settings → System → Clips and screenshots, under which a row says what the tool needs:
+
+  | Tool | Platform | Clip | Screenshot | Needs |
+  | --- | --- | --- | --- | --- |
+  | Xbox Game Bar (default on Windows) | Windows | `Win+Alt+G` | `Win+Alt+PrtScn` | "Record what happened" turned on in Windows Settings → Gaming → Captures |
+  | NVIDIA Instant Replay | Windows | `Alt+F10` | `Alt+F1` | Instant Replay turned on in the NVIDIA overlay |
+  | AMD Instant Replay | Windows | `Ctrl+Shift+S` | `Ctrl+Shift+I` | Instant Replay turned on in AMD Software |
+  | gpu-screen-recorder | Linux | `SIGUSR1` to its process | none | Running in replay mode (`-r`) |
+  | Off (default on Linux) | | | | Save a clip and Take a screenshot are left out |
+
+  The Windows tools are driven by their default shortcuts, which act on the window in front: Moonglass first returns to the game, waits 0.6 seconds, then presses the shortcut, and the tool shows its own confirmation over the game. If Windows does not pass the shortcut on (a game running as administrator when Moonglass is not), a desktop notification says so. gpu-screen-recorder is signalled from the menu itself, which then says it was asked or why it could not be (not running).
+* **Not yet:** choosing the audio output device (Windows has no public API for it), performance figures (CPU, GPU, frame rate), OBS's replay buffer through obs-websocket, and shortcuts the player changed in their tool.
 
 ## 6. Data Schema (SQLite)
 
@@ -505,6 +533,8 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
 * **Post-1.0**
   * UI sounds and ambient audio (`rodio`), animated covers, more launchers (EA app, Ubisoft Connect, Xbox app, Battle.net, Heroic's Amazon games).
   * Done in revision 1.7: GOG, Steam playtime import.
+  * Done in revision 1.8: the Quick Menu (5.8).
+  * Later for the Quick Menu: audio output choice, performance figures, OBS's replay buffer.
 
 ## 9. Risks and Known Limitations
 
@@ -529,4 +559,5 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
 | Epic URI format may vary by title | Some games may not launch from the bare `AppName` | Fallback to the namespaced form |
 | GPUI's Windows vsync thread wakes the main thread at the display refresh rate, even while the window is minimized | The section 7 CPU target while a game runs is missed (about 1.4-2.4% of one core measured, all of it GPUI's) | Moonglass's own polling is minimal; stopping the thread for minimized windows needs a GPUI change, to be taken up when GPUI is next upgraded |
 | Switching Steam accounts relies on Steam's saved sign-in and its registry values | A switch may stop at Steam's sign-in window, or break if Steam changes how it stores them | Moonglass waits for the account to appear and reports when it does not; Steam's own switcher still works |
+| Capture tools are driven by their default shortcuts | A player who changed a shortcut, or a game running as administrator, gets no clip | Settings names the shortcuts used; a failed send is reported in a notification |
 | Keyless artwork for emulated games comes from third-party services (nlib.cc, libretro thumbnails) | They may change or go away | Each is one small module; SteamGridDB and the placeholder remain |

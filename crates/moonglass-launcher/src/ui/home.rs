@@ -1073,10 +1073,10 @@ impl LauncherView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let gamepad = self.input == InputMode::Gamepad;
-        let (k_ok, k_back, k_stop) = if gamepad {
-            ("A", "B", "X")
+        let (k_ok, k_back) = if gamepad {
+            ("A", "B")
         } else {
-            ("Enter", "Esc", "Del")
+            ("Enter", "Esc")
         };
         let title = self.session_title();
         let button = |id: &'static str,
@@ -1137,7 +1137,7 @@ impl LauncherView {
                 }
                 c
             }
-            Overlay::Playing { stop } => {
+            Overlay::Playing { stop, menu } => {
                 let since_secs = self
                     .session
                     .as_ref()
@@ -1179,23 +1179,14 @@ impl LauncherView {
                         .child(title.clone())
                         .into_any_element(),
                 };
-                let (stop_label, stop_enabled, stop_note) = match stop {
-                    StopState::Idle => ("Stop game".to_string(), true, None),
-                    StopState::Requested(_) => (
-                        "Stopping…".to_string(),
-                        false,
-                        Some(format!(
-                            "Asked {title} to close. Unsaved progress may be lost."
-                        )),
-                    ),
-                    StopState::CanForce => (
-                        "Force stop".to_string(),
-                        true,
-                        Some(format!(
-                            "{title} is still running. Force stop ends it immediately."
-                        )),
-                    ),
-                    StopState::Forcing => ("Stopping…".to_string(), false, None),
+                let stop_note = match stop {
+                    StopState::Requested(_) => Some(format!(
+                        "Asked {title} to close. Unsaved progress may be lost."
+                    )),
+                    StopState::CanForce => Some(format!(
+                        "{title} is still running. Force stop ends it immediately."
+                    )),
+                    StopState::Idle | StopState::Forcing => None,
                 };
                 // The time and the controller's battery, which a game in
                 // full screen hides: the reason to look at Moonglass mid-game.
@@ -1222,30 +1213,7 @@ impl LauncherView {
                     .child(label("Now playing", 14.0, u))
                     .child(headline)
                     .child(div().text_color(white(TEXT_2)).child(playing_for))
-                    .child(
-                        div()
-                            .mt(px(14.0 * u))
-                            .flex()
-                            .gap(px(18.0 * u))
-                            .child(button(
-                                "ov-return",
-                                k_ok,
-                                "Return to game".into(),
-                                OverlayButton::ReturnToGame,
-                                true,
-                                true,
-                                cx,
-                            ))
-                            .child(button(
-                                "ov-stop",
-                                k_stop,
-                                stop_label,
-                                OverlayButton::Stop,
-                                false,
-                                stop_enabled,
-                                cx,
-                            )),
-                    );
+                    .child(self.render_quick_menu(menu, *stop, u, cx).mt(px(14.0 * u)));
                 if let Some(n) = stop_note {
                     c = c.child(
                         div()

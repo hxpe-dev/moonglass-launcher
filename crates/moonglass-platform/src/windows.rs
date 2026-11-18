@@ -535,6 +535,169 @@ pub fn xinput_power() -> Option<crate::PadPower> {
     None
 }
 
+// ------------------------------------------------------- Quick Menu
+
+pub const CAPTURE_TOOLS: &[crate::CaptureTool] = &[
+    crate::CaptureTool::GameBar,
+    crate::CaptureTool::Nvidia,
+    crate::CaptureTool::Amd,
+];
+pub const CAPTURE_DEFAULT: Option<crate::CaptureTool> = Some(crate::CaptureTool::GameBar);
+
+/// Presses the tool's default shortcut. The tools register these as
+/// system-wide hotkeys and act on the game in front.
+pub fn capture(tool: crate::CaptureTool, kind: crate::CaptureKind) -> Result<()> {
+    use crate::{CaptureKind as K, CaptureTool as T};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+        KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_F1, VK_F10, VK_LWIN, VK_MENU, VK_SHIFT,
+        VK_SNAPSHOT,
+    };
+    let chord: &[VIRTUAL_KEY] = match (tool, kind) {
+        (T::GameBar, K::Clip) => &[VK_LWIN, VK_MENU, VIRTUAL_KEY(b'G' as u16)],
+        (T::GameBar, K::Screenshot) => &[VK_LWIN, VK_MENU, VK_SNAPSHOT],
+        (T::Nvidia, K::Clip) => &[VK_MENU, VK_F10],
+        (T::Nvidia, K::Screenshot) => &[VK_MENU, VK_F1],
+        (T::Amd, K::Clip) => &[VK_CONTROL, VK_SHIFT, VIRTUAL_KEY(b'S' as u16)],
+        (T::Amd, K::Screenshot) => &[VK_CONTROL, VK_SHIFT, VIRTUAL_KEY(b'I' as u16)],
+        (T::GpuScreenRecorder, _) => {
+            return Err(PlatformError::Os(
+                "gpu-screen-recorder is not available on Windows".into(),
+            ))
+        }
+    };
+    let key = |vk: VIRTUAL_KEY, up: bool| {
+        let mut flags = if up {
+            KEYEVENTF_KEYUP
+        } else {
+            Default::default()
+        };
+        // Print Screen and the Windows key are extended keys.
+        if vk == VK_SNAPSHOT || vk == VK_LWIN {
+            flags |= KEYEVENTF_EXTENDEDKEY;
+        }
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    dwFlags: flags,
+                    ..Default::default()
+                },
+            },
+        }
+    };
+    // Every key down in order, then up in reverse.
+    let inputs: Vec<INPUT> = chord
+        .iter()
+        .map(|&vk| key(vk, false))
+        .chain(chord.iter().rev().map(|&vk| key(vk, true)))
+        .collect();
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        // Windows drops synthetic input aimed at a program running as
+        // administrator when Moonglass is not.
+        Err(PlatformError::Os(format!(
+            "Windows did not pass the {} shortcut on",
+            tool.name()
+        )))
+    }
+}
+
+/// Runs `f` on the volume control of every audio session, on every active
+/// output device, that belongs to one of `pids`. Returns how many it ran on.
+fn for_game_sessions(
+    pids: &[u32],
+    mut f: impl FnMut(&windows::Win32::Media::Audio::ISimpleAudioVolume),
+) -> usize {
+    use windows::core::Interface;
+    use windows::Win32::Media::Audio::{
+        eRender, AudioSessionStateExpired, IAudioSessionControl2, IAudioSessionManager2,
+        IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    // Balanced with the uninitialize below when this call initialized COM
+    // on the thread (S_OK or S_FALSE); a thread already in another mode
+    // can still use it.
+    let inited = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
+    let mut n = 0;
+    let mut run = || -> windows::core::Result<()> {
+        unsafe {
+            let devices: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let list = devices.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+            for d in 0..list.GetCount()? {
+                let Ok(manager) = list
+                    .Item(d)
+                    .and_then(|dev| dev.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None))
+                else {
+                    continue;
+                };
+                let sessions = manager.GetSessionEnumerator()?;
+                for s in 0..sessions.GetCount()? {
+                    let Ok(control) = sessions.GetSession(s) else {
+                        continue;
+                    };
+                    if control
+                        .GetState()
+                        .is_ok_and(|st| st == AudioSessionStateExpired)
+                    {
+                        continue;
+                    }
+                    let Ok(c2) = control.cast::<IAudioSessionControl2>() else {
+                        continue;
+                    };
+                    if !c2.GetProcessId().is_ok_and(|pid| pids.contains(&pid)) {
+                        continue;
+                    }
+                    if let Ok(v) = control.cast::<ISimpleAudioVolume>() {
+                        f(&v);
+                        n += 1;
+                    }
+                }
+            }
+        }
+        Ok(())
+    };
+    if let Err(e) = run() {
+        tracing::debug!("audio sessions: {e}");
+    }
+    if inited {
+        unsafe { CoUninitialize() };
+    }
+    n
+}
+
+pub fn game_volume(pids: &[u32]) -> Option<crate::GameVolume> {
+    // The loudest stream stands for the game; its streams normally agree.
+    let mut out: Option<crate::GameVolume> = None;
+    for_game_sessions(pids, |v| unsafe {
+        let (Ok(level), Ok(muted)) = (v.GetMasterVolume(), v.GetMute()) else {
+            return;
+        };
+        if out.is_none_or(|o| level > o.level) {
+            out = Some(crate::GameVolume {
+                level,
+                muted: muted.as_bool(),
+            });
+        }
+    });
+    out
+}
+
+pub fn set_game_volume(pids: &[u32], vol: crate::GameVolume) -> bool {
+    let n = for_game_sessions(pids, |v| unsafe {
+        let _ = v.SetMasterVolume(vol.level, std::ptr::null());
+        let _ = v.SetMute(vol.muted, std::ptr::null());
+    });
+    n > 0
+}
+
 /// Posts a close request to every visible top-level window owned by one
 /// of `pids` (the same as clicking the window's close button).
 pub fn request_close(pids: &[u32]) {

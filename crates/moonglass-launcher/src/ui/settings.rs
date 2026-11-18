@@ -83,6 +83,8 @@ pub enum Item {
     RestoreHotkey,
     RestoreButtons,
     RestoreHold,
+    Capture,
+    CaptureInfo,
     LaunchTimeout,
     RunSetup,
     Logs,
@@ -136,6 +138,8 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::RestoreHotkey,
             Item::RestoreButtons,
             Item::RestoreHold,
+            Item::Capture,
+            Item::CaptureInfo,
             Item::LaunchTimeout,
             Item::RunSetup,
             Item::Logs,
@@ -169,6 +173,7 @@ impl Item {
             | Item::Recent
             | Item::RestoreButtons
             | Item::RestoreHold
+            | Item::Capture
             | Item::LaunchTimeout => Kind::Choice,
             Item::StartupAnimation
             | Item::ReducedMotion
@@ -193,6 +198,7 @@ impl Item {
             | Item::FriendsInfo
             | Item::ArtInfo
             | Item::RestoreHotkey
+            | Item::CaptureInfo
             | Item::Logs
             | Item::Version => Kind::Info,
         }
@@ -238,6 +244,8 @@ impl Item {
             Item::RestoreHotkey => "Return to Moonglass during a game",
             Item::RestoreButtons => "Return to Moonglass: buttons",
             Item::RestoreHold => "Return to Moonglass: hold for",
+            Item::Capture => "Clips and screenshots",
+            Item::CaptureInfo => "Saving clips",
             Item::LaunchTimeout => "Stop waiting for a game after",
             Item::RunSetup => "First-time setup",
             Item::Logs => "Logs",
@@ -388,6 +396,7 @@ impl SettingsState {
             Item::RestoreButtons => prefs.restore_buttons = prefs.restore_buttons.step(delta),
             Item::RestoreHold => prefs.restore_hold = prefs.restore_hold.step(delta),
             Item::LaunchTimeout => prefs.launch_timeout = prefs.launch_timeout.step(delta),
+            Item::Capture => prefs.capture = prefs.capture.step(delta),
             Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
             Item::Store(s) => prefs.set_store_enabled(s, !prefs.store_enabled(s)),
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
@@ -464,6 +473,26 @@ impl SettingsState {
     }
 }
 
+/// What the chosen capture tool needs before the Quick Menu can use it.
+fn capture_info(prefs: &Prefs) -> &'static str {
+    use moonglass_platform::CaptureTool as T;
+    match prefs.capture.tool() {
+        None => "Save clip and Screenshot are left out of the Quick Menu",
+        Some(T::GameBar) => {
+            "Turn on \"Record what happened\" in Windows Settings → Gaming → Captures. Uses Win+Alt+G and Win+Alt+PrtScn"
+        }
+        Some(T::Nvidia) => {
+            "Turn on Instant Replay in the NVIDIA overlay (Alt+Z). Uses Alt+F10 and Alt+F1"
+        }
+        Some(T::Amd) => {
+            "Turn on Instant Replay in AMD Software. Uses Ctrl+Shift+S and Ctrl+Shift+I"
+        }
+        Some(T::GpuScreenRecorder) => {
+            "Run gpu-screen-recorder in replay mode (-r). Moonglass asks it to save; it has no screenshots"
+        }
+    }
+}
+
 fn on_off(b: bool) -> &'static str {
     if b {
         "On"
@@ -516,6 +545,8 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::RestoreButtons => prefs.restore_buttons.label().into(),
         Item::RestoreHold => prefs.restore_hold.label().into(),
         Item::LaunchTimeout => prefs.launch_timeout.label().into(),
+        Item::Capture => prefs.capture.label().into(),
+        Item::CaptureInfo => capture_info(prefs).into(),
         Item::Rescan => "Rescan".into(),
         Item::LibraryInfo => format!("{} games, {} hidden", info.games, info.hidden),
         Item::Emulator(i) => info

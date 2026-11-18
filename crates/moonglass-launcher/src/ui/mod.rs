@@ -6,7 +6,7 @@
 //! Zed's `gpui_tokio`.
 //!
 //! Layers, bottom to top: the home screen (carousel) or the blurred
-//! backdrop it crossfades into, the launch / Now Playing overlay, Settings
+//! backdrop it crossfades into, the launch overlay or the Quick Menu, Settings
 //! or first-time setup, a modal (on-screen keyboard, file browser,
 //! per-game options, or a menu: emulators, Steam accounts, Steam folder,
 //! Steam apps that are not games), then a toast and the exit progress.
@@ -23,6 +23,7 @@ mod menu;
 mod options;
 mod osk;
 pub mod prefs;
+mod quick;
 mod settings;
 mod setup;
 pub mod spring;
@@ -66,6 +67,7 @@ use menu::Menu;
 use options::{Opt, OptionsMenu};
 use osk::{Osk, OskResult, TextTarget};
 use prefs::Prefs;
+use quick::{QuickItem, QuickMenu};
 use settings::{Item, SettingsCmd, SettingsInfo, SettingsState};
 use spring::Spring;
 use theme::{hex_color, on};
@@ -193,6 +195,18 @@ enum UiEvent {
         session: u64,
         alive: bool,
     },
+    /// The game's volume, read for the Quick Menu.
+    GameVolume {
+        session: u64,
+        volume: Option<moonglass_platform::GameVolume>,
+    },
+    /// A clip or screenshot request finished. `in_front`: the game was
+    /// brought back first, so Moonglass is out of sight.
+    Captured {
+        kind: moonglass_platform::CaptureKind,
+        in_front: bool,
+        result: Result<(), String>,
+    },
     Tick,
     Toast(String),
     /// Artwork files were written again at the same paths: GPUI's cached
@@ -247,8 +261,14 @@ enum StopState {
 
 enum Overlay {
     None,
-    Launching { still_waiting: bool },
-    Playing { stop: StopState },
+    Launching {
+        still_waiting: bool,
+    },
+    /// The Quick Menu, shown when the player comes back mid-game.
+    Playing {
+        stop: StopState,
+        menu: QuickMenu,
+    },
     Message(String),
 }
 
@@ -278,6 +298,8 @@ struct Session {
     stop_request: Arc<AtomicU8>,
     origin: Instant,
     running_since: Option<Instant>,
+    /// The game's processes, as last seen by the poll (for its volume).
+    pids: Arc<Mutex<Vec<u32>>>,
 }
 
 pub struct LauncherView {
@@ -907,6 +929,7 @@ impl LauncherView {
                     match std::env::var("MOONGLASS_DEV_SCREEN").as_deref() {
                         Ok("settings") => self.open_settings(),
                         Ok("search") => self.open_search_keyboard(),
+                        Ok("quick") => self.dev_quick_menu(),
                         _ => {}
                     }
                 }
@@ -1013,6 +1036,12 @@ impl LauncherView {
                 }
             }
             UiEvent::Tick => self.tick(window, cx),
+            UiEvent::GameVolume { session, volume } => self.quick_volume_read(session, volume, cx),
+            UiEvent::Captured {
+                kind,
+                in_front,
+                result,
+            } => self.quick_captured(kind, in_front, result, window, cx),
             UiEvent::ArtworkRewritten => {
                 self.forget_file_facts();
                 self.release_images(Duration::ZERO, window, cx);
@@ -1040,7 +1069,8 @@ impl LauncherView {
                 cx.notify();
             }
         }
-        if let Overlay::Playing { stop } = &mut self.overlay {
+        self.quick_tick(window);
+        if let Overlay::Playing { stop, .. } = &mut self.overlay {
             if let StopState::Requested(at) = *stop {
                 if at.elapsed() >= STOP_GRACE {
                     *stop = StopState::CanForce;
@@ -2350,6 +2380,7 @@ impl LauncherView {
         let running = Arc::new(Mutex::new(None::<Running>));
         let stop_polling = Arc::new(AtomicBool::new(false));
         let stop_request = Arc::new(AtomicU8::new(STOP_NONE));
+        let pids = Arc::new(Mutex::new(Vec::new()));
         self.last_session_id += 1;
         let session = self.last_session_id;
         self.session = Some(Session {
@@ -2359,6 +2390,7 @@ impl LauncherView {
             stop_request: stop_request.clone(),
             origin,
             running_since: None,
+            pids: pids.clone(),
         });
         self.restore_armed.store(true, Ordering::Relaxed);
         self.hotkey.set_armed(true);
@@ -2379,7 +2411,16 @@ impl LauncherView {
                     return;
                 }
             }
-            poll_game(session, &game, &running, &stop_polling, &stop_request, &tx).await;
+            poll_game(
+                session,
+                &game,
+                &running,
+                &stop_polling,
+                &stop_request,
+                &pids,
+                &tx,
+            )
+            .await;
         });
     }
 
@@ -2402,6 +2443,7 @@ impl LauncherView {
                 // Visible whenever the user comes back to Moonglass.
                 self.overlay = Overlay::Playing {
                     stop: StopState::Idle,
+                    menu: QuickMenu::default(),
                 };
                 moonglass_platform::window::hide_for_game(raw_window(window));
                 // Nothing is drawn while the game runs: keep only the
@@ -2514,9 +2556,40 @@ impl LauncherView {
         self.hotkey.set_armed(false);
     }
 
-    /// Restore hotkey: bring Moonglass forward over the game.
+    /// Development: the Quick Menu over the first game, with no game
+    /// running (Stop does nothing). `MOONGLASS_DEV_PIDS` (comma-separated)
+    /// stands in for the game's processes, for the volume row.
+    fn dev_quick_menu(&mut self) {
+        let Some(game) = self.games.first().cloned() else {
+            return;
+        };
+        self.session = Some(Session {
+            id: u64::MAX,
+            game,
+            stop_polling: Arc::new(AtomicBool::new(true)),
+            stop_request: Arc::new(AtomicU8::new(STOP_NONE)),
+            origin: Instant::now(),
+            running_since: Some(Instant::now()),
+            pids: Arc::new(Mutex::new(
+                std::env::var("MOONGLASS_DEV_PIDS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|p| p.trim().parse().ok())
+                    .collect(),
+            )),
+        });
+        self.overlay = Overlay::Playing {
+            stop: StopState::Idle,
+            menu: QuickMenu::default(),
+        };
+        self.quick_opened();
+    }
+
+    /// Restore hotkey: bring Moonglass forward over the game, on the
+    /// Quick Menu.
     fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.is_some() && self.lifecycle.restore_hotkey_armed() {
+            self.quick_opened();
             self.regain_focus(window, cx);
             cx.notify();
         }
@@ -2529,10 +2602,7 @@ impl LauncherView {
                     self.apply(e, window, cx);
                 }
             }
-            (Overlay::Playing { .. }, NavAction::Confirm | NavAction::Back) => {
-                moonglass_platform::window::hide_for_game(raw_window(window));
-            }
-            (Overlay::Playing { .. }, NavAction::Search) => self.press_stop(cx),
+            (Overlay::Playing { .. }, _) => self.quick_nav(a, window, cx),
             (Overlay::Message(_), _) => self.overlay = Overlay::None,
             _ => {}
         }
@@ -2542,7 +2612,7 @@ impl LauncherView {
     /// Stop: first a polite close request (the game can save), then, if it
     /// is still running after a few seconds, a forced stop.
     fn press_stop(&mut self, cx: &mut Context<Self>) {
-        let Overlay::Playing { stop } = &mut self.overlay else {
+        let Overlay::Playing { stop, .. } = &mut self.overlay else {
             return;
         };
         let Some(s) = &self.session else { return };
@@ -2564,8 +2634,8 @@ impl LauncherView {
         self.set_input(InputMode::Mouse, cx);
         match b {
             OverlayButton::Cancel => self.overlay_nav(NavAction::Back, window, cx),
-            OverlayButton::ReturnToGame => self.overlay_nav(NavAction::Confirm, window, cx),
-            OverlayButton::Stop => self.press_stop(cx),
+            OverlayButton::Quick(item) => self.quick_activate(item, window, cx),
+            OverlayButton::Volume(delta) => self.quick_volume(delta, cx),
             OverlayButton::Dismiss => {
                 self.overlay = Overlay::None;
                 cx.notify();
@@ -2680,8 +2750,10 @@ impl LauncherView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OverlayButton {
     Cancel,
-    ReturnToGame,
-    Stop,
+    /// A Quick Menu row.
+    Quick(QuickItem),
+    /// The Quick Menu's volume arrows (-1 or +1).
+    Volume(i8),
     Dismiss,
 }
 
@@ -2692,6 +2764,7 @@ async fn poll_game(
     running: &Mutex<Option<Running>>,
     stop_polling: &AtomicBool,
     stop_request: &AtomicU8,
+    pids: &Mutex<Vec<u32>>,
     tx: &UnboundedSender<UiEvent>,
 ) {
     let mut watcher = ProcessWatcher::new(&[]);
@@ -2735,7 +2808,15 @@ async fn poll_game(
                 }
             }
             let child = r.child.as_mut().is_some_and(TrackedChild::is_alive);
-            let matched = r.matcher.as_ref().is_some_and(|m| watcher.any_matching(m));
+            let mut seen = r
+                .matcher
+                .as_ref()
+                .map_or_else(Vec::new, |m| watcher.matching_pids(m));
+            let matched = !seen.is_empty();
+            if child {
+                seen.extend(r.child.as_ref().map(TrackedChild::pid));
+            }
+            *pids.lock().unwrap() = seen;
             // Spec 5.3: record Steam's own running flag next to process
             // detection until it is shown to be dependable.
             if let Some(app) = &steam_app {

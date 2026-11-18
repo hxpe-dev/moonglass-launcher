@@ -3,6 +3,7 @@
 
 use moonglass_core::library::RecentWindow;
 use moonglass_core::Source;
+use moonglass_platform::CaptureTool;
 use serde::{Deserialize, Serialize};
 
 pub const PREFS_KEY: &str = "ui_prefs";
@@ -106,6 +107,68 @@ choice!(RestoreHold {
     S3 => "3 seconds",
 } default S2);
 
+/// What the Quick Menu asks to save clips and screenshots (spec 5.8). The
+/// choices offered depend on the platform ([`CaptureTool::available`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Capture {
+    Off,
+    GameBar,
+    Nvidia,
+    Amd,
+    GpuScreenRecorder,
+}
+
+impl Capture {
+    fn from_tool(t: Option<CaptureTool>) -> Self {
+        match t {
+            None => Capture::Off,
+            Some(CaptureTool::GameBar) => Capture::GameBar,
+            Some(CaptureTool::Nvidia) => Capture::Nvidia,
+            Some(CaptureTool::Amd) => Capture::Amd,
+            Some(CaptureTool::GpuScreenRecorder) => Capture::GpuScreenRecorder,
+        }
+    }
+
+    /// The tool, if it exists on this platform.
+    pub fn tool(self) -> Option<CaptureTool> {
+        let t = match self {
+            Capture::Off => return None,
+            Capture::GameBar => CaptureTool::GameBar,
+            Capture::Nvidia => CaptureTool::Nvidia,
+            Capture::Amd => CaptureTool::Amd,
+            Capture::GpuScreenRecorder => CaptureTool::GpuScreenRecorder,
+        };
+        CaptureTool::available().contains(&t).then_some(t)
+    }
+
+    pub fn label(self) -> &'static str {
+        self.tool().map_or("Off", CaptureTool::name)
+    }
+
+    /// Off, then this platform's tools.
+    fn options() -> Vec<Capture> {
+        std::iter::once(Capture::Off)
+            .chain(
+                CaptureTool::available()
+                    .iter()
+                    .map(|t| Self::from_tool(Some(*t))),
+            )
+            .collect()
+    }
+
+    pub fn step(self, delta: isize) -> Self {
+        let all = Self::options();
+        let i = all.iter().position(|c| *c == self).unwrap_or(0) as isize;
+        all[(i + delta).rem_euclid(all.len() as isize) as usize]
+    }
+}
+
+impl Default for Capture {
+    fn default() -> Self {
+        Self::from_tool(CaptureTool::default_here())
+    }
+}
+
 choice!(LaunchTimeout {
     M1 => "1 minute",
     M3 => "3 minutes",
@@ -141,6 +204,8 @@ pub struct Prefs {
     pub restore_buttons: RestoreButtons,
     pub restore_hold: RestoreHold,
     pub launch_timeout: LaunchTimeout,
+    /// What saves clips and screenshots from the Quick Menu.
+    pub capture: Capture,
     /// Stores whose games are shown. A store turned off is still scanned,
     /// so turning it back on is instant and keeps its games' data.
     pub steam_enabled: bool,
@@ -169,6 +234,7 @@ impl Default for Prefs {
             restore_buttons: RestoreButtons::DEFAULT,
             restore_hold: RestoreHold::DEFAULT,
             launch_timeout: LaunchTimeout::DEFAULT,
+            capture: Capture::default(),
             steam_enabled: true,
             epic_enabled: true,
             gog_enabled: true,
@@ -314,6 +380,19 @@ mod tests {
         assert!(p.dismiss_launcher_window);
         // Saved before stores could be turned off: all of them are on.
         assert!(STORES.iter().all(|s| p.store_enabled(*s)));
+    }
+
+    #[test]
+    fn capture_cycles_through_this_platforms_tools() {
+        let mut seen = vec![Capture::Off];
+        let mut c = Capture::Off.step(1);
+        while c != Capture::Off {
+            assert!(c.tool().is_some(), "{c:?} offered but unavailable");
+            seen.push(c);
+            c = c.step(1);
+        }
+        assert_eq!(seen.len(), CaptureTool::available().len() + 1);
+        assert_eq!(Capture::Off.step(-1), *seen.last().unwrap());
     }
 
     #[test]
