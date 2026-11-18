@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moonglass · Documentation</title>
+  <meta name="description" content="The Moonglass user guide: every feature, control and setting, and how to use them.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@200;300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="frame">
+
+  <header class="doc-top">
+    <a href="index.html" class="mark" aria-label="Moonglass home"><img src="logo.svg" alt="" width="22" height="22"></a>
+    <nav class="nav" aria-label="Site">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#benchmarks">Benchmarks</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="index.html#download">Download</a>
+    </nav>
+    <a class="label" href="https://github.com/hxpe-dev/moonglass-launcher">GitHub ↗</a>
+  </header>
+
+  <section class="rule doc-head">
+    <p class="label">Documentation · v0.1.0</p>
+    <h1>The Moonglass guide</h1>
+    <p class="head-text">Everything Moonglass does and how to use it, from the first start to the last setting. Every screen works with a controller, a keyboard or a mouse; this guide gives all three where they differ.</p>
+  </section>
+
+  <div class="docs rule">
+    <nav class="toc" aria-label="Contents">
+      <details open>
+        <summary class="label">Contents</summary>
+        <ol>
+          <li><a href="#start">Getting started</a></li>
+          <li><a href="#setup">First-time setup</a></li>
+          <li><a href="#controls">Controls</a></li>
+          <li><a href="#home">The home screen</a></li>
+          <li><a href="#search">Search</a></li>
+          <li><a href="#playing">Playing a game</a></li>
+          <li><a href="#quick">The Quick Menu</a></li>
+          <li><a href="#sources">Where games come from</a></li>
+          <li><a href="#apps">Adding programs</a></li>
+          <li><a href="#emulators">Emulators and ROMs</a></li>
+          <li><a href="#options">Per-game options</a></li>
+          <li><a href="#artwork">Artwork</a></li>
+          <li><a href="#steam">Steam accounts and friends</a></li>
+          <li><a href="#settings">Settings reference</a></li>
+          <li><a href="#text">Typing and picking files</a></li>
+          <li><a href="#library">Your library and playtime</a></li>
+          <li><a href="#cli">Command line</a></li>
+          <li><a href="#trouble">Troubleshooting</a></li>
+        </ol>
+      </details>
+    </nav>
+
+    <article class="prose">
+
+      <!-- ================================================== start -->
+      <section id="start">
+        <p class="label">01</p>
+        <h2>Getting started</h2>
+
+        <h3>Requirements</h3>
+        <ul>
+          <li><strong>Windows</strong> 10 or 11, 64-bit.</li>
+          <li><strong>Linux</strong>, 64-bit, in a regular X11 or Wayland desktop session. Running inside gamescope (SteamOS Game Mode and similar) is not supported. The Linux build is a preview: it is built but not yet tested on real hardware.</li>
+          <li>A controller is optional. Any controller your system recognizes works for navigation; Xbox, PlayStation and Switch Pro button names are shown when the controller type can be detected.</li>
+        </ul>
+
+        <h3>Installing</h3>
+        <p>Download the latest release from the <a href="https://github.com/hxpe-dev/moonglass-launcher/releases/latest">releases page</a>. Nothing needs installing and no account is required.</p>
+        <ul>
+          <li><strong>Windows:</strong> run the downloaded <code>.exe</code> from anywhere, or unpack the <code>.zip</code>.</li>
+          <li><strong>Linux:</strong> make the AppImage executable (<code>chmod +x</code>) and run it, or unpack the <code>.tar.gz</code>, which includes a desktop entry and icon.</li>
+        </ul>
+
+        <h3>Starting and quitting</h3>
+        <p>Moonglass opens full screen. The first time, with nothing in your library yet, it opens <a href="#setup">first-time setup</a>; after that it opens straight on your games, already in the order you last played them, and brings the list up to date in the background.</p>
+        <p>To quit, use any of these when no game is running:</p>
+        <ul>
+          <li>Hold <kbd>B</kbd> or <kbd>Esc</kbd> on the home screen for about 1.4 seconds. A bar fills after a quarter of a second; let go before it is full to cancel.</li>
+          <li>Press <kbd>Ctrl</kbd>+<kbd>Q</kbd>.</li>
+          <li>Choose <em>Settings → System → Exit Moonglass</em>.</li>
+        </ul>
+        <p>Moonglass runs once at a time. Starting it again while it is open brings the open window forward.</p>
+        <p class="tip"><span class="label">Tip</span> To start Moonglass with your computer, turn on <em>Settings → System → Start Moonglass at login</em>.</p>
+      </section>
+
+      <!-- ================================================== setup -->
+      <section id="setup">
+        <p class="label">02</p>
+        <h2>First-time setup</h2>
+        <p>A short guide shown on the first start, from the <em>Add your games</em> card when the library is empty, and any time from <em>Settings → System → First-time setup</em>. Dots at the bottom show how far along you are. <kbd>A</kbd> chooses, <kbd>B</kbd> goes back; <kbd>B</kbd> on the first step skips setup. Finishing or skipping is remembered, so it never opens on its own again.</p>
+        <ol class="steps">
+          <li><strong>Your stores.</strong> Moonglass looks for Steam, Epic and GOG and shows how many games it found. Each store found on your computer has a switch, all on. Turn off any store whose games you do not want on the shelf (<a href="#stores">more on stores</a>). The step opens with <em>Continue</em> selected, so a quick <kbd>A</kbd> never turns anything off. Up and down move; <kbd>A</kbd> or left and right flip a switch.</li>
+          <li><strong>Emulators</strong> (optional). Pick an emulator from the presets and add your ROM folders. See <a href="#emulators">Emulators and ROMs</a>.</li>
+          <li><strong>SteamGridDB key</strong> (optional). Enter a free key to get artwork for games your stores don't provide pictures for. See <a href="#artwork">Artwork</a>.</li>
+          <li><strong>Done.</strong> You land on your games. Artwork fills in as it downloads.</li>
+        </ol>
+      </section>
+
+      <!-- ================================================== controls -->
+      <section id="controls">
+        <p class="label">03</p>
+        <h2>Controls</h2>
+        <p>The hints along the bottom of the screen follow whatever you last touched: controller buttons after you use a controller, key names after the keyboard or mouse. Every hint is also a button you can click.</p>
+
+        <h3>Home screen</h3>
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col">Action</th><th scope="col">Controller</th><th scope="col">Keyboard</th><th scope="col">Mouse</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Move between games</th><td>D-pad or left stick</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>Wheel or touchpad swipe, one card per notch</td></tr>
+              <tr><th scope="row">Play</th><td><kbd>A</kbd></td><td><kbd>Enter</kbd> or <kbd>Space</kbd></td><td>Click the focused card</td></tr>
+              <tr><th scope="row">Focus a game</th><td></td><td></td><td>Click a card</td></tr>
+              <tr><th scope="row">Search</th><td><kbd>X</kbd></td><td>Just start typing</td><td>Click the search box</td></tr>
+              <tr><th scope="row">Game options</th><td><kbd>Y</kbd></td><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Right-click a card</td></tr>
+              <tr><th scope="row">Switch filter</th><td><kbd>LB</kbd> / <kbd>RB</kbd></td><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd>, or <kbd>PgUp</kbd> / <kbd>PgDn</kbd></td><td>Click a filter</td></tr>
+              <tr><th scope="row">First or last game</th><td></td><td><kbd>Home</kbd> / <kbd>End</kbd></td><td></td></tr>
+              <tr><th scope="row">Settings</th><td><kbd>Menu</kbd></td><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Click the gear</td></tr>
+              <tr><th scope="row">Back, or clear search</th><td><kbd>B</kbd></td><td><kbd>Esc</kbd></td><td>The × in the search box</td></tr>
+              <tr><th scope="row">Exit Moonglass</th><td>Hold <kbd>B</kbd></td><td>Hold <kbd>Esc</kbd>, or <kbd>Ctrl</kbd>+<kbd>Q</kbd></td><td></td></tr>
+              <tr><th scope="row">Full screen on or off</th><td></td><td><kbd>F11</kbd></td><td></td></tr>
+              <tr><th scope="row">Add a program</th><td></td><td></td><td>Drop its file on the window</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Holding a direction repeats it, faster the longer you hold. The left stick has a round dead zone, so a slightly off-center stick doesn't drift.</p>
+
+        <h3>Menus, lists and Settings</h3>
+        <ul>
+          <li>Up and down move; left and right change a value; <kbd>A</kbd> / <kbd>Enter</kbd> selects; <kbd>B</kbd> / <kbd>Esc</kbd> goes back.</li>
+          <li>In Settings, <kbd>LB</kbd> / <kbd>RB</kbd> or <kbd>Tab</kbd> switch sections.</li>
+          <li>Anything highlighted can also be clicked; hovering highlights it.</li>
+        </ul>
+
+        <h3>Button names by controller</h3>
+        <p>This guide uses Xbox names. On other controllers:</p>
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col">Xbox</th><th scope="col">PlayStation</th><th scope="col">Switch Pro</th></tr></thead>
+            <tbody>
+              <tr><td>A / B / X / Y</td><td>Cross / Circle / Square / Triangle</td><td>B / A / Y / X (by position)</td></tr>
+              <tr><td>LB / RB</td><td>L1 / R1</td><td>L / R</td></tr>
+              <tr><td>View (two rectangles, left of the Xbox button)</td><td>Share (DualShock 4) or Create (DualSense)</td><td>− (Minus)</td></tr>
+              <tr><td>Menu (three lines, right of the Xbox button)</td><td>Options</td><td>+ (Plus)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================================================== home -->
+      <section id="home">
+        <p class="label">04</p>
+        <h2>The home screen</h2>
+
+        <h3>The shelf</h3>
+        <p>Your games sit in one row. The focused game is about half the screen tall, outlined, with a soft glow in the colors of its artwork and its logo (or title) above it, along with a small badge for where it comes from. The other games are smaller and slightly darker.</p>
+        <p>Games are ordered by when you last played them, most recent first. Games you have never played follow, newest additions first, then by title (ignoring a leading "The", "A" or "An"). On the first start, Steam's own record of when you last played is used, so the order already matches your history.</p>
+        <p>If your library is empty, a single <em>Add your games</em> card opens <a href="#setup">setup</a>.</p>
+
+        <h3>Filters</h3>
+        <p>The filters at the top left narrow the shelf. A filter with nothing in it is hidden.</p>
+        <dl>
+          <dt>All</dt><dd>Every game. Always shown.</dd>
+          <dt>Recent</dt><dd>Games played within the last 30 days. Change it to 7 or 90 days in <em>Settings → Library</em>.</dd>
+          <dt>Favorites</dt><dd>Games you starred from their <a href="#options">options</a>.</dd>
+          <dt>Steam · Epic · GOG</dt><dd>Games from that store.</dd>
+          <dt>Apps</dt><dd>Programs you added yourself.</dd>
+          <dt>Emulators</dt><dd>Games from your ROM folders.</dd>
+        </dl>
+
+        <h3>Top right</h3>
+        <p>The search box, your controller's connection and battery (four levels, or "wired"), the clock, and the Settings gear.</p>
+
+        <h3>What a card can show</h3>
+        <ul>
+          <li>A <strong>star</strong> for a favorite.</li>
+          <li>A <strong>Hidden</strong> tag, when hidden games are shown.</li>
+          <li>A <strong>green dot with a number</strong>: Steam friends playing it right now (<a href="#friends">Steam friends</a>).</li>
+          <li><strong>In use</strong>: a borrowed Steam game whose owner is playing it (<a href="#borrowed">Borrowed games</a>).</li>
+          <li>Below the card, depending on <em>Card details</em>: nothing, the title, or the playtime and source.</li>
+        </ul>
+
+        <h3>The background</h3>
+        <p>Behind the shelf, Moonglass shows the focused game in one of four ways, set in <em>Settings → Appearance → Background</em>:</p>
+        <dl>
+          <dt>Color bloom</dt><dd>A blurred, tinted version of the game's art. The default.</dd>
+          <dt>Full-screen art</dt><dd>The game's wide art, sharp, across the whole screen.</dd>
+          <dt>Full-screen art + motion blur</dt><dd>The same, with sideways streaks. When you move, the next game's art slides in from that side and sharpens as it settles.</dd>
+          <dt>Pure black (OLED)</dt><dd>Black, with only the glow. Kind to OLED screens.</dd>
+        </dl>
+        <p>The glow pulses slowly and stops when another window has the focus. Turn it down or off with <em>Glow</em>.</p>
+      </section>
+
+      <!-- ================================================== search -->
+      <section id="search">
+        <p class="label">05</p>
+        <h2>Search</h2>
+        <ol class="steps">
+          <li>Press <kbd>X</kbd> (the on-screen keyboard opens at the bottom), start typing on a keyboard, or click the search box.</li>
+          <li>The shelf filters with each letter. Search looks at every game, whatever filter was on.</li>
+          <li>Press <em>Done</em> on the on-screen keyboard (or <kbd>Enter</kbd>) to move to the results, then play as usual.</li>
+          <li><kbd>B</kbd>, <kbd>Esc</kbd> or the × clears the search and puts you back where you were.</li>
+        </ol>
+        <p>Search ignores capitals, accents, punctuation and spaces, and matches any part of a title: <em>half life</em>, <em>halflife</em> and <em>HALF-LIFE</em> all find "Half-Life", and <em>pokemon</em> finds "Pokémon". Hidden and uninstalled games are not searched. With no match, the screen says so with what you typed.</p>
+      </section>
+
+      <!-- ================================================== playing -->
+      <section id="playing">
+        <p class="label">06</p>
+        <h2>Playing a game</h2>
+
+        <h3>Launching</h3>
+        <p>Press <kbd>A</kbd> on a game. Moonglass shows <em>Launching…</em> and starts it the way its store would: Steam, Epic and GOG games start through their own client, so achievements, cloud saves, Steam Input and the store's own playtime all keep working. Programs and emulators are started directly.</p>
+        <p>If the game takes a while, after 20 seconds the screen adds <em>Still waiting…</em> with <kbd>B</kbd> to cancel. A long wait is normal when Steam is updating the game first. After 3 minutes Moonglass stops waiting (change this in <em>Settings → System → Stop waiting for a game after</em>: 1, 3, 5 or 10 minutes).</p>
+
+        <h3>While you play</h3>
+        <p>Moonglass gets out of the way. On Windows its window is minimized; on Linux it stays full screen behind the game. Either way it draws nothing and uses next to no resources, and the controller belongs to the game.</p>
+
+        <h3>Returning to Moonglass mid-game</h3>
+        <p>Hold <kbd>View</kbd> + <kbd>Menu</kbd> for 2 seconds, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd>. Moonglass comes forward on the <em>Now Playing</em> screen while the game keeps running behind it. You can also simply Alt-Tab to it.</p>
+        <p>The hold stops the combination from clashing with games that use those buttons. Change the buttons (View + Menu, or both sticks pressed in) and the hold time (1, 2 or 3 seconds) in <em>Settings → System</em>; the screen shows the names for your controller.</p>
+        <ul>
+          <li>The return combination works only while a game is starting or running.</li>
+          <li>On Windows, the controller combination needs an Xbox-compatible (XInput) controller; other controllers can use the keyboard shortcut. The Xbox (Guide) button cannot be used: Windows and Steam claim it.</li>
+          <li>On Linux the controller combination works with any controller. The keyboard shortcut depends on your desktop; Settings says whether it is available.</li>
+        </ul>
+
+        <h3>Now Playing</h3>
+        <p>Whenever Moonglass is in front while a game runs, it shows <em>Now playing</em> with the game's name, how long this session has lasted, your total playtime for it, the time and your controller's battery (which a full-screen game hides), and the <a href="#quick">Quick Menu</a>. It disappears as soon as the game ends.</p>
+
+        <h3>Stopping a game</h3>
+        <p>Choose <em>Stop game</em> in the Quick Menu (or press <kbd>X</kbd> / <kbd>Del</kbd>). Moonglass first asks the game to close normally, so it can save. If it is still running after 8 seconds, the button becomes <em>Force stop</em>, which ends it at once. Moonglass never stops a game unless you ask.</p>
+
+        <h3>After the game</h3>
+        <ul>
+          <li>Moonglass comes back to the front, usually within a second or two. A game that hands over to another program (a launcher starting the real game) gets 5 seconds of grace, so Moonglass doesn't jump back too early.</li>
+          <li>If Steam, Epic, GOG Galaxy or Heroic popped up its window, Moonglass sends it back to the tray. The client keeps running so cloud saves finish. Turn this off with <em>Send Steam / Epic / GOG to the tray after a game</em>.</li>
+          <li>The session is added to the game's playtime, and the game moves to the front of the shelf.</li>
+          <li>If Windows refuses to bring Moonglass forward, it flashes in the taskbar and shows a notification saying how to return.</li>
+        </ul>
+      </section>
+
+      <!-- ================================================== quick -->
+      <section id="quick">
+        <p class="label">07</p>
+        <h2>The Quick Menu</h2>
+        <p>A short menu on the Now Playing screen, like a console's guide button. Up and down move, <kbd>A</kbd> / <kbd>Enter</kbd> chooses. Moonglass never draws inside the game itself, so anti-cheat software has nothing to object to.</p>
+        <dl>
+          <dt>Return to game</dt><dd>Also <kbd>B</kbd> / <kbd>Esc</kbd>. Moonglass hides and you are back in the game.</dd>
+          <dt>Save a clip</dt><dd>Asks your capture tool to save the last moments of play. Shown when a tool is chosen.</dd>
+          <dt>Take a screenshot</dt><dd>Shown when your tool takes screenshots.</dd>
+          <dt>Game volume</dt><dd>Left and right change the game's own volume in 10% steps (not your system volume); <kbd>A</kbd> mutes or unmutes. Covers every sound the game and the programs it started make. Shows <em>No sound from the game</em> when it has none.</dd>
+          <dt>Stop game</dt><dd>Also <kbd>X</kbd> / <kbd>Del</kbd>. See <a href="#playing">Stopping a game</a>.</dd>
+        </dl>
+
+        <h3 id="capture">Clips and screenshots</h3>
+        <p>Moonglass doesn't record anything itself; it asks a tool that already records your game. Pick one in <em>Settings → System → Clips and screenshots</em>. The row under it tells you what the tool needs.</p>
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col">Tool</th><th scope="col">System</th><th scope="col">Clip</th><th scope="col">Screenshot</th><th scope="col">What it needs</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Xbox Game Bar</th><td>Windows (default)</td><td><kbd>Win</kbd>+<kbd>Alt</kbd>+<kbd>G</kbd></td><td><kbd>Win</kbd>+<kbd>Alt</kbd>+<kbd>PrtScn</kbd></td><td>"Record what happened" on, in Windows Settings → Gaming → Captures</td></tr>
+              <tr><th scope="row">NVIDIA Instant Replay</th><td>Windows</td><td><kbd>Alt</kbd>+<kbd>F10</kbd></td><td><kbd>Alt</kbd>+<kbd>F1</kbd></td><td>Instant Replay on, in the NVIDIA overlay</td></tr>
+              <tr><th scope="row">AMD Instant Replay</th><td>Windows</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd></td><td>Instant Replay on, in AMD Software</td></tr>
+              <tr><th scope="row">gpu-screen-recorder</th><td>Linux</td><td>Signal to the recorder</td><td>None</td><td>Running in replay mode (<code>-r</code>)</td></tr>
+              <tr><th scope="row">Off</th><td>Linux (default)</td><td colspan="3">Clip and screenshot rows are left out of the menu</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>On Windows, Moonglass returns to the game, waits a moment, then presses the tool's shortcut; the tool shows its own confirmation over the game. Moonglass uses the tools' default shortcuts, so if you changed them in the tool, change them back. If a game runs as administrator and Moonglass doesn't, Windows blocks the shortcut and a notification says so.</p>
+      </section>
+
+      <!-- ================================================== sources -->
+      <section id="sources">
+        <p class="label">08</p>
+        <h2>Where games come from</h2>
+        <p>Moonglass finds games on its own, at every start and whenever their folders change. It lists only games that are fully installed; it doesn't browse stores, buy, download or update games.</p>
+
+        <h3>Steam</h3>
+        <ul>
+          <li>Found automatically, in every Steam library folder. On Linux the native, Flatpak and Snap installs are all checked. If yours is somewhere unusual, pick it in <em>Settings → Library → Steam folder</em>.</li>
+          <li>Tools and runtimes (Proton, Steam Linux Runtime, redistributables…) are left out. If another non-game slips through, choose <em>Not a game (a tool): leave it out</em> in its options; bring it back from <em>Settings → Library → Steam apps that are not games</em>.</li>
+          <li>Games can get <a href="#options">launch options</a>, added to any the game already has inside Steam.</li>
+          <li>With several Steam accounts on the computer, see <a href="#steam">Steam accounts</a>.</li>
+        </ul>
+
+        <h3>Epic Games</h3>
+        <ul>
+          <li><strong>Windows:</strong> the games installed by the Epic Games Launcher. DLC, add-ons and Unreal Engine are left out.</li>
+          <li><strong>Linux:</strong> Epic has no official app, so Moonglass uses <strong>Heroic Games Launcher</strong> (native or Flatpak). Without Heroic, the Epic filter doesn't appear.</li>
+        </ul>
+
+        <h3>GOG</h3>
+        <ul>
+          <li><strong>Windows:</strong> every GOG game, installed with GOG Galaxy or with GOG's offline installers. With Galaxy installed, games start through it so its cloud saves and playtime keep working; without it, Moonglass starts the game's own program.</li>
+          <li><strong>Linux:</strong> through Heroic, like Epic.</li>
+          <li>Add-ons are left out, and GOG's own full game names are used.</li>
+          <li>On Windows, a GOG game installed while Moonglass is open appears after your next game, or after <em>Rescan library now</em>.</li>
+        </ul>
+
+        <h3 id="stores">Turning a store off</h3>
+        <p>Don't want a store's games on the shelf? Turn it off in <em>Settings → Library</em> (<em>Show Steam games</em>, <em>Show Epic games</em>, <em>Show GOG games</em>) or during setup. Its games disappear from the shelf, the filters and search. Moonglass still keeps track of them, so turning the store back on is instant and their favorites, playtime and artwork are intact. Each row shows how many games the store has, or that it wasn't found. Your own programs and emulated games are always shown.</p>
+      </section>
+
+      <!-- ================================================== apps -->
+      <section id="apps">
+        <p class="label">09</p>
+        <h2>Adding programs</h2>
+        <p>Any game or program can join the shelf under <em>Apps</em>.</p>
+        <ol class="steps">
+          <li>Open <em>Settings → Library → Add a game</em>, or drop the program's file on the Moonglass window.</li>
+          <li>In the <a href="#browser">file browser</a>, choose the program: an <code>.exe</code> on Windows; on Linux any executable file, including AppImages and scripts.</li>
+          <li>It appears on the shelf, named after its file. Artwork is looked up for it.</li>
+        </ol>
+        <p>A Windows <code>.exe</code> on Linux needs a small script that runs it through Wine or Proton; add the script.</p>
+        <p>From the program's <a href="#options">options</a> you can add launch arguments, change the folder it starts in, and handle programs that start a launcher and exit (<em>Launcher-style executable</em>). If you delete the file, the game is hidden; it comes back if the file returns.</p>
+      </section>
+
+      <!-- ================================================== emulators -->
+      <section id="emulators">
+        <p class="label">10</p>
+        <h2>Emulators and ROMs</h2>
+        <p>Tell Moonglass which emulator you use and where your games are; each game then has its own card.</p>
+
+        <h3>Adding an emulator</h3>
+        <ol class="steps">
+          <li>Open <em>Settings → Emulators → Add an emulator</em> (or the emulator step of setup).</li>
+          <li>Pick a preset, or <em>Another emulator</em> for anything with a command line.</li>
+          <li>Choose the emulator's program in the file browser. On Linux, a preset whose Flatpak is installed says so and is set up without asking.</li>
+          <li>Add a ROM folder and type its platform name (for example <em>GameCube</em>). The name shows on the cards.</li>
+        </ol>
+
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col">Preset</th><th scope="col">Arguments</th><th scope="col">Files</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">RetroArch</th><td><code>"{rom}"</code></td><td>.zip .7z .nes .sfc .smc .gb .gbc .gba .md .gen .n64 .z64 .nds .cue .chd .m3u</td></tr>
+              <tr><th scope="row">Dolphin</th><td><code>-b -e "{rom}"</code></td><td>.iso .rvz .gcm .gcz .ciso .wbfs .wad</td></tr>
+              <tr><th scope="row">PCSX2</th><td><code>-batch -fullscreen -- "{rom}"</code></td><td>.iso .chd .cso .cue .m3u</td></tr>
+              <tr><th scope="row">RPCS3</th><td><code>--no-gui "{rom}"</code></td><td>Game folders containing <code>PS3_GAME/USRDIR/EBOOT.BIN</code></td></tr>
+              <tr><th scope="row">Ryujinx</th><td><code>--fullscreen "{rom}"</code></td><td>.nsp .xci .nro</td></tr>
+              <tr><th scope="row">Eden / Citron / yuzu</th><td><code>-f -g "{rom}"</code></td><td>.nsp .xci .nro</td></tr>
+              <tr><th scope="row">Another emulator</th><td><code>"{rom}"</code></td><td>You choose</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="tip"><span class="label">RetroArch</span> Without a core, RetroArch asks which to use. To skip that, add <code>-L &lt;core&gt;</code> to the arguments, for example one emulator profile per system.</p>
+
+        <h3>Arguments</h3>
+        <p>The arguments are passed to the emulator after its program. Three placeholders are filled in for each game:</p>
+        <dl>
+          <dt><code>{rom}</code></dt><dd>Full path to the game file or folder.</dd>
+          <dt><code>{rom_dir}</code></dt><dd>The folder the game is in.</dd>
+          <dt><code>{rom_name}</code></dt><dd>The file name without its extension.</dd>
+        </dl>
+        <p>Put quotes around a placeholder, as in <code>-e "{rom}"</code>. Arguments never pass through a shell, so paths with spaces or odd characters are safe.</p>
+
+        <h3>Managing an emulator</h3>
+        <p>Select an emulator in <em>Settings → Emulators</em> to change its program, arguments or file types, add another ROM folder, or remove a folder or the whole emulator. Removing asks for a second press.</p>
+
+        <h3>How games are found in a ROM folder</h3>
+        <ul>
+          <li>Subfolders are included.</li>
+          <li>A <code>.m3u</code> playlist is one game, and the discs it lists are not shown separately. A <code>.cue</code> hides its <code>.bin</code> files.</li>
+          <li>Folder-based games (PS3) are found by the marker file in the profile.</li>
+          <li>Switch updates and DLC are left out.</li>
+          <li>Titles drop the tags at the end of a file name: <em>Hades [0100535012974000][v0]</em> becomes <em>Hades</em>. Disc numbers are kept.</li>
+        </ul>
+        <p>Since each folder belongs to one emulator, two emulators that both accept, say, <code>.iso</code> never get confused.</p>
+      </section>
+
+      <!-- ================================================== options -->
+      <section id="options">
+        <p class="label">11</p>
+        <h2>Per-game options</h2>
+        <p>Press <kbd>Y</kbd>, <kbd>Ctrl</kbd>+<kbd>O</kbd>, or right-click a card. What's listed depends on the game.</p>
+        <dl>
+          <dt>Play</dt><dd>Start the game.</dd>
+          <dt>Join <em>name</em></dt><dd>Steam games, when a friend is in a session you can join. See <a href="#friends">Steam friends</a>.</dd>
+          <dt>Add to favorites / Remove from favorites</dt><dd>Favorites get a star and their own filter.</dd>
+          <dt>Hide from library / Show in library</dt><dd>Hidden games leave the shelf and search. Show them again with <em>Settings → Library → Show hidden games</em>.</dd>
+          <dt>Change artwork…</dt><dd>Pick your own image. See <a href="#artwork">Artwork</a>.</dd>
+          <dt>Use automatic artwork</dt><dd>Shown once you've changed the artwork; goes back to the automatic picture.</dd>
+          <dt>Launch options / Launch arguments</dt><dd>Extra arguments for the game, typed on the on-screen keyboard. For Steam games these are added to the game's launch options inside Steam. Programs and emulated games get them after everything else. Not available for Epic and GOG games, whose clients don't accept any.</dd>
+          <dt>Working directory</dt><dd>Programs only: the folder the program starts in. By default, its own folder.</dd>
+          <dt>Launcher-style executable</dt><dd>Programs only. Turn on for a program that starts the real game and then closes, so Moonglass watches the game's folder instead of the program. Ignored for a program in a folder shared with others (a drive, Downloads, the Desktop…).</dd>
+          <dt>Process to watch</dt><dd>The name of the game's real program (with or without <code>.exe</code>), for games whose program lives outside their folder, such as games started through another launcher (EA, Ubisoft, Rockstar). Leave it on automatic otherwise.</dd>
+          <dt>Not a game (a tool): leave it out</dt><dd>Steam only. Removes a Steam tool from the shelf. Asks for a second press.</dd>
+          <dt>Remove from Moonglass</dt><dd>Programs and emulated games. Asks for a second press. Store games can't be removed (uninstall them, or hide them).</dd>
+        </dl>
+      </section>
+
+      <!-- ================================================== artwork -->
+      <section id="artwork">
+        <p class="label">12</p>
+        <h2>Artwork</h2>
+        <p>Each game gets a cover, a wide background picture and, where there is one, a logo. Moonglass tries these sources in order and keeps the first picture it finds of each kind:</p>
+        <ol class="steps">
+          <li><strong>Your own picture</strong>, if you chose one.</li>
+          <li><strong>Steam's own pictures</strong> on your disk, for Steam games. No internet or key needed.</li>
+          <li><strong>Epic's catalog</strong>, for Epic games on Windows. No key needed.</li>
+          <li><strong>GOG's catalog</strong>, for GOG games. No key needed.</li>
+          <li><strong>SteamGridDB</strong>, for any game, if you entered a key.</li>
+          <li><strong>Game databases for emulated games</strong>: Switch icons and banners by the game's ID, and the libretro box-art collection for older systems. No key needed. Switch games are recognized by the ID in the file name, or from the games your Ryujinx-family emulator has already run.</li>
+          <li><strong>A title card</strong> with the game's name on a color gradient, when nothing else is found.</li>
+        </ol>
+        <p>Games left with a title card are tried again each time artwork is refreshed.</p>
+
+        <h3>Getting a SteamGridDB key</h3>
+        <ol class="steps">
+          <li>Sign in at <a href="https://www.steamgriddb.com">steamgriddb.com</a> (free) and create an API key in your profile's preferences.</li>
+          <li>Enter it in <em>Settings → Artwork → SteamGridDB API key</em>, or during setup.</li>
+          <li>Choose <em>Refresh all artwork</em>.</li>
+        </ol>
+        <p>The key stays on your computer and is never written to the logs.</p>
+
+        <h3>Using your own picture</h3>
+        <ol class="steps">
+          <li>Open the game's options and choose <em>Change artwork…</em>.</li>
+          <li>Pick a <code>.png</code>, <code>.jpg</code> or <code>.webp</code> file in the file browser.</li>
+        </ol>
+        <p>Your picture is never replaced by a refresh. <em>Use automatic artwork</em> undoes it.</p>
+
+        <h3>How art fits a card</h3>
+        <p>Cards can be posters (2:3), banners (16:9, using the wide picture) or squares (1:1), set by <em>Card shape</em>. When a game's picture has a different shape (a square Switch icon on a poster card), <em>Card art</em> decides:</p>
+        <dl>
+          <dt>Fit whole art</dt><dd>The whole picture, over a blurred fill made from itself. The default.</dd>
+          <dt>Zoom to fill</dt><dd>Cropped from the center to fill the card.</dd>
+          <dt>Original shape</dt><dd>The card takes the picture's own shape, as large as fits.</dd>
+        </dl>
+      </section>
+
+      <!-- ================================================== steam -->
+      <section id="steam">
+        <p class="label">13</p>
+        <h2>Steam accounts and friends</h2>
+
+        <h3>Switching Steam account</h3>
+        <p>On a shared PC, <em>Settings → Library → Steam account</em> lists the accounts Steam remembers, the signed-in one marked. Choosing another closes Steam, sets it to sign in with that account, starts it again in the background and waits up to 90 seconds for the switch. No password is involved: Steam uses the sign-in it saved. Accounts whose password Steam didn't save are marked; if the saved sign-in has expired, Steam shows its own sign-in window and Moonglass tells you the switch didn't finish. Not available while a game runs. Switching in Steam itself is followed too.</p>
+
+        <h3>Only games this account can play</h3>
+        <p>With several accounts, <em>Only Steam games this account can play</em> (on by default) hides installed Steam games the signed-in account has no license for, counting games shared through its Steam Family. Free-to-play games the account has never run on this PC can't be recognized; turn the setting off to see everything. It does nothing when only one account is known.</p>
+        <p>The playtime shown for Steam games is the signed-in account's, so it changes with the account too.</p>
+
+        <h3 id="friends">Steam friends</h3>
+        <p>See which friends are playing your games, and join them.</p>
+        <ol class="steps">
+          <li>Create a Steam Web API key at <a href="https://steamcommunity.com/dev/apikey">steamcommunity.com/dev/apikey</a>.</li>
+          <li>Enter it in <em>Settings → Library → Steam friends: Web API key</em>.</li>
+        </ol>
+        <ul>
+          <li>Cards show a green dot with the number of friends in that game, and the focused game names them ("Alex and Sam are playing").</li>
+          <li>When a friend's session can be joined, the game's options offer <em>Join</em> with their name.</li>
+          <li>The <em>Friends</em> row in Settings shows how many friends were found and how many are playing, or why it didn't work.</li>
+          <li>Moonglass checks once a minute, and not at all while you play. Friends who appear offline or have a private profile aren't shown. Epic and GOG offer nothing similar.</li>
+          <li>The key is sent only to Steam and never logged.</li>
+        </ul>
+
+        <h3 id="borrowed">Borrowed games</h3>
+        <p>If a Steam game installed from someone else's library is being played by its owner, its card says <em>In use</em> with their name. The first press of Play explains this; press again to start anyway (your family may own another copy). Only owners who are also your Steam friends can be noticed.</p>
+      </section>
+
+      <!-- ================================================== settings -->
+      <section id="settings">
+        <p class="label">14</p>
+        <h2>Settings reference</h2>
+        <p>Open with <kbd>Menu</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd> or the gear. Changes apply at once and are saved. Defaults are in <strong>bold</strong>.</p>
+
+        <h3>Appearance</h3>
+        <div class="table-wrap flush">
+          <table class="ref">
+            <thead><tr><th scope="col">Setting</th><th scope="col">Values</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Card shape</th><td><strong>Posters (2:3)</strong> · Banners (16:9) · Squares (1:1)</td></tr>
+              <tr><th scope="row">Card art</th><td><strong>Fit whole art</strong> · Zoom to fill · Original shape</td></tr>
+              <tr><th scope="row">Focused card size</th><td>Normal · <strong>Large</strong> · Extra large</td></tr>
+              <tr><th scope="row">Card spacing</th><td>Compact · <strong>Normal</strong> · Wide</td></tr>
+              <tr><th scope="row">Card details</th><td><strong>Art only</strong> · Art + title · Art + playtime &amp; source</td></tr>
+              <tr><th scope="row">Background</th><td><strong>Color bloom</strong> · Full-screen art · Full-screen art + motion blur · Pure black (OLED)</td></tr>
+              <tr><th scope="row">Background blur</th><td>Light · <strong>Medium</strong> · Strong</td></tr>
+              <tr><th scope="row">Glow</th><td>Off · Subtle · <strong>Normal</strong> · Bright</td></tr>
+              <tr><th scope="row">Startup animation</th><td><strong>On</strong> · Off. The name, then the cards rising in, about 1.5 seconds.</td></tr>
+              <tr><th scope="row">Reduced motion</th><td>On · <strong>Off</strong>. Turns off the glow pulse, the startup animation and every transition.</td></tr>
+              <tr><th scope="row">Clock</th><td><strong>24-hour</strong> · 12-hour</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Library</h3>
+        <div class="table-wrap flush">
+          <table class="ref">
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Add a game</th><td>Add a program. See <a href="#apps">Adding programs</a>.</td></tr>
+              <tr><th scope="row">Recent shows games played within</th><td>7 days · <strong>30 days</strong> · 90 days</td></tr>
+              <tr><th scope="row">Show hidden games</th><td>On · <strong>Off</strong>. Hidden games come back on the shelf with a Hidden tag.</td></tr>
+              <tr><th scope="row">Rescan library now</th><td>Look for new and removed games straight away.</td></tr>
+              <tr><th scope="row">Library</th><td>How many games you have, and how many are hidden.</td></tr>
+              <tr><th scope="row">Show Steam / Epic / GOG games</th><td><strong>On</strong> · Off. See <a href="#stores">Turning a store off</a>.</td></tr>
+              <tr><th scope="row">Steam account</th><td>Switch account. See <a href="#steam">Steam accounts</a>.</td></tr>
+              <tr><th scope="row">Only Steam games this account can play</th><td><strong>On</strong> · Off</td></tr>
+              <tr><th scope="row">Steam folder</th><td><strong>Found automatically</strong>, or a folder you pick.</td></tr>
+              <tr><th scope="row">Steam apps that are not games</th><td>The Steam apps you marked as not games. Select one to put it back.</td></tr>
+              <tr><th scope="row">Steam friends: Web API key</th><td>See <a href="#friends">Steam friends</a>.</td></tr>
+              <tr><th scope="row">Friends</th><td>What the friends feature last found.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Emulators</h3>
+        <p>One row per emulator, plus <em>Add an emulator</em>. See <a href="#emulators">Emulators and ROMs</a>.</p>
+
+        <h3>Artwork</h3>
+        <div class="table-wrap flush">
+          <table class="ref">
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">SteamGridDB API key</th><td>Enter or clear your key.</td></tr>
+              <tr><th scope="row">Refresh all artwork</th><td>Download artwork again for every game (your own pictures are kept).</td></tr>
+              <tr><th scope="row">Sources</th><td>Where artwork comes from.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>System</h3>
+        <div class="table-wrap flush">
+          <table class="ref">
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Start Moonglass at login</th><td>On · <strong>Off</strong></td></tr>
+              <tr><th scope="row">Send Steam / Epic / GOG to the tray after a game</th><td><strong>On</strong> · Off</td></tr>
+              <tr><th scope="row">Return to Moonglass during a game</th><td>The combination for your controller, and whether the keyboard shortcut is available.</td></tr>
+              <tr><th scope="row">Return to Moonglass: buttons</th><td><strong>View + Menu</strong> · Both sticks pressed in</td></tr>
+              <tr><th scope="row">Return to Moonglass: hold for</th><td>1 second · <strong>2 seconds</strong> · 3 seconds</td></tr>
+              <tr><th scope="row">Clips and screenshots</th><td>Off · the tools for your system. <strong>Xbox Game Bar</strong> on Windows, <strong>Off</strong> on Linux. See <a href="#capture">Clips and screenshots</a>.</td></tr>
+              <tr><th scope="row">Saving clips</th><td>What the chosen tool needs.</td></tr>
+              <tr><th scope="row">Stop waiting for a game after</th><td>1 minute · <strong>3 minutes</strong> · 5 minutes · 10 minutes</td></tr>
+              <tr><th scope="row">First-time setup</th><td>Run <a href="#setup">setup</a> again.</td></tr>
+              <tr><th scope="row">Logs</th><td>Where the log files are.</td></tr>
+              <tr><th scope="row">Version</th><td>The Moonglass version.</td></tr>
+              <tr><th scope="row">Exit Moonglass</th><td>Quit.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================================================== text -->
+      <section id="text">
+        <p class="label">15</p>
+        <h2>Typing and picking files</h2>
+
+        <h3>On-screen keyboard</h3>
+        <p>Appears at the bottom of the screen for search and every text field (keys, arguments, process names, file types, platform names). Its last row has the characters arguments and paths need: <code>{ } " / \ : _ = + @</code>.</p>
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col">Action</th><th scope="col">Controller</th><th scope="col">Keyboard</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Type the highlighted key</th><td><kbd>A</kbd></td><td>Type normally</td></tr>
+              <tr><th scope="row">Delete</th><td><kbd>X</kbd></td><td><kbd>Backspace</kbd></td></tr>
+              <tr><th scope="row">Space</th><td><kbd>Y</kbd></td><td><kbd>Space</kbd></td></tr>
+              <tr><th scope="row">Done</th><td><kbd>Menu</kbd></td><td><kbd>Enter</kbd></td></tr>
+              <tr><th scope="row">Cancel</th><td><kbd>B</kbd></td><td><kbd>Esc</kbd></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Keys can also be clicked. <em>Shift</em> switches to capitals.</p>
+
+        <h3 id="browser">File browser</h3>
+        <p>Used whenever Moonglass needs a file or folder. It starts at your home folder and your drives (Windows) or mounted volumes (Linux), and shows only the kind of file being asked for. Open folders with <kbd>A</kbd>; go up with <kbd>B</kbd> or <kbd>Backspace</kbd> (at the top, that closes the browser). Typing a letter jumps to the next entry starting with it.</p>
+      </section>
+
+      <!-- ================================================== library -->
+      <section id="library">
+        <p class="label">16</p>
+        <h2>Your library and playtime</h2>
+
+        <h3>Staying up to date</h3>
+        <p>Moonglass checks for new and removed games at every start, after each game, and whenever a store's or ROM folder's files change (a couple of seconds after). Use <em>Rescan library now</em> to force it.</p>
+        <p>An uninstalled game is hidden, not forgotten: reinstall it and its favorite star, playtime and custom artwork are still there.</p>
+
+        <h3>Playtime</h3>
+        <p>Moonglass counts the time you play from the moment the game is running until it closes; updates and launcher screens don't count. For Steam games it also reads Steam's own count for the signed-in account, which includes play outside Moonglass and on other PCs, and shows whichever is larger (the two are never added, since Steam's already includes Moonglass's sessions). Epic and GOG keep their counts online only, so for those games you see Moonglass's own count.</p>
+
+        <h3>Safe by design</h3>
+        <p>Your library is checked every time Moonglass starts, and a copy of the last good version is kept. If the file is ever damaged, Moonglass restores that copy (or, without one, starts fresh and finds your store games again) and tells you on the first screen. The damaged file is set aside, never deleted.</p>
+
+        <h3>Where things are stored</h3>
+        <div class="table-wrap flush">
+          <table>
+            <thead><tr><th scope="col"></th><th scope="col">Windows</th><th scope="col">Linux</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Library and settings</th><td><code>%APPDATA%\Moonglass\</code></td><td><code>~/.local/share/moonglass/</code></td></tr>
+              <tr><th scope="row">Artwork</th><td><code>%LOCALAPPDATA%\Moonglass\cache\</code></td><td><code>~/.cache/moonglass/</code></td></tr>
+              <tr><th scope="row">Logs (kept 7 days)</th><td><code>%LOCALAPPDATA%\Moonglass\logs\</code></td><td><code>~/.local/state/moonglass/</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>On Linux these follow the <code>XDG_*</code> variables when set. <code>moonglass paths</code> prints them.</p>
+      </section>
+
+      <!-- ================================================== cli -->
+      <section id="cli">
+        <p class="label">17</p>
+        <h2>Command line</h2>
+        <p>Run <code>moonglass</code> with no arguments to open it. With a command, it works in the terminal instead, which is handy for scripting and for checking how a game is detected. <code>&lt;game&gt;</code> is a game's ID (like <code>steam:620</code>) or its number in <code>moonglass list</code>.</p>
+        <div class="table-wrap flush">
+          <table class="ref cli">
+            <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><th scope="row"><code>list [--filter &lt;filter&gt;] [--search &lt;text&gt;]</code></th><td>Scan, then list games in shelf order. Filters: all, recent, favorites, steam, epic, gog, apps, emulators.</td></tr>
+              <tr><th scope="row"><code>scan</code></th><td>Scan and report what changed.</td></tr>
+              <tr><th scope="row"><code>launch &lt;game&gt; [--epic-fallback] [--give-up &lt;secs&gt;]</code></th><td>Start a game and report each step until it closes.</td></tr>
+              <tr><th scope="row"><code>add-exe &lt;path&gt; [title]</code></th><td>Add a program.</td></tr>
+              <tr><th scope="row"><code>add-emulator &lt;id&gt; &lt;name&gt; &lt;program&gt; &lt;arguments&gt; &lt;extensions&gt; [folder-marker]</code></th><td>Add an emulator profile.</td></tr>
+              <tr><th scope="row"><code>add-rom-dir &lt;path&gt; &lt;emulator-id&gt; &lt;platform&gt; [--flat]</code></th><td>Add a ROM folder (<code>--flat</code>: no subfolders).</td></tr>
+              <tr><th scope="row"><code>remove &lt;game&gt;</code></th><td>Remove a program or emulated game.</td></tr>
+              <tr><th scope="row"><code>favorite &lt;game&gt; on|off</code></th><td>Star or unstar.</td></tr>
+              <tr><th scope="row"><code>hide &lt;game&gt; on|off</code></th><td>Hide or show.</td></tr>
+              <tr><th scope="row"><code>options &lt;game&gt; [--args &lt;a&gt;] [--cwd &lt;dir&gt;] [--watch &lt;process&gt;] [--track-folder]</code></th><td>Set per-game options.</td></tr>
+              <tr><th scope="row"><code>artwork [--force]</code></th><td>Fetch missing artwork, or all of it.</td></tr>
+              <tr><th scope="row"><code>set-art &lt;game&gt; &lt;image&gt;</code></th><td>Use your own picture.</td></tr>
+              <tr><th scope="row"><code>unlock-art &lt;game&gt;</code></th><td>Back to automatic artwork.</td></tr>
+              <tr><th scope="row"><code>sgdb-key &lt;key&gt;|clear</code></th><td>Set or clear the SteamGridDB key.</td></tr>
+              <tr><th scope="row"><code>steam-signal &lt;game&gt; [--secs &lt;n&gt;]</code></th><td>Compare Steam's "running" flag with Moonglass's detection, once a second.</td></tr>
+              <tr><th scope="row"><code>steam-accounts</code></th><td>List Steam accounts and what the signed-in one can play.</td></tr>
+              <tr><th scope="row"><code>steam-switch &lt;number&gt;</code></th><td>Switch Steam account (restarts Steam).</td></tr>
+              <tr><th scope="row"><code>autostart on|off|status</code></th><td>Start at login.</td></tr>
+              <tr><th scope="row"><code>paths</code></th><td>Show where data, artwork and logs are.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Environment variables</h3>
+        <dl>
+          <dt><code>MOONGLASS_WINDOWED=1</code></dt><dd>Open in a window instead of full screen.</dd>
+          <dt><code>MOONGLASS_LOG=debug</code></dt><dd>More detailed logs.</dd>
+        </dl>
+      </section>
+
+      <!-- ================================================== trouble -->
+      <section id="trouble">
+        <p class="label">18</p>
+        <h2>Troubleshooting</h2>
+        <dl class="faq">
+          <dt>A game is missing.</dt>
+          <dd>Check that it's fully installed and that its store is turned on (<em>Settings → Library</em>), then choose <em>Rescan library now</em>. For Steam in an unusual place, set <em>Steam folder</em>. On Linux, Epic and GOG need Heroic. Also check <em>Show hidden games</em> and, with several Steam accounts, <em>Only Steam games this account can play</em>.</dd>
+
+          <dt>Moonglass comes back while I'm still playing, or never comes back.</dt>
+          <dd>Some games run from a program outside their folder, often through another launcher. Set <em>Process to watch</em> in the game's options to the name of the game's real program (Task Manager shows it). For a program that starts a launcher and exits, turn on <em>Launcher-style executable</em>.</dd>
+
+          <dt>The game started but Moonglass is still on <em>Launching</em>.</dt>
+          <dd>Same fix: set <em>Process to watch</em>. You can cancel with <kbd>B</kbd> once <em>Still waiting…</em> appears.</dd>
+
+          <dt>Moonglass doesn't come back to the front after a game.</dt>
+          <dd>Use the return combination, Alt-Tab, or click it in the taskbar. On Linux under Wayland, the desktop may refuse; a notification tells you how to return.</dd>
+
+          <dt>Holding View + Menu does nothing during a game.</dt>
+          <dd>On Windows it needs an Xbox-compatible controller; use <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd> otherwise. Make sure you hold for the full time set in <em>Settings → System</em>.</dd>
+
+          <dt>Save a clip does nothing.</dt>
+          <dd>Check that your tool's recording is switched on (the <em>Saving clips</em> row says how), and that you haven't changed its shortcut. A game running as administrator blocks the shortcut.</dd>
+
+          <dt>A game shows only its name, not artwork.</dt>
+          <dd>Add a SteamGridDB key and choose <em>Refresh all artwork</em>, or set your own picture from the game's options.</dd>
+
+          <dt>A Steam tool or soundtrack appears as a game.</dt>
+          <dd>Open its options and choose <em>Not a game (a tool): leave it out</em>.</dd>
+
+          <dt>An Epic game won't start.</dt>
+          <dd>A few titles need Epic's longer launch form. Try <code>moonglass launch &lt;game&gt; --epic-fallback</code>.</dd>
+
+          <dt>A Steam, Epic or Windows window needs a mouse.</dt>
+          <dd>Prompts owned by other programs (license agreements, cloud-save conflicts, administrator prompts) can't be controlled by Moonglass. Use a mouse or keyboard, then return with the combination.</dd>
+
+          <dt>Something else is wrong.</dt>
+          <dd>Start with <code>MOONGLASS_LOG=debug</code>, reproduce the problem, and <a href="https://github.com/hxpe-dev/moonglass-launcher/issues">report it</a> with the log (<em>Settings → System → Logs</em> shows where it is).</dd>
+        </dl>
+      </section>
+
+    </article>
+  </div>
+
+  <footer class="rule">
+    <div class="cells four">
+      <div class="cell">
+        <img src="logo.svg" alt="" width="36" height="36" class="foot-mark">
+      </div>
+      <nav class="cell" aria-label="Project">
+        <p class="label">Project</p>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher">Source code</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/releases">Releases</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/issues">Report a problem</a>
+      </nav>
+      <nav class="cell" aria-label="Read">
+        <p class="label">Read</p>
+        <a href="docs.html">Documentation</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/SPEC.md">Specification</a>
+        <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/BENCH.md">Benchmarks</a>
+      </nav>
+      <nav class="cell" aria-label="Site">
+        <p class="label">Site</p>
+        <a href="index.html">Home</a>
+        <a href="index.html#features">Features</a>
+        <a href="index.html#download">Download</a>
+      </nav>
+    </div>
+    <div class="legal rule label">
+      <span>Moonglass 0.1.0</span>
+      <span>Not affiliated with Valve, Epic Games, GOG, Playnite or One Game Launcher</span>
+    </div>
+  </footer>
+
+</div>
+<script src="fx.js" defer></script>
+<script>
+  // On small screens the contents start folded above the guide.
+  if (matchMedia('(max-width: 900px)').matches) document.querySelector('.toc details').open = false;
+
+  // Highlight the section being read in the contents list.
+  (function () {
+    var links = {};
+    document.querySelectorAll('.toc a').forEach(function (a) { links[a.hash.slice(1)] = a; });
+    var current;
+    var seen = new Set();
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { e.isIntersecting ? seen.add(e.target) : seen.delete(e.target); });
+      var top = Array.from(seen).sort(function (a, b) { return a.offsetTop - b.offsetTop; })[0];
+      if (!top || top === current) return;
+      if (current) links[current.id].classList.remove('active');
+      current = top;
+      links[top.id].classList.add('active');
+    }, { rootMargin: '-10% 0px -60% 0px' });
+    document.querySelectorAll('.prose > section').forEach(function (s) { io.observe(s); });
+  })();
+</script>
+</body>
+</html>
