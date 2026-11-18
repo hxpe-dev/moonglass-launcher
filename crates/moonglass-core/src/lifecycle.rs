@@ -19,7 +19,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timing {
-    /// When the Launching overlay adds "Still waiting… [B] Cancel".
+    /// When the Launching overlay adds "Still waiting… \[B\] Cancel".
     pub still_waiting_after: Duration,
     /// When Launching gives up and returns to Idle.
     pub give_up_after: Duration,
@@ -61,7 +61,7 @@ pub enum State {
 pub enum Effect {
     /// Show "Launching *Game*…" and stop all animation.
     ShowLaunching,
-    /// Add "Still waiting… [B] Cancel" to the overlay.
+    /// Add "Still waiting… \[B\] Cancel" to the overlay.
     ShowStillWaiting,
     /// The game is running: hide Moonglass (platform-specific), render nothing,
     /// suspend navigation, arm the restore hotkey.

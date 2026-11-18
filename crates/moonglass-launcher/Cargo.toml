@@ -4,6 +4,7 @@ description = "Moonglass, a console-style PC game launcher: the GPUI carousel an
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [[bin]]
 name = "moonglass"

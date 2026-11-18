@@ -46,6 +46,15 @@ pub fn rom_command(
     Ok((PathBuf::from(executable), args))
 }
 
+/// The game's own arguments (Options → Launch arguments), split like a
+/// shell would. `what` names them in the error.
+fn game_args(game: &Game, what: &'static str) -> anyhow::Result<Vec<String>> {
+    match game.launch_args.as_deref() {
+        Some(a) if !a.trim().is_empty() => split_args(a).context(what),
+        _ => Ok(Vec::new()),
+    }
+}
+
 /// A friend's Steam session to join instead of starting the game alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SteamJoin {
@@ -73,10 +82,7 @@ pub async fn start(
                 .source_id
                 .as_deref()
                 .ok_or_else(|| anyhow!("Steam game without AppID"))?;
-            let args = match game.launch_args.as_deref() {
-                Some(a) if !a.trim().is_empty() => split_args(a).context("launch options")?,
-                _ => Vec::new(),
-            };
+            let args = game_args(game, "launch options")?;
             match join {
                 Some(j) => moonglass_platform::join_steam_lobby(app_id, &j.lobby, &j.friend)?,
                 None => moonglass_platform::launch_steam(app_id, &args)?,
@@ -152,10 +158,7 @@ pub async fn start(
                     .clone()
                     .ok_or_else(|| anyhow!("GOG game without a program to start"))?,
             );
-            let args = match game.launch_args.as_deref() {
-                Some(a) if !a.trim().is_empty() => split_args(a).context("launch arguments")?,
-                _ => Vec::new(),
-            };
+            let args = game_args(game, "launch arguments")?;
             let child = TrackedChild::spawn(&target, &args, Some(&install_dir))?;
             Ok(Running {
                 child: Some(child),
@@ -169,10 +172,7 @@ pub async fn start(
                     .clone()
                     .ok_or_else(|| anyhow!("no executable path"))?,
             );
-            let args = match game.launch_args.as_deref() {
-                Some(a) if !a.trim().is_empty() => split_args(a).context("launch arguments")?,
-                _ => Vec::new(),
-            };
+            let args = game_args(game, "launch arguments")?;
             let cwd = game.working_dir.as_deref().map(Path::new);
             let child = TrackedChild::spawn(&target, &args, cwd)?;
             // Launcher-style stubs exit at once; watch their folder instead,

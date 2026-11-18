@@ -553,11 +553,13 @@ pub(crate) struct ProcessInfo<'a> {
 pub(crate) fn name_matches(name: &OsStr, wanted: &str) -> bool {
     let n = name.to_string_lossy();
     let w = wanted.trim();
-    n.eq_ignore_ascii_case(w)
-        || n.strip_suffix(".exe")
-            .is_some_and(|s| s.eq_ignore_ascii_case(w))
-        || n.strip_suffix(".EXE")
-            .is_some_and(|s| s.eq_ignore_ascii_case(w))
+    // `wanted` may omit the extension: "Game" matches "Game.exe" (any case).
+    let stem = n
+        .len()
+        .checked_sub(4)
+        .filter(|&i| n.is_char_boundary(i) && n[i..].eq_ignore_ascii_case(".exe"))
+        .map(|i| &n[..i]);
+    n.eq_ignore_ascii_case(w) || stem.is_some_and(|s| s.eq_ignore_ascii_case(w))
 }
 
 // ------------------------------------------------------- file browser
@@ -918,6 +920,7 @@ mod tests {
         assert!(name_matches(OsStr::new("Game.exe"), "game.exe"));
         assert!(name_matches(OsStr::new("Game.exe"), "Game"));
         assert!(name_matches(OsStr::new("game"), "game"));
+        assert!(name_matches(OsStr::new("GAME.Exe"), "game"));
         assert!(!name_matches(OsStr::new("Gamer.exe"), "game"));
     }
 

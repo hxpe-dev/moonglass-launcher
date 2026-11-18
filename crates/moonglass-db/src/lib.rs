@@ -52,8 +52,7 @@ impl DbError {
     /// (`SQLITE_CORRUPT`, `SQLITE_NOTADB`).
     pub fn is_damage(&self) -> bool {
         let e = match self {
-            DbError::Sqlx(e) => e,
-            DbError::Migrate(sqlx::migrate::MigrateError::Execute(e)) => e,
+            DbError::Sqlx(e) | DbError::Migrate(sqlx::migrate::MigrateError::Execute(e)) => e,
             _ => return false,
         };
         let sqlx::Error::Database(d) = e else {

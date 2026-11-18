@@ -741,7 +741,7 @@ impl LauncherView {
                     .px(px(22.0 * u))
                     .py(px(14.0 * u))
                     .rounded_full()
-                    .when(kind != Kind::Info, |d| d.cursor_pointer())
+                    .when(kind != Kind::Info, Styled::cursor_pointer)
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.07))))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.settings_click_item(i, window, cx);

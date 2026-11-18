@@ -412,7 +412,18 @@ pub(crate) fn process_matches(p: &ProcessInfo<'_>, m: &Prepared<'_>) -> bool {
         // Windows has no reliable view of another process's environment, so
         // Steam and Epic games are both found by their executable's folder.
         Prepared::Steam { dir, .. } | Prepared::Folder { dir } => match (dir, p.exe) {
-            (Some(dir), Some(exe)) => within_normalized(exe, dir),
+            (Some(dir), Some(exe)) => {
+                // A program started through an 8.3 short path
+                // (`C:\Users\RUNNER~1\…`) reports that path, while `dir` is
+                // in its long form. Short names are rare, so only those
+                // paths pay for the lookup.
+                if exe.as_os_str().to_string_lossy().contains('~') {
+                    let long = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+                    within_normalized(&long, dir)
+                } else {
+                    within_normalized(exe, dir)
+                }
+            }
             _ => false,
         },
         Prepared::Name(n) => name_matches(p.name, n),
@@ -1125,7 +1136,7 @@ pub mod window {
 /// controller hold ([`crate::RestoreConfig`]: View + Menu or both sticks),
 /// and `Ctrl + Alt + Home` as a global keyboard hotkey.
 /// Both deliver to the same callback and keep working while Moonglass is not
-/// focused. Arm and disarm with [`RestoreHotkey::set_armed`]: it is only
+/// focused. Arm and disarm with [`hotkey::RestoreHotkey::set_armed`]: it is only
 /// active while Launching or Running, and the keyboard combination is only
 /// registered with Windows for that time, so other programs can use it the
 /// rest of the time.

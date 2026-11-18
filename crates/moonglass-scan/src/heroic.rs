@@ -3,7 +3,7 @@
 //! Heroic keeps Legendary's `installed.json` under its config folder
 //! (`legendaryConfig/legendary/installed.json`), either in the native or in
 //! the Flatpak location. The platform layer finds the file and the Heroic
-//! command; this module only parses it and builds launch arguments.
+//! command; this module only parses it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -53,16 +53,6 @@ pub fn scan(installed_json: &Path) -> Result<Vec<ScannedGame>, ScanError> {
         .collect())
 }
 
-/// Arguments after the Heroic command (`heroic` or
-/// `flatpak run com.heroicgameslauncher.hgl`). `--no-gui` keeps Heroic's
-/// window from appearing, which Moonglass could not close on Wayland.
-pub fn launch_args(app_name: &str) -> Vec<String> {
-    vec![
-        "--no-gui".to_string(),
-        format!("heroic://launch?appName={app_name}&runner=legendary"),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,16 +77,5 @@ mod tests {
             Some("/home/u/Games/Heroic/Hades")
         );
         assert!(scan(&tmp.path().join("absent.json")).unwrap().is_empty());
-    }
-
-    #[test]
-    fn args() {
-        assert_eq!(
-            launch_args("Kestrel"),
-            [
-                "--no-gui",
-                "heroic://launch?appName=Kestrel&runner=legendary"
-            ]
-        );
     }
 }

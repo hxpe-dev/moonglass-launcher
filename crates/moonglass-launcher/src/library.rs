@@ -55,59 +55,23 @@ pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
         .collect();
     match &steam_root {
         Some(root) => {
-            apply(
-                db,
-                &mut summary,
-                "Steam",
-                ScanScope::Steam,
-                steam::scan(root, &deny),
-                now,
-            )
-            .await?
+            let result = steam::scan(root, &deny);
+            apply(db, &mut summary, "Steam", ScanScope::Steam, result, now).await?;
+            import_steam_playtime(db, &mut summary, root).await?;
         }
         None => summary.push("Steam: not found".into()),
     }
-    if let Some(root) = &steam_root {
-        import_steam_playtime(db, &mut summary, root).await?;
-    }
 
-    // Epic: the client's manifests on Windows, Heroic on Linux.
-    match moonglass_platform::epic_source() {
-        Some(EpicSource::EpicManifests(dir)) => {
-            apply(
-                db,
-                &mut summary,
-                "Epic",
-                ScanScope::Epic,
-                epic::scan(&dir),
-                now,
-            )
-            .await?
-        }
+    // Epic: the client's manifests on Windows, Heroic on Linux. Not
+    // installed: any Epic games we knew of are gone.
+    let (label, result) = match moonglass_platform::epic_source() {
+        Some(EpicSource::EpicManifests(dir)) => ("Epic", epic::scan(&dir)),
         Some(EpicSource::Heroic { installed_json, .. }) => {
-            apply(
-                db,
-                &mut summary,
-                "Epic (Heroic)",
-                ScanScope::Epic,
-                heroic::scan(&installed_json),
-                now,
-            )
-            .await?
+            ("Epic (Heroic)", heroic::scan(&installed_json))
         }
-        None => {
-            // Not installed: any Epic games we knew of are gone.
-            apply(
-                db,
-                &mut summary,
-                "Epic",
-                ScanScope::Epic,
-                Ok(Vec::new()),
-                now,
-            )
-            .await?;
-        }
-    }
+        None => ("Epic", Ok(Vec::new())),
+    };
+    apply(db, &mut summary, label, ScanScope::Epic, result, now).await?;
 
     // GOG: the registry on Windows (Galaxy or offline installers), Heroic
     // on Linux. Not installed: any GOG games we knew of are gone.

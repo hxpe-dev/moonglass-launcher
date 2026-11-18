@@ -888,7 +888,7 @@ impl LauncherView {
                             .child(SharedString::from(if query.is_empty() && !focused {
                                 "Search".to_string()
                             } else {
-                                query.clone()
+                                query
                             })),
                     )
                     // Blinking caret while the field has focus.

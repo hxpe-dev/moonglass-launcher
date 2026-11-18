@@ -8,9 +8,9 @@
 //!   `gog_store/installed.json` under its config folder ([`scan_heroic`]).
 //!
 //! Either way the install folder holds `goggame-<product ID>.info`, GOG's
-//! own description of the game: its name, whether it is an add-on of
-//! another product (`rootGameId`), and its play tasks. It is preferred
-//! over the other sources' names, which can be abbreviated.
+//! own description of the game: its name and whether it is an add-on of
+//! another product (`rootGameId`). Its name is preferred over the other
+//! sources' names, which can be abbreviated.
 
 use std::path::{Path, PathBuf};
 
@@ -29,35 +29,12 @@ pub struct GameInfo {
     pub root_game_id: String,
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
-    pub play_tasks: Vec<PlayTask>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlayTask {
-    #[serde(default)]
-    pub is_primary: bool,
-    #[serde(default, rename = "type")]
-    pub kind: String,
-    #[serde(default)]
-    pub path: String,
-    #[serde(default)]
-    pub arguments: String,
 }
 
 impl GameInfo {
     /// An add-on (DLC) installed into another game's folder.
     pub fn is_addon(&self) -> bool {
         !self.root_game_id.is_empty() && self.root_game_id != self.game_id
-    }
-
-    /// The primary play task's program, relative to the install folder.
-    pub fn primary_executable(&self) -> Option<&str> {
-        self.play_tasks
-            .iter()
-            .find(|t| t.is_primary && t.kind == "FileTask" && !t.path.is_empty())
-            .map(|t| t.path.as_str())
     }
 }
 
@@ -179,15 +156,6 @@ pub fn scan_heroic(installed_json: &Path) -> Result<Vec<ScannedGame>, ScanError>
         .collect())
 }
 
-/// Arguments after the Heroic command, as for Epic games
-/// ([`crate::heroic::launch_args`]) but with Heroic's GOG runner.
-pub fn heroic_launch_args(product_id: &str) -> Vec<String> {
-    vec![
-        "--no-gui".to_string(),
-        format!("heroic://launch?appName={product_id}&runner=gog"),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,11 +227,11 @@ mod tests {
     }
 
     #[test]
-    fn info_primary_task() {
+    fn reads_info() {
         let tmp = tempfile::tempdir().unwrap();
         info(tmp.path(), "1", "1", "Game");
         let i = read_info(tmp.path(), "1").unwrap();
-        assert_eq!(i.primary_executable(), Some("System\\witcher.exe"));
+        assert_eq!(i.name, "Game");
         assert!(!i.is_addon());
         assert!(read_info(tmp.path(), "2").is_none());
     }
@@ -294,13 +262,5 @@ mod tests {
             .is_empty());
         fs::write(&p, "{ broken").unwrap();
         assert!(scan_heroic(&p).is_err());
-    }
-
-    #[test]
-    fn heroic_args() {
-        assert_eq!(
-            heroic_launch_args("1207658924"),
-            ["--no-gui", "heroic://launch?appName=1207658924&runner=gog"]
-        );
     }
 }

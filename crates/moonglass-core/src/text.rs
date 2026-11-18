@@ -27,7 +27,7 @@ pub fn sort_title(title: &str) -> String {
 ///
 /// Punctuation is removed rather than turned into a space, so "Assassin's"
 /// becomes "assassins". Word boundaries are kept so the stored value stays
-/// readable; [`matches`] ignores spaces when comparing.
+/// readable; [`matches()`] ignores spaces when comparing.
 pub fn search_title(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut pending_space = false;

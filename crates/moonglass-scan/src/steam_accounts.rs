@@ -164,7 +164,7 @@ impl Access {
 
     fn read(&mut self, store: &Obj<'_>) {
         if let Some(tickets) = store.get("apptickets").and_then(|v| v.first()?.get_obj()) {
-            self.tickets = tickets.keys().map(|k| k.to_string()).collect();
+            self.tickets = tickets.keys().map(ToString::to_string).collect();
         }
         let members = store
             .get("FamilyGroup")

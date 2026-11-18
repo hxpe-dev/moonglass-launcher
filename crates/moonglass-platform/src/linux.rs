@@ -230,22 +230,20 @@ pub fn launch_steam(app_id: &str, args: &[String]) -> Result<()> {
     }
 }
 
+/// Asks Heroic to start a game. `--no-gui` keeps Heroic's window from
+/// appearing, which Moonglass could not close on Wayland.
+fn launch_heroic(command: &[String], app_name: &str, runner: &str) -> Result<()> {
+    let (program, pre) = command
+        .split_first()
+        .ok_or_else(|| PlatformError::Os("empty Heroic command".into()))?;
+    spawn_detached(Command::new(program).args(pre).arg("--no-gui").arg(format!(
+        "heroic://launch?appName={app_name}&runner={runner}"
+    )))
+}
+
 pub fn launch_epic(source: &EpicSource, app_name: &str, _fallback_uri: Option<&str>) -> Result<()> {
     match source {
-        EpicSource::Heroic { command, .. } => {
-            let (program, pre) = command
-                .split_first()
-                .ok_or_else(|| PlatformError::Os("empty Heroic command".into()))?;
-            spawn_detached(
-                Command::new(program)
-                    .args(pre)
-                    // `--no-gui` keeps Heroic's window from appearing.
-                    .arg("--no-gui")
-                    .arg(format!(
-                        "heroic://launch?appName={app_name}&runner=legendary"
-                    )),
-            )
-        }
+        EpicSource::Heroic { command, .. } => launch_heroic(command, app_name, "legendary"),
         EpicSource::EpicManifests(_) => Err(PlatformError::Os(
             "the Epic Games Launcher is not available on Linux".into(),
         )),
@@ -254,17 +252,7 @@ pub fn launch_epic(source: &EpicSource, app_name: &str, _fallback_uri: Option<&s
 
 pub fn launch_gog(source: &GogSource, product_id: &str, _install_dir: &Path) -> Result<()> {
     match source {
-        GogSource::Heroic { command, .. } => {
-            let (program, pre) = command
-                .split_first()
-                .ok_or_else(|| PlatformError::Os("empty Heroic command".into()))?;
-            spawn_detached(
-                Command::new(program)
-                    .args(pre)
-                    .arg("--no-gui")
-                    .arg(format!("heroic://launch?appName={product_id}&runner=gog")),
-            )
-        }
+        GogSource::Heroic { command, .. } => launch_heroic(command, product_id, "gog"),
         GogSource::Registry { .. } => Err(PlatformError::Os(
             "GOG Galaxy is not available on Linux".into(),
         )),

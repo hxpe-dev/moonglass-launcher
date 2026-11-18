@@ -8,6 +8,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   SQLX_OFFLINE: "true"
+  # System libraries GPUI and gilrs build against on Linux.
+  LINUX_LIBS: >-
+    libudev-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+    libx11-xcb-dev libxcb1-dev libvulkan-dev libfontconfig-dev
+    libfreetype-dev libasound2-dev pkg-config
 
 jobs:
   test:
@@ -18,16 +23,14 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Linux system libraries (GPUI, gilrs)
+      - name: Linux system libraries
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libxkbcommon-dev libxkbcommon-x11-dev             libwayland-dev libx11-xcb-dev libxcb1-dev libvulkan-dev libfontconfig-dev             libfreetype-dev libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_LIBS
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
@@ -39,9 +42,12 @@ jobs:
     name: .sqlx is up to date
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # `cargo sqlx prepare` checks the whole workspace, GPUI included.
+      - name: Linux system libraries
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_LIBS
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --version "^0.9" --no-default-features --features sqlite --locked
       - name: Check query metadata

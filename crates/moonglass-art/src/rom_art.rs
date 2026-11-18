@@ -3,7 +3,7 @@
 //! * Switch games are looked up by title ID on nlib.cc, which serves each
 //!   title's eShop icon (square, used as the cover) and its 16:9 banner
 //!   (the hero art). The title ID comes from the dump's file name
-//!   ("Hades [0100535012974000][v0].nsp") or, failing that, from the
+//!   (`Hades [0100535012974000][v0].nsp`) or, failing that, from the
 //!   emulator's own list of games it has run.
 //! * Older systems use the libretro thumbnail collection, whose box art is
 //!   named after No-Intro / Redump dump names ("Chrono Trigger (USA)").

@@ -91,7 +91,7 @@ fn is_switch_addon(stem: &str) -> bool {
 }
 
 /// A title from a file name: the tags at its end are dropped, as in
-/// "Hades [0100535012974000][v0]" or "Chrono Trigger (USA) (Rev 1)". Disc
+/// `Hades [0100535012974000][v0]` or `Chrono Trigger (USA) (Rev 1)`. Disc
 /// numbers stay, so the discs of one game can be told apart.
 fn clean_title(stem: &str) -> String {
     let mut title = stem.trim_end();

@@ -125,7 +125,7 @@ pub async fn load(db: &Db) -> anyhow::Result<Vec<EmulatorInfo>> {
 fn new_id(name: &str, taken: &[EmulatorInfo]) -> String {
     let mut slug: String = name
         .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
+        .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
         .to_ascii_lowercase();
     if slug.is_empty() {

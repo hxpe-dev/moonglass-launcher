@@ -15,6 +15,11 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.94"
 
+# Cargo.lock holds libc at 0.2.186 (and mio at 1.2.4, which allows it): GPUI
+# 0.2.2 pulls in xattr 0.2.3, which uses libc::ENOATTR, gone on Linux from
+# libc 0.2.191. A plain `cargo update` brings the Linux build failure back;
+# use `cargo update -p <crate>` until GPUI is upgraded.
+
 [workspace.dependencies]
 moonglass-core = { path = "crates/moonglass-core" }
 moonglass-scan = { path = "crates/moonglass-scan" }

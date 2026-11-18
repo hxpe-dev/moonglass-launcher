@@ -4,6 +4,7 @@ description = "Library scanners for Steam, Epic (Windows client manifests and He
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 moonglass-core.workspace = true
