@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Moonglass · Documentation</title>
+  <title>Moonglass · Guide</title>
   <meta name="description" content="The Moonglass user guide: every feature, control and setting, and how to use them.">
   <meta name="theme-color" content="#000000">
   <link rel="icon" href="logo.svg" type="image/svg+xml">
@@ -20,7 +20,7 @@
     <nav class="nav" aria-label="Site">
       <a href="index.html#features">Features</a>
       <a href="index.html#benchmarks">Benchmarks</a>
-      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="docs.html" aria-current="page">Guide</a>
       <a href="index.html#download">Download</a>
     </nav>
     <a class="label" href="https://github.com/hxpe-dev/moonglass-launcher">GitHub ↗</a>
@@ -222,11 +222,11 @@
         <p>If the game takes a while, after 20 seconds the screen adds <em>Still waiting…</em> with <kbd>B</kbd> to cancel. A long wait is normal when Steam is updating the game first. After 3 minutes Moonglass stops waiting (change this in <em>Settings → System → Stop waiting for a game after</em>: 1, 3, 5 or 10 minutes).</p>
 
         <h3>While you play</h3>
-        <p>Moonglass gets out of the way. On Windows its window is minimized; on Linux it stays full screen behind the game. Either way it draws nothing and uses next to no resources, and the controller belongs to the game.</p>
+        <p>Moonglass gets out of the way. It stays full screen behind the game, so you never see the desktop while the game opens. Either way it draws nothing and uses next to no resources, and the controller belongs to the game.</p>
 
         <h3>Returning to Moonglass mid-game</h3>
-        <p>Hold <kbd>View</kbd> + <kbd>Menu</kbd> for 2 seconds, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd>. Moonglass comes forward on the <em>Now Playing</em> screen while the game keeps running behind it. You can also simply Alt-Tab to it.</p>
-        <p>The hold stops the combination from clashing with games that use those buttons. Change the buttons (View + Menu, or both sticks pressed in) and the hold time (1, 2 or 3 seconds) in <em>Settings → System</em>; the screen shows the names for your controller.</p>
+        <p>Press both sticks in and hold them for 2 seconds, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd>. Moonglass comes forward on the <em>Now Playing</em> screen while the game keeps running behind it. You can also simply Alt-Tab to it.</p>
+        <p>The hold stops the combination from clashing with games that use those buttons. Change the buttons (both sticks pressed in, or View + Menu) and the hold time (1, 2 or 3 seconds) in <em>Settings → System</em>; the screen shows the names for your controller. <em>Return to game</em> on the Now Playing screen brings the game back in front, full screen again.</p>
         <ul>
           <li>The return combination works only while a game is starting or running.</li>
           <li>On Windows, the controller combination needs an Xbox-compatible (XInput) controller; other controllers can use the keyboard shortcut. The Xbox (Guide) button cannot be used: Windows and Steam claim it.</li>
@@ -538,7 +538,7 @@
               <tr><th scope="row">Start Moonglass at login</th><td>On · <strong>Off</strong></td></tr>
               <tr><th scope="row">Send Steam / Epic / GOG to the tray after a game</th><td><strong>On</strong> · Off</td></tr>
               <tr><th scope="row">Return to Moonglass during a game</th><td>The combination for your controller, and whether the keyboard shortcut is available.</td></tr>
-              <tr><th scope="row">Return to Moonglass: buttons</th><td><strong>View + Menu</strong> · Both sticks pressed in</td></tr>
+              <tr><th scope="row">Return to Moonglass: buttons</th><td>View + Menu · <strong>Both sticks pressed in</strong></td></tr>
               <tr><th scope="row">Return to Moonglass: hold for</th><td>1 second · <strong>2 seconds</strong> · 3 seconds</td></tr>
               <tr><th scope="row">Clips and screenshots</th><td>Off · the tools for your system. <strong>Xbox Game Bar</strong> on Windows, <strong>Off</strong> on Linux. See <a href="#capture">Clips and screenshots</a>.</td></tr>
               <tr><th scope="row">Saving clips</th><td>What the chosen tool needs.</td></tr>
@@ -662,7 +662,10 @@
           <dt>Moonglass doesn't come back to the front after a game.</dt>
           <dd>Use the return combination, Alt-Tab, or click it in the taskbar. On Linux under Wayland, the desktop may refuse; a notification tells you how to return.</dd>
 
-          <dt>Holding View + Menu does nothing during a game.</dt>
+          <dt>Holding View + Menu opens Task View instead of Moonglass.</dt>
+          <dd>Windows is treating View + Menu as the Xbox button, and holding that opens Task View. Either switch the buttons back to both sticks in <em>Settings → System</em>, or turn off <em>Use View + Menu as Guide button in apps</em> in Windows Settings → Gaming → Xbox Game Bar.</dd>
+
+          <dt>Holding the return combination does nothing during a game.</dt>
           <dd>On Windows it needs an Xbox-compatible controller; use <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Home</kbd> otherwise. Make sure you hold for the full time set in <em>Settings → System</em>.</dd>
 
           <dt>Save a clip does nothing.</dt>
@@ -701,7 +704,7 @@
       </nav>
       <nav class="cell" aria-label="Read">
         <p class="label">Read</p>
-        <a href="docs.html">Documentation</a>
+        <a href="docs.html">Guide</a>
         <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/SPEC.md">Specification</a>
         <a href="https://github.com/hxpe-dev/moonglass-launcher/blob/main/BENCH.md">Benchmarks</a>
       </nav>

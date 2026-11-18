@@ -308,7 +308,7 @@ Rules that make the folder signal reliable:
 
 **Running**
 
-* Windows: the window is minimized. Linux: the window stays fullscreen underneath the game. Wayland gives an application no way to un-minimize or raise itself, so Moonglass never minimizes there; when the game's window closes, the compositor returns focus to the fullscreen window beneath it.
+* Windows: the window is not minimized, which would show the desktop and every other window while the game is still opening its own; the game comes in front of it. A game started through its store's client may not be allowed to take the foreground, so while Moonglass is still in front it hands the foreground to the game's window once it appears (up to a minute). Return to game on the Quick Menu brings the game's window back in front, restoring it if it minimized itself (exclusive fullscreen does on losing focus); only if that window cannot be found is Moonglass minimized instead. Linux: the window stays fullscreen underneath the game. Wayland gives an application no way to un-minimize or raise itself, so Moonglass never minimizes there; when the game's window closes, the compositor returns focus to the fullscreen window beneath it.
 * On both platforms Moonglass renders zero frames in this state.
 * **Now Playing screen.** Whenever Moonglass is visible while a game runs (after Alt-Tab, the restore hotkey, or on Linux when it is on top), it shows "Now playing *Game*" over the blurred backdrop (4.1), how long the game has been running and the game's total playtime with this session, the time and the controller's battery (which a full-screen game hides), and the Quick Menu (5.8). The screen disappears as soon as the game exits, whether the player quit it or it was stopped.
 * **Stop game.** The first press asks the game to close normally (a window close request on Windows, `SIGTERM` on Linux) so it can save. If it is still running after 8 seconds, the button becomes **Force stop**, which terminates it (the Job Object or process group for executables and ROMs; the detected processes for Steam, Epic and GOG games). Moonglass never stops a game without the player asking.
@@ -335,7 +335,7 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 **Restore hotkey**
 
 * Active only in the Launching and Running states.
-* Default: hold `View + Menu` (Back + Start) for 2 seconds. The hold prevents collisions with games and emulators that use the same pair as a tap. Configurable in Settings → System: the buttons (View + Menu, or both sticks pressed in) and the hold time (1, 2 or 3 seconds), applied to the watching threads at once.
+* Default: hold both sticks pressed in (L3 + R3) for 2 seconds. The hold prevents collisions with games and emulators that use the same pair as a tap. `View + Menu` is not the default because Windows can treat that pair as the Xbox button (Game Bar's "Use View + Menu as Guide button in apps"), and holding the Xbox button opens Task View over the game. Configurable in Settings → System: the buttons (both sticks pressed in, or View + Menu) and the hold time (1, 2 or 3 seconds), applied to the watching threads at once.
   * Xbox: View (two overlapping rectangles, left of the Xbox button) + Menu (three lines, right of it).
   * PlayStation: Share (DualShock 4) or Create (DualSense) + Options.
   * Nintendo Switch Pro: − (Minus) + + (Plus).

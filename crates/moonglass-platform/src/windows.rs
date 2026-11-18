@@ -841,11 +841,11 @@ pub mod window {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows,
-        FlashWindowEx, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindowVisible, PostMessageW, RegisterClassW,
-        SetForegroundWindow, ShowWindow, FLASHWINFO, FLASHW_ALL, FLASHW_TIMERNOFG, GW_OWNER,
-        SM_CXSCREEN, SM_CYSCREEN, SW_MINIMIZE, SW_RESTORE, WM_CLOSE, WNDCLASSW, WS_EX_TOOLWINDOW,
-        WS_POPUP, WS_VISIBLE,
+        FlashWindowEx, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongW,
+        GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        PostMessageW, RegisterClassW, SetForegroundWindow, ShowWindow, FLASHWINFO, FLASHW_ALL,
+        FLASHW_TIMERNOFG, GWL_EXSTYLE, GW_OWNER, SM_CXSCREEN, SM_CYSCREEN, SW_MINIMIZE, SW_RESTORE,
+        WINDOWPLACEMENT, WM_CLOSE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
     /// A desktop notification: a tray balloon, which Windows 10 and 11 show
@@ -964,10 +964,71 @@ pub mod window {
         }
     }
 
-    /// While a game runs, Moonglass's window is minimized.
+    /// Minimizes Moonglass: the fallback when the game's own window cannot
+    /// be found to bring in front ([`show_game`]).
     pub fn hide_for_game(raw: isize) {
         unsafe {
             let _ = ShowWindow(hwnd(raw), SW_MINIMIZE);
+        }
+    }
+
+    struct GameSearch<'a> {
+        pids: &'a [u32],
+        /// The largest window found, by its normal (not minimized) size.
+        best: Option<(HWND, i64)>,
+    }
+
+    unsafe extern "system" fn visit_game(h: HWND, lparam: LPARAM) -> BOOL {
+        let search = &mut *(lparam.0 as *mut GameSearch);
+        if !IsWindowVisible(h).as_bool() || GetWindow(h, GW_OWNER).is_ok_and(|o| !o.is_invalid()) {
+            return true.into();
+        }
+        if GetWindowLongW(h, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 != 0 {
+            return true.into();
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(h, Some(&mut pid));
+        if !search.pids.contains(&pid) {
+            return true.into();
+        }
+        let mut place = WINDOWPLACEMENT {
+            length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+            ..Default::default()
+        };
+        if GetWindowPlacement(h, &mut place).is_err() {
+            return true.into();
+        }
+        let r = place.rcNormalPosition;
+        let area = i64::from(r.right - r.left) * i64::from(r.bottom - r.top);
+        if search.best.is_none_or(|(_, a)| area > a) {
+            search.best = Some((h, area));
+        }
+        true.into()
+    }
+
+    /// Brings the game's main window (the largest visible top-level window
+    /// of `pids`) in front, restoring it first if it is minimized, as an
+    /// exclusive-fullscreen game is when it loses focus. Call while
+    /// Moonglass is in front, which is what lets it hand the foreground
+    /// over. Returns whether the game is now in front.
+    pub fn show_game(pids: &[u32]) -> bool {
+        if pids.is_empty() {
+            return false;
+        }
+        let mut search = GameSearch { pids, best: None };
+        unsafe {
+            let _ = EnumWindows(
+                Some(visit_game),
+                LPARAM(&mut search as *mut GameSearch as isize),
+            );
+            let Some((h, _)) = search.best else {
+                return false;
+            };
+            if IsIconic(h).as_bool() {
+                let _ = ShowWindow(h, SW_RESTORE);
+            }
+            let _ = SetForegroundWindow(h);
+            is_foreground(h)
         }
     }
 

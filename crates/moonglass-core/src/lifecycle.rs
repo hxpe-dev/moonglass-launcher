@@ -63,7 +63,7 @@ pub enum Effect {
     ShowLaunching,
     /// Add "Still waiting… \[B\] Cancel" to the overlay.
     ShowStillWaiting,
-    /// The game is running: hide Moonglass (platform-specific), render nothing,
+    /// The game is running: let the game in front, render nothing,
     /// suspend navigation, arm the restore hotkey.
     EnterRunning,
     /// Launching ended without the game starting (cancel or timeout).

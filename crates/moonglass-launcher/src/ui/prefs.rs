@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 
 pub const PREFS_KEY: &str = "ui_prefs";
 
+/// Bumped when a default changes in a way saved preferences must follow
+/// ([`Prefs::upgraded`]).
+///
+/// 1. The return-to-Moonglass buttons became both sticks.
+const PREFS_VERSION: u32 = 1;
+
 /// A setting with a fixed list of values, cycled with left/right or a click.
 pub trait Choice: Sized + Copy + PartialEq + 'static {
     const ALL: &'static [Self];
@@ -96,10 +102,13 @@ choice!(Clock {
     H12 => "12-hour",
 } default H24);
 
+// Both sticks by default: Windows can treat View + Menu as the Xbox
+// button ("Use View + Menu as Guide button in apps" in the Game Bar
+// settings), and holding that opens Task View over the game.
 choice!(RestoreButtons {
     ViewMenu => "View + Menu",
     Sticks => "Both sticks pressed in",
-} default ViewMenu);
+} default Sticks);
 
 choice!(RestoreHold {
     S1 => "1 second",
@@ -211,6 +220,9 @@ pub struct Prefs {
     pub steam_enabled: bool,
     pub epic_enabled: bool,
     pub gog_enabled: bool,
+    /// [`PREFS_VERSION`] when saved; 0 for preferences saved before it.
+    #[serde(default)]
+    pub version: u32,
 }
 
 impl Default for Prefs {
@@ -238,6 +250,7 @@ impl Default for Prefs {
             steam_enabled: true,
             epic_enabled: true,
             gog_enabled: true,
+            version: PREFS_VERSION,
         }
     }
 }
@@ -258,6 +271,17 @@ pub fn store_name(s: Source) -> &'static str {
 }
 
 impl Prefs {
+    /// Brings preferences saved by an older Moonglass up to date. Every
+    /// setting is saved whenever any one changes, so a stored value may be
+    /// an old default nobody chose.
+    pub fn upgraded(mut self) -> Self {
+        if self.version < 1 && self.restore_buttons == RestoreButtons::ViewMenu {
+            self.restore_buttons = RestoreButtons::Sticks;
+        }
+        self.version = PREFS_VERSION;
+        self
+    }
+
     /// Whether games from `source` are shown.
     pub fn store_enabled(&self, source: Source) -> bool {
         match source {
@@ -380,6 +404,21 @@ mod tests {
         assert!(p.dismiss_launcher_window);
         // Saved before stores could be turned off: all of them are on.
         assert!(STORES.iter().all(|s| p.store_enabled(*s)));
+    }
+
+    #[test]
+    fn old_view_menu_default_becomes_sticks() {
+        let old: Prefs = serde_json::from_str(r#"{"restore_buttons":"ViewMenu"}"#).unwrap();
+        assert_eq!(old.version, 0);
+        let p = old.upgraded();
+        assert_eq!(p.restore_buttons, RestoreButtons::Sticks);
+        assert_eq!(p.version, PREFS_VERSION);
+
+        // Chosen after the change: kept.
+        let chosen: Prefs =
+            serde_json::from_str(r#"{"restore_buttons":"ViewMenu","version":1}"#).unwrap();
+        assert_eq!(chosen.upgraded().restore_buttons, RestoreButtons::ViewMenu);
+        assert_eq!(Prefs::default().version, PREFS_VERSION);
     }
 
     #[test]

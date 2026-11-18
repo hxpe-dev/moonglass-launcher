@@ -141,11 +141,12 @@ impl Loaded {
         let key = db.setting::<String>(crate::artwork::SETTING_SGDB_KEY).await;
         Self {
             prefs: db
-                .setting(prefs::PREFS_KEY)
+                .setting::<prefs::Prefs>(prefs::PREFS_KEY)
                 .await
                 .ok()
                 .flatten()
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .upgraded(),
             sgdb_key_set: key.ok().flatten().is_some_and(|k| !k.trim().is_empty()),
             emulators: emulators::load(db).await.unwrap_or_default(),
             games: db.games().await.unwrap_or_default(),
@@ -300,6 +301,9 @@ struct Session {
     running_since: Option<Instant>,
     /// The game's processes, as last seen by the poll (for its volume).
     pids: Arc<Mutex<Vec<u32>>>,
+    /// Moonglass is still waiting to hand the foreground to the game's
+    /// window ([`LauncherView::hand_over_to_game`]).
+    hand_over: bool,
 }
 
 pub struct LauncherView {
@@ -2391,6 +2395,7 @@ impl LauncherView {
             origin,
             running_since: None,
             pids: pids.clone(),
+            hand_over: false,
         });
         self.restore_armed.store(true, Ordering::Relaxed);
         self.hotkey.set_armed(true);
@@ -2445,7 +2450,10 @@ impl LauncherView {
                     stop: StopState::Idle,
                     menu: QuickMenu::default(),
                 };
-                moonglass_platform::window::hide_for_game(raw_window(window));
+                // Moonglass is not minimized: that would show the desktop
+                // and every other open window while the game is still
+                // opening its own. The game comes in front of it instead.
+                self.hand_over_to_game(window, cx);
                 // Nothing is drawn while the game runs: keep only the
                 // images of the last moments (the backdrop).
                 self.release_images(Duration::from_secs(1), window, cx);
@@ -2481,6 +2489,52 @@ impl LauncherView {
             }
         }
         cx.notify();
+    }
+
+    /// A game started by Moonglass usually comes in front by itself. One
+    /// started through its store's client (Steam, Epic, GOG) may not be
+    /// allowed to: Windows keeps the foreground with Moonglass and only
+    /// flashes the game's taskbar button. While Moonglass is still in
+    /// front, this looks for the game's window a few times a second and
+    /// hands the foreground to it. It stops once anything else is in front,
+    /// after a minute, or when the restore hotkey brings Moonglass back.
+    fn hand_over_to_game(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(s) = &mut self.session else { return };
+        s.hand_over = true;
+        let id = s.id;
+        cx.spawn_in(window, async move |this, cx| {
+            let until = Instant::now() + Duration::from_secs(60);
+            while Instant::now() < until {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                let more = this.update_in(cx, |view, window, _| {
+                    let Some(s) = view.session.as_mut().filter(|s| s.id == id && s.hand_over)
+                    else {
+                        return false;
+                    };
+                    if !window.is_window_active() {
+                        s.hand_over = false;
+                        return false;
+                    }
+                    let pids = s.pids.lock().unwrap().clone();
+                    if moonglass_platform::window::show_game(&pids) {
+                        s.hand_over = false;
+                        return false;
+                    }
+                    true
+                });
+                if !matches!(more, Ok(true)) {
+                    return;
+                }
+            }
+            let _ = this.update(cx, |view, _| {
+                if let Some(s) = view.session.as_mut().filter(|s| s.id == id) {
+                    s.hand_over = false;
+                }
+            });
+        })
+        .detach();
     }
 
     fn session_title(&self) -> String {
@@ -2577,6 +2631,7 @@ impl LauncherView {
                     .filter_map(|p| p.trim().parse().ok())
                     .collect(),
             )),
+            hand_over: false,
         });
         self.overlay = Overlay::Playing {
             stop: StopState::Idle,
@@ -2588,6 +2643,10 @@ impl LauncherView {
     /// Restore hotkey: bring Moonglass forward over the game, on the
     /// Quick Menu.
     fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(s) = &mut self.session {
+            // The player wants Moonglass: stop handing over to the game.
+            s.hand_over = false;
+        }
         if self.session.is_some() && self.lifecycle.restore_hotkey_armed() {
             self.quick_opened();
             self.regain_focus(window, cx);

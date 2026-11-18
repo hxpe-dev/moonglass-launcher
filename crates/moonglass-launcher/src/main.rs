@@ -116,7 +116,11 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 /// The preferences saved by Settings, so the CLI lists and launches the
 /// same way the carousel does.
 async fn prefs(db: &Db) -> anyhow::Result<ui::prefs::Prefs> {
-    Ok(db.setting(ui::prefs::PREFS_KEY).await?.unwrap_or_default())
+    Ok(db
+        .setting::<ui::prefs::Prefs>(ui::prefs::PREFS_KEY)
+        .await?
+        .unwrap_or_default()
+        .upgraded())
 }
 
 /// Resolves a game by ID or by its number in the default `list` order.

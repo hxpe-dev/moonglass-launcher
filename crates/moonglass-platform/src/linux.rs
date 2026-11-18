@@ -736,6 +736,11 @@ pub mod window {
     /// No-op: Moonglass stays fullscreen underneath the game.
     pub fn hide_for_game(_raw: isize) {}
 
+    /// Not implemented: the caller falls back to [`hide_for_game`].
+    pub fn show_game(_pids: &[u32]) -> bool {
+        false
+    }
+
     /// A desktop notification through `notify-send`, where it is installed.
     pub fn notify(_raw: isize, title: &str, body: &str) {
         let sent = std::process::Command::new("notify-send")

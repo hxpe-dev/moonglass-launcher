@@ -187,13 +187,23 @@ impl LauncherView {
         cx.notify();
     }
 
-    /// Hides Moonglass; the game comes back in front. The menu starts over
+    /// Brings the game's window back in front, restoring it if it was
+    /// minimized (a fullscreen game minimizes itself when it loses focus).
+    /// Only if its window cannot be found is Moonglass minimized instead,
+    /// which leaves whatever was behind it in front. The menu starts over
     /// next time.
     fn return_to_game(&mut self, window: &mut Window) {
         if let Some(m) = self.quick_menu() {
             *m = QuickMenu::default();
         }
-        moonglass_platform::window::hide_for_game(raw_window(window));
+        let pids = self
+            .session
+            .as_ref()
+            .map(|s| s.pids.lock().unwrap().clone())
+            .unwrap_or_default();
+        if !moonglass_platform::window::show_game(&pids) {
+            moonglass_platform::window::hide_for_game(raw_window(window));
+        }
     }
 
     fn quick_capture(&mut self, kind: CaptureKind, window: &mut Window) {
