@@ -150,7 +150,7 @@ impl LauncherView {
                 selected(div().id(("opt", i)), lit)
                     .px(px(18.0 * u))
                     .py(px(10.0 * u))
-                    .rounded(px(10.0 * u))
+                    .rounded_full()
                     .cursor_pointer()
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.08))))
                     .when(danger && !sel, |d| d.text_color(rgb(0xF08A88)))
@@ -178,22 +178,19 @@ impl LauncherView {
                     .top(px(y))
                     .w(px(460.0 * u))
                     .p(px(16.0 * u))
-                    .rounded(px(18.0 * u))
-                    .bg(gpui::rgb(0x15171C))
+                    .bg(gpui::rgb(0x000000))
                     .border_1()
-                    .border_color(white(0.12))
+                    .border_color(white(super::theme::LINE))
                     .flex()
                     .flex_col()
                     .gap(px(10.0 * u))
                     // Clicks inside the menu must not close it.
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(
-                        div()
+                        super::theme::label(&m.game.title, 13.0, u)
                             .px(px(18.0 * u))
-                            .text_size(px(15.0 * u))
-                            .text_color(white(0.55))
-                            .truncate()
-                            .child(SharedString::from(m.game.title.clone())),
+                            .pt(px(4.0 * u))
+                            .truncate(),
                     )
                     .child(list),
             )

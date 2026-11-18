@@ -316,7 +316,7 @@ impl LauncherView {
                     .gap(px(14.0 * u))
                     .px(px(18.0 * u))
                     .py(px(9.0 * u))
-                    .rounded(px(10.0 * u))
+                    .rounded_full()
                     .cursor_pointer()
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.08))))
                     .on_click(
@@ -400,14 +400,18 @@ impl LauncherView {
                     .w(px((w * 0.62).min(1100.0 * u)))
                     .h(px(h * 0.80))
                     .p(px(30.0 * u))
-                    .rounded(px(22.0 * u))
-                    .bg(rgb(0x14161B))
+                    .bg(rgb(0x000000))
                     .border_1()
-                    .border_color(white(0.1))
+                    .border_color(white(super::theme::LINE))
                     .flex()
                     .flex_col()
                     .gap(px(14.0 * u))
-                    .child(div().text_size(px(30.0 * u)).child(b.purpose.title()))
+                    .child(
+                        div()
+                            .text_size(px(34.0 * u))
+                            .font_weight(gpui::FontWeight::LIGHT)
+                            .child(b.purpose.title()),
+                    )
                     .child(
                         div()
                             .text_size(px(16.0 * u))

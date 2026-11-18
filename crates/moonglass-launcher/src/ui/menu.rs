@@ -128,7 +128,7 @@ impl LauncherView {
                 selected(div().id(("menu-row", i)), lit)
                     .px(px(18.0 * u))
                     .py(px(11.0 * u))
-                    .rounded(px(12.0 * u))
+                    .rounded_full()
                     .cursor_pointer()
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.08))))
                     .when(row.danger && !sel, |d| d.text_color(rgb(0xF08A88)))
@@ -150,7 +150,7 @@ impl LauncherView {
                 .items_center()
                 .gap(px(8.0 * u))
                 .child(keycap(k, u))
-                .child(l.to_string())
+                .child(super::theme::label(l, 14.0, u).text_color(white(super::theme::TEXT_2)))
         };
 
         let mut panel = div()
@@ -159,11 +159,11 @@ impl LauncherView {
             .relative()
             .top(px((1.0 - shown) * 30.0 * u))
             .w(px((w * 0.5).clamp(560.0 * u, 900.0 * u)))
-            .p(px(26.0 * u))
-            .rounded(px(24.0 * u))
-            .bg(rgb(0x14161B))
+            .p(px(30.0 * u))
+            .bg(rgb(0x000000))
             .border_1()
-            .border_color(white(0.1))
+            .border_color(white(super::theme::LINE))
+            .children(super::theme::crop_marks(18.0 * u, white(0.4)))
             .flex()
             .flex_col()
             .gap(px(14.0 * u))
@@ -171,14 +171,15 @@ impl LauncherView {
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .text_size(px(30.0 * u))
+                    .text_size(px(34.0 * u))
+                    .font_weight(gpui::FontWeight::LIGHT)
                     .child(SharedString::from(m.title.clone())),
             );
         if let Some(note) = &m.note {
             panel = panel.child(
                 div()
                     .text_size(px(16.0 * u))
-                    .text_color(white(0.6))
+                    .text_color(white(super::theme::TEXT_2))
                     .child(SharedString::from(note.clone())),
             );
         }

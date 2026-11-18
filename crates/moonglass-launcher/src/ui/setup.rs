@@ -349,7 +349,7 @@ impl LauncherView {
             body = body.child(
                 div()
                     .text_size(px(if i == 0 { 22.0 } else { 18.0 } * u))
-                    .text_color(white(if i == 0 { 0.9 } else { 0.65 }))
+                    .text_color(white(if i == 0 { 0.95 } else { 0.66 }))
                     .child(SharedString::from(line)),
             );
         }
@@ -359,7 +359,7 @@ impl LauncherView {
             let mut row = selected(div().id(("setup-button", i)), lit)
                 .px(px(22.0 * u))
                 .py(px(14.0 * u))
-                .rounded(px(16.0 * u))
+                .rounded_full()
                 .cursor_pointer()
                 .flex()
                 .items_center()
@@ -383,7 +383,7 @@ impl LauncherView {
                 .items_center()
                 .gap(px(8.0 * u))
                 .child(keycap(k, u))
-                .child(l.to_string())
+                .child(super::theme::label(l, 14.0, u).text_color(white(super::theme::TEXT_2)))
         };
         let footer = div()
             .flex()
@@ -415,11 +415,11 @@ impl LauncherView {
                     .relative()
                     .top(px((1.0 - shown) * 30.0 * u))
                     .w(px(820.0 * u))
-                    .p(px(48.0 * u))
-                    .rounded(px(32.0 * u))
-                    .bg(black(0.45))
+                    .p(px(52.0 * u))
+                    .bg(black(0.55))
                     .border_1()
-                    .border_color(white(0.10))
+                    .border_color(white(super::theme::LINE))
+                    .children(super::theme::crop_marks(20.0 * u, white(0.4)))
                     .flex()
                     .flex_col()
                     .gap(px(28.0 * u))
@@ -434,8 +434,8 @@ impl LauncherView {
                             .gap(px(28.0 * u))
                             .child(
                                 div()
-                                    .text_size(px(40.0 * u))
-                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .text_size(px(46.0 * u))
+                                    .font_weight(gpui::FontWeight::LIGHT)
                                     .child(SharedString::from(title)),
                             )
                             .child(body)

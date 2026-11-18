@@ -6,7 +6,9 @@
 //! Gamepad: D-pad moves, A types the key, X deletes, Y types a space,
 //! Menu (Start) is Done, B cancels.
 
-use gpui::{div, prelude::*, px, AnyElement, Context, SharedString};
+use gpui::{
+    div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, SharedString,
+};
 use moonglass_core::GameId;
 
 use super::gamepad::NavAction;
@@ -238,17 +240,20 @@ impl LauncherView {
         let lit =
             |r: usize, c: usize| self.glide(("osk-key", r, c), on(osk.row == r && osk.col == c));
 
-        let key = |id: (&'static str, usize), label: String, w: f32, lit: f32| {
+        // Outlined keys, as the site's pills; the highlighted one is solid.
+        // `strong` brightens the outline (Shift while on, Done).
+        let key = |id: (&'static str, usize), label: String, w: f32, lit: f32, strong: bool| {
             selected(div().id(id), lit)
                 .w(px(w))
                 .h(px(key_h))
-                .rounded(px(10.0 * u))
+                .rounded(px(6.0 * u))
                 .flex()
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .bg(white(0.10 + 0.82 * lit))
-                .when(lit < 0.5, |d| d.hover(|s| s.bg(white(0.2))))
+                .border_1()
+                .border_color(white(if strong { 0.7 } else { 0.18 } + 0.3 * lit))
+                .when(lit < 0.5, |d| d.hover(|s| s.border_color(white(0.6))))
                 .child(label)
         };
 
@@ -262,41 +267,60 @@ impl LauncherView {
                     ch
                 };
                 row = row.child(
-                    key(("osk-key", r * 100 + c), ch.to_string(), key_w, lit(r, c)).on_click(
+                    key(
+                        ("osk-key", r * 100 + c),
+                        ch.to_string(),
+                        key_w,
+                        lit(r, c),
+                        false,
+                    )
+                    .on_click(
                         cx.listener(move |this, _, window, cx| this.osk_click(r, c, window, cx)),
                     ),
                 );
             }
             rows = rows.child(row);
         }
-        let mut specials = div().flex().gap(px(8.0 * u));
+        // The special keys are named in mono capitals, like the site's labels.
+        let mut specials = div()
+            .flex()
+            .gap(px(8.0 * u))
+            .font_family(super::theme::mono())
+            .text_size(px(15.0 * u));
         for (c, sp) in SPECIALS.iter().enumerate() {
-            let (label, w) = match sp {
-                Special::Shift => (if osk.shift { "SHIFT" } else { "Shift" }, key_w * 2.0),
-                Special::Space => ("Space", key_w * 4.0),
-                Special::Delete => ("Delete", key_w * 2.0),
-                Special::Done => ("Done", key_w * 2.0),
+            let (label, w, strong) = match sp {
+                Special::Shift => ("SHIFT", key_w * 2.0, osk.shift),
+                Special::Space => ("SPACE", key_w * 4.0, false),
+                Special::Delete => ("DELETE", key_w * 2.0, false),
+                Special::Done => ("DONE", key_w * 2.0, true),
             };
             let r = ROWS.len();
             specials = specials.child(
-                key(("osk-special", c), label.to_string(), w, lit(r, c)).on_click(
+                key(("osk-special", c), label.to_string(), w, lit(r, c), strong).on_click(
                     cx.listener(move |this, _, window, cx| this.osk_click(r, c, window, cx)),
                 ),
             );
         }
-        rows = rows.child(specials);
+        rows = rows
+            .child(specials)
+            // Framed by corner marks, like the site's wordmark.
+            .relative()
+            .children(super::theme::crop_marks_out(20.0 * u, 18.0 * u, white(0.4)));
 
         let field = div()
             .w(px(key_w * 10.0 + 72.0 * u))
             .px(px(18.0 * u))
             .py(px(10.0 * u))
-            .rounded(px(10.0 * u))
-            .bg(white(0.12))
+            .rounded_full()
+            .border_1()
+            .border_color(white(0.6))
             .flex()
             .items_center()
             .child(
                 div()
-                    .when(osk.text.is_empty(), |d| d.text_color(white(0.5)))
+                    .when(osk.text.is_empty(), |d| {
+                        d.text_color(white(super::theme::TEXT_3))
+                    })
                     .child(SharedString::from(if osk.text.is_empty() {
                         osk.target.label().to_string()
                     } else {
@@ -327,10 +351,9 @@ impl LauncherView {
             ]
         };
         let hints = div()
+            .mt(px(6.0 * u))
             .flex()
             .gap(px(26.0 * u))
-            .text_size(px(16.0 * u))
-            .text_color(white(0.75))
             .children(keys.iter().map(|(k, l)| {
                 div()
                     .flex_none()
@@ -338,7 +361,7 @@ impl LauncherView {
                     .items_center()
                     .gap(px(8.0 * u))
                     .child(keycap(k, u))
-                    .child(l.to_string())
+                    .child(super::theme::label(l, 14.0, u).text_color(white(super::theme::TEXT_2)))
             }));
 
         div()
@@ -347,19 +370,22 @@ impl LauncherView {
             .absolute()
             .left_0()
             .right_0()
-            .bottom(px(-(1.0 - shown) * 490.0 * u))
+            .bottom(px(-(1.0 - shown) * 560.0 * u))
             .opacity(shown)
-            .pt(px(22.0 * u))
+            .pt(px(110.0 * u))
             .pb(px(26.0 * u))
-            .bg(super::theme::black(0.86))
-            .border_t_1()
-            .border_color(white(0.12))
+            // No hard top edge: the sheet fades in from the screen above.
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(super::theme::black(0.0), 0.),
+                linear_color_stop(super::theme::black(0.97), 0.17),
+            ))
             .flex()
             .flex_col()
             .items_center()
             .gap(px(16.0 * u))
             .when(osk.target != TextTarget::Search, |d| {
-                d.child(div().text_color(white(0.7)).child(osk.target.label()))
+                d.child(super::theme::label(osk.target.label(), 14.0, u))
                     .child(field)
             })
             .child(rows)

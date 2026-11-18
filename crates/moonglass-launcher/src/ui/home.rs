@@ -14,7 +14,8 @@ use moonglass_core::{Game, Source};
 use super::icons::{icon, Icon};
 use super::prefs::{Ambient as AmbientMode, CardDetails, CardFit, CardShape, Clock};
 use super::theme::{
-    battery, black, ease_out_cubic, hex_color, keycap, mix, on, pill, segment, white, INK, OBSIDIAN,
+    battery, black, crop_marks, ease_out_cubic, hex_color, keycap, label, mix, mono, on, pill,
+    rule, segment, spaced, white, INK, LINE, OBSIDIAN, TEXT, TEXT_2, TEXT_3,
 };
 use super::{Hint, InputMode, LauncherView, Overlay, OverlayButton, StopState};
 use crate::friends::playing_line;
@@ -190,14 +191,21 @@ impl LauncherView {
                     .top(px(l.focus_top))
                     .w(px(l.focus_w))
                     .h(px(l.focus_h))
-                    .rounded(px(18.0 * u))
-                    .border_2()
-                    .border_color(white(0.5))
+                    .border_1()
+                    .border_color(white(LINE))
                     .flex()
+                    .flex_col()
+                    .gap(px(14.0 * u))
                     .items_center()
                     .justify_center()
-                    .text_size(px(30.0 * u))
-                    .child("Add your games"),
+                    .children(crop_marks(18.0 * u, white(0.4)))
+                    .child(label("00 / Library", 13.0, u))
+                    .child(
+                        div()
+                            .text_size(px(34.0 * u))
+                            .font_weight(gpui::FontWeight::LIGHT)
+                            .child("Add your games"),
+                    ),
             );
         } else if self.order.is_empty() {
             let msg = match &self.query {
@@ -209,8 +217,9 @@ impl LauncherView {
                     .absolute()
                     .left(px(l.left))
                     .top(px(l.center_y))
-                    .text_size(px(32.0 * u))
-                    .text_color(white(0.7))
+                    .text_size(px(34.0 * u))
+                    .font_weight(gpui::FontWeight::LIGHT)
+                    .text_color(white(TEXT_2))
                     .child(msg),
             );
         } else {
@@ -218,8 +227,12 @@ impl LauncherView {
             root = self.render_hero_zone(root, &l, w, h, u, chrome_alpha);
         }
 
+        // Hairline rules frame the shelf, as on the site.
+        let side = 64.0 * u;
+        root = root.child(rule(94.0 * u, side, side, u, chrome_alpha));
         root = root.child(self.render_top_bar(w, u, chrome_alpha, cx));
         if matches!(self.screen, super::Screen::Home) {
+            root = root.child(rule(h - 84.0 * u, side, side, u, chrome_alpha));
             root = root.child(self.render_action_bar(u, chrome_alpha, cx));
         }
 
@@ -241,10 +254,22 @@ impl LauncherView {
                         .opacity(mark)
                         .child(
                             div()
-                                .text_size(px((56.0 + 8.0 * segment(t, 0.0, 0.9)) * u))
-                                .font_weight(gpui::FontWeight::LIGHT)
-                                .text_color(white(0.95))
-                                .child("M O O N G L A S S"),
+                                .relative()
+                                .px(px(72.0 * u))
+                                .py(px(52.0 * u))
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(22.0 * u))
+                                .children(crop_marks(18.0 * u, white(0.4 * segment(t, 0.15, 0.3))))
+                                .child(
+                                    div()
+                                        .text_size(px((56.0 + 8.0 * segment(t, 0.0, 0.9)) * u))
+                                        .font_weight(gpui::FontWeight::EXTRA_LIGHT)
+                                        .text_color(white(TEXT))
+                                        .child(spaced("Moonglass")),
+                                )
+                                .child(label("A game launcher for the couch", 14.0, u)),
                         ),
                 );
             }
@@ -455,7 +480,8 @@ impl LauncherView {
             let focus = c;
             let accent = hex_color(g.accent_color.as_deref(), 0x5A78C8);
             let dominant = hex_color(g.dominant_color.as_deref(), 0x2A3550);
-            let radius_f = 14.0 * u * (cw / l.focus_w).max(0.7);
+            // Nearly square, like the site's artwork.
+            let radius_f = 6.0 * u * (cw / l.focus_w).max(0.7);
             let radius = px(radius_f);
             // The focused card's 2 px border sits inside it, so its content
             // uses the border's inner radius to stay concentric.
@@ -481,7 +507,7 @@ impl LauncherView {
                     cx.listener(move |this, _, _, cx| this.right_click_card(slot, cx)),
                 );
             if focus > 0.01 {
-                card = card.border_2().border_color(white(0.92 * focus));
+                card = card.border_2().border_color(white(focus));
                 let glow = glow * focus;
                 if glow > 0.0 {
                     // Glow: stacked box shadows in the accent and dominant
@@ -510,6 +536,19 @@ impl LauncherView {
                 }
             } else {
                 card = card.hover(|s| s.border_1().border_color(white(0.45)));
+            }
+            // Crop marks around the focused card, a little outside it.
+            if focus > 0.01 {
+                let gap = 14.0 * u;
+                root = root.child(
+                    div()
+                        .absolute()
+                        .left(px(x - gap))
+                        .top(px(y - gap))
+                        .w(px(cw + 2.0 * gap))
+                        .h(px(ch + 2.0 * gap))
+                        .children(crop_marks(20.0 * u, white(0.55 * focus * appear))),
+                );
             }
 
             let mut inner = div()
@@ -553,11 +592,12 @@ impl LauncherView {
                         .gap(px(5.0 * u))
                         .px(px(8.0 * u))
                         .py(px(2.0 * u))
-                        .rounded(px(6.0 * u))
-                        .bg(black(0.7))
+                        .rounded_full()
+                        .bg(black(0.75))
+                        .font_family(mono())
                         .text_color(rgb(color))
-                        .text_size(px(13.0 * u))
-                        .child(text)
+                        .text_size(px(12.0 * u))
+                        .child(text.to_uppercase())
                 };
                 let mut tags = div()
                     .absolute()
@@ -588,10 +628,11 @@ impl LauncherView {
                         div()
                             .px(px(8.0 * u))
                             .py(px(2.0 * u))
-                            .rounded(px(6.0 * u))
-                            .bg(black(0.7))
-                            .text_size(px(13.0 * u))
-                            .child("Hidden"),
+                            .rounded_full()
+                            .bg(black(0.75))
+                            .font_family(mono())
+                            .text_size(px(12.0 * u))
+                            .child("HIDDEN"),
                     );
                 }
                 if g.is_favorite {
@@ -601,9 +642,9 @@ impl LauncherView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded(px(6.0 * u))
-                            .bg(black(0.7))
-                            .child(icon(Icon::Star, 15.0 * u, rgb(0xF5C451))),
+                            .rounded_full()
+                            .bg(black(0.75))
+                            .child(icon(Icon::Star, 14.0 * u, white(TEXT))),
                     );
                 }
                 inner = inner.child(badges);
@@ -647,10 +688,11 @@ impl LauncherView {
                     }
                     label = label.child(
                         div()
-                            .text_size(px(13.0 * u))
-                            .text_color(white(0.6))
+                            .font_family(mono())
+                            .text_size(px(12.0 * u))
+                            .text_color(white(TEXT_3))
                             .truncate()
-                            .child(meta),
+                            .child(meta.to_uppercase()),
                     );
                 }
                 root = root.child(label);
@@ -704,34 +746,28 @@ impl LauncherView {
             }
             None => hero.child(
                 div()
-                    .text_size(px(50.0 * u))
-                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_size(px(58.0 * u))
+                    .font_weight(gpui::FontWeight::LIGHT)
                     .child(SharedString::from(g.title.clone())),
             ),
         };
-        let mut meta = div().flex().gap(px(14.0 * u)).items_center().child(
-            div()
-                .px(px(10.0 * u))
-                .py(px(3.0 * u))
-                .rounded(px(6.0 * u))
-                .bg(white(0.16))
-                .text_size(px(16.0 * u))
-                .child(source_label(&g)),
+        // One mono line, as the site's labels: where the focus is in the
+        // row, the store, the time played.
+        let mut line = format!(
+            "{:02} / {:02} · {}",
+            self.selected + 1,
+            self.order.len(),
+            source_label(&g)
         );
         if let Some(p) = playtime(&g) {
-            meta = meta.child(
-                div()
-                    .text_size(px(18.0 * u))
-                    .text_color(white(0.7))
-                    .child(format!("{p} in Moonglass")),
-            );
+            line = format!("{line} · {p} played");
         }
-        let note = |text: String, color: u32| {
-            div()
-                .text_size(px(18.0 * u))
-                .text_color(rgb(color))
-                .child(text)
-        };
+        let mut meta = div()
+            .flex()
+            .gap(px(20.0 * u))
+            .items_center()
+            .child(label(line, 15.0, u).text_color(white(TEXT_2)));
+        let note = |text: String, color: u32| label(text, 15.0, u).text_color(rgb(color));
         if let Some(line) = playing_line(self.friends.playing(&g)) {
             meta = meta.child(note(line, ONLINE));
         }
@@ -749,33 +785,24 @@ impl LauncherView {
             .flex()
             .items_center()
             .gap(px(10.0 * u))
-            .text_size(px(18.0 * u));
+            .font_family(mono())
+            .text_size(px(14.0 * u));
         if !connected {
-            s = s.text_color(white(0.5)).child("No controller");
+            s = s.text_color(white(TEXT_3)).child("NO CONTROLLER");
         } else {
-            s = s.text_color(white(0.85)).child("Controller");
+            s = s.text_color(white(TEXT_2)).child("CONTROLLER");
             match (pad.battery, self.xinput_power) {
                 (Some(p), _) => {
                     s = s.child(battery(p as f32 / 100.0, u));
                     if pad.charging {
-                        s = s.child(
-                            div()
-                                .text_size(px(14.0 * u))
-                                .text_color(white(0.7))
-                                .child("charging"),
-                        );
+                        s = s.child(div().text_color(white(TEXT_3)).child("CHARGING"));
                     }
                 }
                 (None, Some(moonglass_platform::PadPower::Level(l))) => {
                     s = s.child(battery(l as f32 / 3.0, u));
                 }
                 (None, Some(moonglass_platform::PadPower::Wired)) => {
-                    s = s.child(
-                        div()
-                            .text_size(px(14.0 * u))
-                            .text_color(white(0.7))
-                            .child("wired"),
-                    );
+                    s = s.child(div().text_color(white(TEXT_3)).child("WIRED"));
                 }
                 (None, None) => {}
             }
@@ -792,7 +819,11 @@ impl LauncherView {
 
     fn render_top_bar(&self, w: f32, u: f32, alpha: f32, cx: &mut Context<Self>) -> Div {
         // Filter pills (clickable).
-        let mut pills = div().flex().gap(px(6.0 * u));
+        let mut pills = div()
+            .flex()
+            .gap(px(6.0 * u))
+            .font_family(mono())
+            .text_size(px(15.0 * u));
         for (i, f) in self.filters.iter().copied().enumerate() {
             let active = f == self.filter && self.query.is_none();
             let a = self.glide(("pill", f.label()), on(active));
@@ -800,16 +831,14 @@ impl LauncherView {
                 div()
                     .id(("pill", i))
                     .px(px(18.0 * u))
-                    .py(px(6.0 * u))
+                    .py(px(8.0 * u))
                     .rounded_full()
                     .cursor_pointer()
-                    .bg(white(0.92 * a))
-                    .text_color(mix(white(0.62), rgb(INK).into(), a))
-                    .when(!active, |d| {
-                        d.hover(|s| s.bg(white(0.12)).text_color(white(0.95)))
-                    })
+                    .bg(white(a))
+                    .text_color(mix(white(TEXT_3), rgb(INK).into(), a))
+                    .when(!active, |d| d.hover(|s| s.text_color(white(TEXT))))
                     .on_click(cx.listener(move |this, _, _, cx| this.click_filter(f, cx)))
-                    .child(f.label()),
+                    .child(f.label().to_uppercase()),
             );
         }
 
@@ -836,10 +865,10 @@ impl LauncherView {
             .items_center()
             .gap(px(10.0 * u))
             .cursor_text()
-            .bg(white(0.09 + 0.09 * lit))
+            .bg(black(0.35))
             .border_1()
-            .border_color(white(0.65 * lit))
-            .when(!focused, |d| d.hover(|s| s.bg(white(0.14))))
+            .border_color(white(0.3 + 0.7 * lit))
+            .when(!focused, |d| d.hover(|s| s.border_color(white(0.6))))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.set_input(InputMode::Mouse, cx);
                 this.click_search_box(cx);
@@ -855,7 +884,7 @@ impl LauncherView {
                     .child(
                         div()
                             .truncate()
-                            .when(query.is_empty(), |d| d.text_color(white(0.5)))
+                            .when(query.is_empty(), |d| d.text_color(white(TEXT_3)))
                             .child(SharedString::from(if query.is_empty() && !focused {
                                 "Search".to_string()
                             } else {
@@ -947,7 +976,13 @@ impl LauncherView {
                     .gap(px(24.0 * u))
                     .child(search)
                     .child(status)
-                    .child(div().text_color(white(0.85)).child(clock))
+                    .child(
+                        div()
+                            .font_family(mono())
+                            .text_size(px(16.0 * u))
+                            .text_color(white(TEXT_2))
+                            .child(clock),
+                    )
                     .child(gear),
             )
     }
@@ -990,18 +1025,10 @@ impl LauncherView {
                 hints.push(("Esc", "Hold to exit", Hint::Exit));
             }
         }
-        let mut bar = div()
-            .absolute()
-            .bottom(px(36.0 * u))
-            .left(px(64.0 * u))
-            .right(px(64.0 * u))
-            .opacity(alpha)
-            .flex()
-            .justify_end()
-            .gap(px(12.0 * u));
-        for (i, (glyph, label, action)) in hints.into_iter().enumerate() {
-            bar =
-                bar.child(
+        let mut hint_row = div().flex().gap(px(12.0 * u));
+        for (i, (glyph, text, action)) in hints.into_iter().enumerate() {
+            hint_row =
+                hint_row.child(
                     div()
                         .id(("hint", i))
                         .flex()
@@ -1016,10 +1043,25 @@ impl LauncherView {
                             this.hint_action(action, window, cx)
                         }))
                         .child(keycap(glyph, u))
-                        .child(div().text_color(white(0.85)).child(label.to_string())),
+                        .child(label(text, 14.0, u).text_color(white(TEXT_2))),
                 );
         }
-        bar
+        // Bottom left, as the site's corner labels: the size of the shelf.
+        let count = match self.order.len() {
+            1 => "1 game".to_string(),
+            n => format!("{n} games"),
+        };
+        div()
+            .absolute()
+            .bottom(px(24.0 * u))
+            .left(px(64.0 * u))
+            .right(px(64.0 * u))
+            .opacity(alpha)
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(label(format!("Moonglass · {count}"), 14.0, u))
+            .child(hint_row)
     }
 
     /// Launching, Now Playing, and messages.
@@ -1072,14 +1114,15 @@ impl LauncherView {
                     .gap(px(24.0 * u))
                     .child(
                         div()
-                            .text_size(px(44.0 * u))
+                            .text_size(px(48.0 * u))
+                            .font_weight(gpui::FontWeight::LIGHT)
                             .child(format!("Launching {title}…")),
                     );
                 if *still_waiting {
                     c = c
                         .child(
                             div()
-                                .text_color(white(0.7))
+                                .text_color(white(TEXT_2))
                                 .child("Still waiting… Steam may be updating the game."),
                         )
                         .child(button(
@@ -1131,8 +1174,8 @@ impl LauncherView {
                             .into_any_element()
                     }
                     None => div()
-                        .text_size(px(64.0 * u))
-                        .font_weight(gpui::FontWeight::BOLD)
+                        .text_size(px(68.0 * u))
+                        .font_weight(gpui::FontWeight::LIGHT)
                         .child(title.clone())
                         .into_any_element(),
                 };
@@ -1162,8 +1205,13 @@ impl LauncherView {
                     .items_center()
                     .justify_between()
                     .gap(px(48.0 * u))
-                    .text_color(white(0.85))
-                    .child(div().text_size(px(22.0 * u)).child(self.clock_text()))
+                    .child(
+                        div()
+                            .font_family(mono())
+                            .text_size(px(16.0 * u))
+                            .text_color(white(TEXT_2))
+                            .child(self.clock_text()),
+                    )
                     .child(self.controller_status(u));
                 let mut c = div()
                     .flex()
@@ -1171,14 +1219,9 @@ impl LauncherView {
                     .items_center()
                     .gap(px(22.0 * u))
                     .child(status)
-                    .child(
-                        div()
-                            .text_size(px(16.0 * u))
-                            .text_color(white(0.7))
-                            .child("N O W   P L A Y I N G"),
-                    )
+                    .child(label("Now playing", 14.0, u))
                     .child(headline)
-                    .child(div().text_color(white(0.75)).child(playing_for))
+                    .child(div().text_color(white(TEXT_2)).child(playing_for))
                     .child(
                         div()
                             .mt(px(14.0 * u))
@@ -1207,7 +1250,7 @@ impl LauncherView {
                     c = c.child(
                         div()
                             .text_size(px(17.0 * u))
-                            .text_color(white(0.65))
+                            .text_color(white(TEXT_3))
                             .child(n),
                     );
                 }
@@ -1218,7 +1261,12 @@ impl LauncherView {
                 .flex_col()
                 .items_center()
                 .gap(px(24.0 * u))
-                .child(div().text_size(px(40.0 * u)).child(m.clone()))
+                .child(
+                    div()
+                        .text_size(px(40.0 * u))
+                        .font_weight(gpui::FontWeight::LIGHT)
+                        .child(m.clone()),
+                )
                 .child(button(
                     "ov-ok",
                     k_ok,
@@ -1253,12 +1301,12 @@ impl LauncherView {
                     content
                         .relative()
                         .top(px((1.0 - shown) * 30.0 * u))
-                        .px(px(64.0 * u))
-                        .py(px(44.0 * u))
-                        .rounded(px(32.0 * u))
-                        .when(backdrop, |d| {
-                            d.bg(black(0.42)).border_1().border_color(white(0.08))
-                        }),
+                        .px(px(72.0 * u))
+                        .py(px(52.0 * u))
+                        // A square panel with crop marks, like the site's
+                        // wordmark.
+                        .children(crop_marks(20.0 * u, white(0.4)))
+                        .when(backdrop, |d| d.bg(black(0.5))),
                 )
                 .into_any_element(),
         )

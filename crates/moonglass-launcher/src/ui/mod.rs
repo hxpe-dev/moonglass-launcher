@@ -2792,7 +2792,8 @@ impl Render for LauncherView {
             .relative()
             .overflow_hidden()
             .bg(gpui::rgb(theme::OBSIDIAN))
-            .text_color(theme::white(0.95))
+            .font_family(theme::sans())
+            .text_color(theme::white(theme::TEXT))
             .text_size(px(22.0 * u));
 
         // Settings, setup and the launch / Now Playing screens sit on an
@@ -2893,9 +2894,9 @@ impl Render for LauncherView {
                             .px(px(24.0 * u))
                             .py(px(12.0 * u))
                             .rounded_full()
-                            .bg(theme::black(0.82))
+                            .bg(theme::black(0.88))
                             .border_1()
-                            .border_color(theme::white(0.14))
+                            .border_color(theme::white(0.45))
                             .text_size(px(18.0 * u))
                             .child(msg.clone()),
                     ),
@@ -2939,10 +2940,9 @@ impl Render for LauncherView {
                             .w(px((340.0 + 24.0 * progress) * u))
                             .px(px(24.0 * u))
                             .py(px((14.0 + 2.0 * progress) * u))
-                            .rounded(px(20.0 * u))
-                            .bg(theme::black(0.82))
+                            .bg(theme::black(0.88))
                             .border_1()
-                            .border_color(theme::white(0.14 + 0.5 * done))
+                            .border_color(theme::white(theme::LINE + 0.5 * done))
                             .flex()
                             .flex_col()
                             .items_center()
@@ -2957,14 +2957,13 @@ impl Render for LauncherView {
                             .child(
                                 div()
                                     .w_full()
-                                    .h(px((6.0 + 2.0 * progress) * u))
-                                    .rounded_full()
-                                    .bg(theme::white(0.15))
+                                    .h(px((4.0 + 2.0 * progress) * u))
+                                    .border_1()
+                                    .border_color(theme::white(0.4))
                                     .child(
                                         div()
                                             .h_full()
                                             .w(gpui::relative(progress))
-                                            .rounded_full()
                                             .bg(theme::white(0.75 + 0.25 * progress)),
                                     ),
                             ),
@@ -2989,6 +2988,10 @@ pub fn run(
     let backend = Arc::new(backend);
     let closing = backend.clone();
     app.run(move |cx: &mut App| {
+        if let Err(e) = cx.text_system().add_fonts(theme::bundled_fonts()) {
+            tracing::warn!("could not load the bundled fonts: {e:#}");
+        }
+        theme::pick_fonts(&cx.text_system().all_font_names());
         let bounds = Bounds::centered(None, size(px(1600.), px(900.)), cx);
         let windowed = std::env::var_os("MOONGLASS_WINDOWED").is_some();
         let options = WindowOptions {

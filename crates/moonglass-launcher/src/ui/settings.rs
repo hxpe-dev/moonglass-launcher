@@ -13,7 +13,7 @@ use super::icons::{icon, Icon};
 use moonglass_core::Source;
 
 use super::prefs::{Choice, Prefs};
-use super::theme::{black, keycap, mix, on, selected, white, INK};
+use super::theme::{black, crop_marks_out, keycap, label, mix, on, selected, white, INK};
 use super::LauncherView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,13 +302,16 @@ pub(super) fn toggle_switch(t: f32, u: f32) -> Div {
         .h(px(28.0 * u))
         .rounded_full()
         .p(px(3.0 * u))
-        .bg(mix(white(0.25), rgb(0x5A8DEE).into(), t))
+        // Monochrome, as on the site: an outline when off, solid when on.
+        .border_1()
+        .border_color(white(0.45 + 0.55 * t))
+        .bg(white(t))
         .child(
             div()
                 .ml(px(24.0 * u * t))
-                .size(px(22.0 * u))
+                .size(px(20.0 * u))
                 .rounded_full()
-                .bg(gpui::white()),
+                .bg(mix(white(0.6), rgb(INK).into(), t)),
         )
 }
 
@@ -563,12 +566,12 @@ impl LauncherView {
     ) -> AnyElement {
         let prefs = &self.prefs;
         let ink: Hsla = rgb(INK).into();
-        // A dark glass panel: the blurred artwork shows through.
+        // A dark glass panel: the blurred artwork shows through. No outline:
+        // focus brackets at its corners frame it instead.
         let glass = |d: Div| {
-            d.rounded(px(26.0 * u))
-                .bg(black(0.42))
-                .border_1()
-                .border_color(white(0.10))
+            d.relative()
+                .bg(black(0.38))
+                .children(crop_marks_out(22.0 * u, 10.0 * u, white(0.45)))
         };
 
         let mut sections = glass(div())
@@ -589,7 +592,7 @@ impl LauncherView {
                     .id(("settings-section", i))
                     .px(px(20.0 * u))
                     .py(px(13.0 * u))
-                    .rounded(px(16.0 * u))
+                    .rounded_full()
                     .cursor_pointer()
                     .bg(white(0.14 * tint + 0.78 * lit))
                     .text_color(mix(white(0.65 + 0.30 * tint), ink, lit))
@@ -597,6 +600,15 @@ impl LauncherView {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_click_section(i, cx);
                     }))
+                    .flex()
+                    .items_center()
+                    .gap(px(16.0 * u))
+                    // Numbered, as the site's sections are.
+                    .child(label(format!("{:02}", i + 1), 13.0, u).text_color(mix(
+                        white(0.30 + 0.25 * tint),
+                        ink,
+                        lit,
+                    )))
                     .child(s.label()),
             );
         }
@@ -680,8 +692,9 @@ impl LauncherView {
                     .px(px(14.0 * u))
                     .py(px(4.0 * u))
                     .rounded_full()
-                    .bg(mix(white(0.14), ink, lit))
-                    .text_color(mix(white(0.95), gpui::white(), lit))
+                    .border_1()
+                    .border_color(mix(white(0.45), ink, lit))
+                    .text_color(mix(white(0.95), ink, lit))
                     .child(v),
                 Kind::Info => div()
                     .text_color(mix(white(0.6), rgb(0x3A3D45).into(), lit))
@@ -696,7 +709,7 @@ impl LauncherView {
                     .gap(px(24.0 * u))
                     .px(px(22.0 * u))
                     .py(px(14.0 * u))
-                    .rounded(px(16.0 * u))
+                    .rounded_full()
                     .when(kind != Kind::Info, |d| d.cursor_pointer())
                     .when(!sel, |d| d.hover(|s| s.bg(white(0.07))))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -720,9 +733,11 @@ impl LauncherView {
                     .px(px(22.0 * u))
                     .pt(px(10.0 * u))
                     .pb(px(4.0 * u))
-                    .text_size(px(15.0 * u))
-                    .text_color(white(0.5))
-                    .child(section.label().to_uppercase()),
+                    .child(label(
+                        format!("{:02} / {}", st.section + 1, section.label()),
+                        13.0,
+                        u,
+                    )),
             )
             .child(
                 div()
@@ -738,7 +753,7 @@ impl LauncherView {
                 .items_center()
                 .gap(px(8.0 * u))
                 .child(keycap(k, u))
-                .child(l.to_string())
+                .child(super::theme::label(l, 14.0, u).text_color(white(super::theme::TEXT_2)))
         };
         let keyboard = self.input != super::InputMode::Gamepad;
         let footer = if keyboard {
@@ -780,19 +795,31 @@ impl LauncherView {
                     .justify_between()
                     .child(
                         div()
-                            .text_size(px(40.0 * u))
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child("Settings"),
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.0 * u))
+                            .child(label(
+                                concat!("Moonglass · ", env!("CARGO_PKG_VERSION")),
+                                13.0,
+                                u,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(44.0 * u))
+                                    .font_weight(gpui::FontWeight::LIGHT)
+                                    .child("Settings"),
+                            ),
                     )
                     .child(
                         div()
                             .id("settings-close")
                             .cursor_pointer()
-                            .px(px(18.0 * u))
+                            .px(px(20.0 * u))
                             .py(px(8.0 * u))
                             .rounded_full()
-                            .bg(white(0.14))
-                            .hover(|s| s.bg(white(0.26)))
+                            .border_1()
+                            .border_color(white(0.45))
+                            .hover(|s| s.bg(white(1.0)).text_color(rgb(INK)))
                             .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx)))
                             .child("Close"),
                     ),
@@ -806,7 +833,8 @@ impl LauncherView {
                     .top(px((1.0 - shown) * 28.0 * u))
                     .flex()
                     .items_start()
-                    .gap(px(28.0 * u))
+                    // Room between the panels for their corner marks.
+                    .gap(px(44.0 * u))
                     .child(sections)
                     .child(panel),
             )
