@@ -262,6 +262,8 @@ enum Hint {
     Exit,
     /// Play or pause the music.
     Music,
+    /// The next song (the hint shows both triggers).
+    MusicNext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1902,6 +1904,7 @@ impl LauncherView {
                 return;
             }
             Hint::Music => return self.music_button(MusicControl::PlayPause, cx),
+            Hint::MusicNext => return self.music_button(MusicControl::Next, cx),
         };
         self.input_action(a, window, cx);
     }

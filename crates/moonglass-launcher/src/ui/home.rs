@@ -1021,9 +1021,6 @@ impl LauncherView {
             .child(icon(Icon::Gear, 24.0 * u, white(0.9)));
 
         // The song playing, centered: it gives way while search widens.
-        // With a controller, the triggers that change song sit either side.
-        let pad = self.input == InputMode::Gamepad;
-        let [prev_key, next_key, _] = music_keys(self.controller.family);
         let music = self
             .now_playing
             .clone()
@@ -1060,7 +1057,6 @@ impl LauncherView {
                     .items_center()
                     .gap(px(10.0 * u))
                     .opacity(shown)
-                    .when(pad, |d| d.child(keycap(prev_key, u)))
                     .child(
                         div()
                             .id("now-playing")
@@ -1090,7 +1086,6 @@ impl LauncherView {
                             .child(button("music-next", Icon::Next, MusicControl::Next))
                             .child(self.render_song(&now, u)),
                     )
-                    .when(pad, |d| d.child(keycap(next_key, u)))
             });
 
         div()
@@ -1145,11 +1140,13 @@ impl LauncherView {
             ]);
             if self.music_shown() {
                 let paused = self.now_playing.as_ref().is_some_and(|n| n.paused);
+                let (tracks, pause) = music_keys(f);
                 hints.push((
-                    music_keys(f)[2],
+                    pause,
                     if paused { "Play music" } else { "Pause music" },
                     Hint::Music,
                 ));
+                hints.push((tracks, "Back / Next", Hint::MusicNext));
             }
             if !searching {
                 hints.push((b, "Hold to exit", Hint::Exit));
@@ -1424,13 +1421,14 @@ impl LauncherView {
     }
 }
 
-/// The controller's music buttons: previous song, next song, and play /
-/// pause (the triggers and the View button, by their names on each family).
-fn music_keys(f: super::gamepad::Family) -> [&'static str; 3] {
+/// The controller's music buttons, by their names on each family: the
+/// triggers that go back and on a song, and the button that plays and
+/// pauses.
+fn music_keys(f: super::gamepad::Family) -> (&'static str, &'static str) {
     use super::gamepad::Family;
     match f {
-        Family::Xbox => ["LT", "RT", "View"],
-        Family::PlayStation => ["L2", "R2", "Create"],
-        Family::Nintendo => ["ZL", "ZR", "−"],
+        Family::Xbox => ("LT RT", "View"),
+        Family::PlayStation => ("L2 R2", "Create"),
+        Family::Nintendo => ("ZL ZR", "−"),
     }
 }
