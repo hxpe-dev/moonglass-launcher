@@ -311,6 +311,12 @@ impl LauncherView {
             (MenuAction::ChooseSteamFolder, _) => self.open_browser(Purpose::SteamFolder),
             (MenuAction::AutoSteamFolder, _) => self.set_steam_folder(None),
             (MenuAction::UnignoreSteamApp(app), _) => self.set_steam_ignored(app, false, cx),
+            (MenuAction::ChooseMusicFolder, _) => self.open_browser(Purpose::MusicFolder),
+            (MenuAction::NextTrack, _) => {
+                self.set_modal(Modal::None);
+                self.audio.next_track();
+            }
+            (MenuAction::MusicOff, _) => self.set_music_folder(None),
             (MenuAction::RemoveEmulator, Some(info)) => {
                 let e = info.emulator;
                 self.set_modal(Modal::None);

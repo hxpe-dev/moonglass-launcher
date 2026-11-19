@@ -27,6 +27,9 @@ pub enum MenuAction {
     AutoSteamFolder,
     /// Count this Steam app as a game again.
     UnignoreSteamApp(u32),
+    ChooseMusicFolder,
+    NextTrack,
+    MusicOff,
 }
 
 pub struct MenuRow {

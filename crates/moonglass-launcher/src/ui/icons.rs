@@ -57,6 +57,10 @@ icons! {
     Folder => "folder.svg",
     File => "file.svg",
     Check => "check.svg",
+    Previous => "previous.svg",
+    Next => "next.svg",
+    Play => "play.svg",
+    Pause => "pause.svg",
 }
 
 /// An icon `size` pixels square, filled with `color`.

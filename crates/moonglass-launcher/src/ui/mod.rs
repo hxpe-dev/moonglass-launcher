@@ -55,6 +55,7 @@ use moonglass_platform::{
     AppPaths, FocusResult, InstanceGuard, PadPower, ProcessWatcher, TrackedChild,
 };
 
+use crate::audio::{Audio, NowPlaying, Sfx};
 use crate::friends::{self, Friend};
 use crate::launch::{self, Running, SteamJoin};
 use crate::now_unix;
@@ -62,7 +63,7 @@ use crate::steam_accounts::SteamAccounts;
 use anim::Anims;
 use browser::{Browser, BrowserResult, Entry, Purpose};
 use emulators::EmulatorInfo;
-use gamepad::{ControllerStatus, NavAction, PadEvent};
+use gamepad::{ControllerStatus, MusicControl, NavAction, PadEvent};
 use menu::Menu;
 use options::{Opt, OptionsMenu};
 use osk::{Osk, OskResult, TextTarget};
@@ -95,6 +96,9 @@ const QUIT_DONE_BEAT: Duration = Duration::from_millis(200);
 /// After Stop, how long the game gets to close before Force stop is offered.
 const STOP_GRACE: Duration = Duration::from_secs(8);
 
+/// The background music folder (empty for none).
+const SETTING_MUSIC_FOLDER: &str = "music_folder";
+
 /// Everything the UI needs from the rest of the app.
 pub struct Backend {
     pub db: Db,
@@ -115,6 +119,8 @@ pub struct Loaded {
     steam_root_manual: Option<String>,
     /// Steam apps marked as not games.
     steam_ignored: Vec<u32>,
+    /// The background music folder, if one was chosen.
+    music_folder: Option<String>,
     /// Said on the first frame when the library had to be recovered.
     pub recovery: Option<String>,
 }
@@ -162,6 +168,12 @@ impl Loaded {
                 .ok()
                 .flatten()
                 .unwrap_or_default(),
+            music_folder: db
+                .setting::<String>(SETTING_MUSIC_FOLDER)
+                .await
+                .ok()
+                .flatten()
+                .filter(|p| !p.trim().is_empty()),
             setup_done: db
                 .setting::<bool>(setup::SETTING_SETUP_DONE)
                 .await
@@ -248,6 +260,8 @@ enum Hint {
     Filter,
     Settings,
     Exit,
+    /// Play or pause the music.
+    Music,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -398,6 +412,17 @@ pub struct LauncherView {
     steam_ignored: Vec<u32>,
     sgdb_key_set: bool,
     start_at_login: bool,
+
+    /// Interface sounds and music.
+    audio: Audio,
+    /// The sound the current action asked for, played when the frame is
+    /// drawn (of several, the one with the highest [`Sfx::priority`]).
+    sfx_pending: Option<Sfx>,
+    music_folder: Option<String>,
+    /// Whether music was last told it may play.
+    music_active: bool,
+    /// The song the home screen shows, as the audio thread last said.
+    now_playing: Option<NowPlaying>,
 
     /// The black window shown since the program started, until the first
     /// frame is on screen.
@@ -637,6 +662,17 @@ impl LauncherView {
             steam_ignored: loaded.steam_ignored,
             sgdb_key_set: loaded.sgdb_key_set,
             start_at_login: moonglass_platform::start_at_login().unwrap_or(false),
+            audio: {
+                let a = Audio::start();
+                a.set_sfx_volume(loaded.prefs.sfx_volume);
+                a.set_music_volume(loaded.prefs.music_volume);
+                a.set_music_folder(loaded.music_folder.as_ref().map(PathBuf::from));
+                a
+            },
+            sfx_pending: None,
+            music_folder: loaded.music_folder,
+            music_active: false,
+            now_playing: None,
             splash,
             drawn: false,
             loaded: false,
@@ -751,6 +787,151 @@ impl LauncherView {
         cx.notify();
     }
 
+    // -------------------------------------------------------------- sound
+
+    /// Asks for an interface sound. One action can ask for several (a
+    /// confirm that opens a menu): only the most important is played.
+    fn sfx(&mut self, s: Sfx) {
+        if self
+            .sfx_pending
+            .is_none_or(|p| s.priority() >= p.priority())
+        {
+            self.sfx_pending = Some(s);
+        }
+    }
+
+    fn flush_sfx(&mut self) {
+        if let Some(s) = self.sfx_pending.take() {
+            self.audio.play(s);
+        }
+    }
+
+    /// Music plays only while Moonglass is in front and no game is running.
+    fn sync_music(&mut self, window: &Window) {
+        let active = self.session.is_none() && window.is_window_active();
+        if active != self.music_active {
+            self.music_active = active;
+            self.audio.set_music_active(active);
+        }
+    }
+
+    /// Reads the current song from the audio thread. True if it changed.
+    fn refresh_now_playing(&mut self) -> bool {
+        let now = self.audio.now_playing();
+        if now != self.now_playing {
+            self.now_playing = now;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the home screen shows the music bar (and its buttons work).
+    pub(super) fn music_shown(&self) -> bool {
+        self.now_playing.is_some() && self.music_folder.is_some() && self.prefs.music_volume > 0
+    }
+
+    /// The music bar's buttons, clicked or pressed on a controller (View,
+    /// LT, RT). Not during a game: those buttons belong to it.
+    fn music_button(&mut self, b: MusicControl, cx: &mut Context<Self>) {
+        if !self.music_shown() || self.session.is_some() {
+            return;
+        }
+        match b {
+            MusicControl::Previous => self.audio.previous_track(),
+            MusicControl::Next => self.audio.next_track(),
+            MusicControl::PlayPause => {
+                self.audio.toggle_pause();
+                // Shown at once; the audio thread follows.
+                if let Some(n) = &mut self.now_playing {
+                    n.paused = !n.paused;
+                }
+            }
+        }
+        self.sfx(Sfx::Toggle);
+        // The new song's name, once the audio thread has moved to it.
+        self.repaint_after(Duration::from_millis(120), cx);
+        cx.notify();
+    }
+
+    fn open_music_menu(&mut self) {
+        let mut rows = vec![menu::MenuRow::new(
+            if self.music_folder.is_some() {
+                "Choose another music folder…"
+            } else {
+                "Choose a music folder…"
+            },
+            menu::MenuAction::ChooseMusicFolder,
+        )];
+        if self.music_folder.is_some() {
+            rows.push(menu::MenuRow::new(
+                "Next track",
+                menu::MenuAction::NextTrack,
+            ));
+            rows.push(menu::MenuRow::new(
+                "Turn background music off",
+                menu::MenuAction::MusicOff,
+            ));
+        }
+        self.set_modal(Modal::Menu(Menu {
+            title: "Background music".into(),
+            note: Some(
+                "Choose a folder of your own music. Its songs play shuffled while you browse, and pause while you play."
+                    .into(),
+            ),
+            rows,
+            selected: 0,
+            armed: false,
+            emulator: None,
+            steam_accounts: false,
+        }));
+    }
+
+    /// `None` turns the music off.
+    pub(super) fn set_music_folder(&mut self, dir: Option<PathBuf>) {
+        self.set_modal(Modal::None);
+        self.music_folder = dir.as_ref().map(|p| p.to_string_lossy().into_owned());
+        self.audio.set_music_folder(dir.clone());
+        let value = self.music_folder.clone().unwrap_or_default();
+        let volume_off = self.prefs.music_volume == 0;
+        let db = self.backend.db.clone();
+        let tx = self.tx.clone();
+        self.backend.rt.spawn(async move {
+            if let Err(e) = db.set_setting(SETTING_MUSIC_FOLDER, &value).await {
+                tracing::error!(error = %e, "saving the music folder");
+            }
+            let msg = match dir {
+                None => "Background music off".to_string(),
+                Some(dir) => {
+                    let n =
+                        tokio::task::spawn_blocking(move || crate::audio::music_files(&dir).len())
+                            .await
+                            .unwrap_or(0);
+                    match (n, volume_off) {
+                        (0, _) => "No music files in that folder (MP3, FLAC, OGG or WAV)".into(),
+                        (n, true) => format!("{n} songs found · turn up Music volume to hear them"),
+                        (1, false) => "Playing 1 song".into(),
+                        (n, false) => format!("Playing {n} songs, shuffled"),
+                    }
+                }
+            };
+            let _ = tx.unbounded_send(UiEvent::Toast(msg));
+        });
+    }
+
+    /// The music row in Settings.
+    fn music_summary(&self) -> String {
+        match &self.music_folder {
+            None => "None · choose a folder…".into(),
+            Some(p) => {
+                let name = std::path::Path::new(p)
+                    .file_name()
+                    .map_or_else(|| p.clone(), |n| n.to_string_lossy().into_owned());
+                format!("{name} · change…")
+            }
+        }
+    }
+
     // -------------------------------------------------------------- state
 
     fn current(&self) -> Option<&Game> {
@@ -854,6 +1035,8 @@ impl LauncherView {
     }
 
     fn apply_prefs(&mut self) {
+        self.audio.set_sfx_volume(self.prefs.sfx_volume);
+        self.audio.set_music_volume(self.prefs.music_volume);
         self.restore_config
             .set(self.prefs.restore_combo(), self.prefs.restore_hold_time());
         self.lifecycle.set_give_up_after(self.prefs.give_up_after());
@@ -989,6 +1172,12 @@ impl LauncherView {
                 }
             }
             UiEvent::Pad(PadEvent::BackReleased) => self.end_quit_hold(cx),
+            UiEvent::Pad(PadEvent::Music(m)) => {
+                if window.is_window_active() {
+                    self.set_input(InputMode::Gamepad, cx);
+                    self.music_button(m, cx);
+                }
+            }
             UiEvent::Pad(PadEvent::Nav(a)) => {
                 // Spec 5.4: dispatch only while focused.
                 if window.is_window_active() {
@@ -1084,6 +1273,10 @@ impl LauncherView {
             }
         }
         self.quick_tick(window);
+        self.sync_music(window);
+        if self.refresh_now_playing() {
+            cx.notify();
+        }
         if let Overlay::Playing { stop, .. } = &mut self.overlay {
             if let StopState::Requested(at) = *stop {
                 if at.elapsed() >= STOP_GRACE {
@@ -1111,6 +1304,24 @@ impl LauncherView {
 
     /// One navigation action, routed to the topmost layer.
     fn input_action(&mut self, a: NavAction, window: &mut Window, cx: &mut Context<Self>) {
+        // Lists and menus: moving ticks, choosing confirms. Opening,
+        // closing and what an action does may ask for a stronger sound.
+        // (Settings and the carousel say what moved themselves.)
+        let in_list = !matches!(self.modal, Modal::None)
+            || matches!(self.screen, Screen::Setup(_))
+            || matches!(self.overlay, Overlay::Playing { .. });
+        if in_list {
+            match a {
+                NavAction::Up | NavAction::Down | NavAction::Left | NavAction::Right => {
+                    self.sfx(Sfx::Move)
+                }
+                NavAction::Confirm if !matches!(self.modal, Modal::Keyboard(_)) => {
+                    self.sfx(Sfx::Confirm)
+                }
+                NavAction::Back => self.sfx(Sfx::Back),
+                _ => {}
+            }
+        }
         match &mut self.modal {
             Modal::Keyboard(_) => self.osk_nav(a, cx),
             Modal::Browser(b) => {
@@ -1151,6 +1362,16 @@ impl LauncherView {
             return;
         }
         self.user_moved = true;
+        let before = (self.selected, self.filter);
+        self.home_nav_inner(a, window, cx);
+        if self.filter != before.1 {
+            self.sfx(Sfx::Filter);
+        } else if self.selected != before.0 {
+            self.sfx(Sfx::Move);
+        }
+    }
+
+    fn home_nav_inner(&mut self, a: NavAction, window: &mut Window, cx: &mut Context<Self>) {
         match a {
             NavAction::Left => self.select(self.selected.saturating_sub(1), false),
             NavAction::Right => self.select(self.selected + 1, false),
@@ -1172,7 +1393,12 @@ impl LauncherView {
                     self.play(window, cx);
                 }
             }
-            NavAction::Back => self.clear_search(),
+            NavAction::Back => {
+                if self.query.is_some() {
+                    self.sfx(Sfx::Back);
+                }
+                self.clear_search();
+            }
             NavAction::Search => {
                 if self.input == InputMode::Gamepad {
                     self.open_search_keyboard();
@@ -1200,6 +1426,10 @@ impl LauncherView {
         // Exit. Not while a game is tracked: its playtime would be lost.
         if ctrl && key == "q" && self.session.is_none() {
             return cx.quit();
+        }
+        // On the home screen, pasting searches for the text.
+        if ctrl && key == "v" && (self.text_target_active() || self.is_home_idle()) {
+            return self.paste(cx);
         }
         if key == "escape" {
             if ev.is_held {
@@ -1600,6 +1830,7 @@ impl LauncherView {
             moved = true;
         }
         if moved {
+            self.sfx(Sfx::Move);
             self.user_moved = true;
             cx.notify();
         }
@@ -1616,6 +1847,7 @@ impl LauncherView {
             self.play(window, cx);
         } else {
             self.select(slot, false);
+            self.sfx(Sfx::Move);
         }
         cx.notify();
     }
@@ -1636,6 +1868,9 @@ impl LauncherView {
             return;
         }
         self.clear_search();
+        if self.filter != f {
+            self.sfx(Sfx::Filter);
+        }
         self.filter = f;
         self.user_moved = true;
         self.recompute(None);
@@ -1666,6 +1901,7 @@ impl LauncherView {
                 }
                 return;
             }
+            Hint::Music => return self.music_button(MusicControl::PlayPause, cx),
         };
         self.input_action(a, window, cx);
     }
@@ -1678,12 +1914,17 @@ impl LauncherView {
         let old = std::mem::replace(&mut self.modal, modal);
         match (&old, &self.modal) {
             (Modal::None, Modal::None) => {}
-            (_, Modal::None) => self.modal_leaving = Some(old),
+            (_, Modal::None) => {
+                self.sfx(Sfx::Close);
+                self.modal_leaving = Some(old);
+            }
             (old, new) => {
+                let fresh = std::mem::discriminant(old) != std::mem::discriminant(new);
                 self.modal_leaving = None;
-                if std::mem::discriminant(old) != std::mem::discriminant(new) {
+                if fresh {
                     self.anims.borrow_mut().set("modal", 0.0);
                 }
+                self.sfx(Sfx::Open);
             }
         }
     }
@@ -1736,6 +1977,12 @@ impl LauncherView {
         };
         let target = k.target.clone();
         let text = k.text.clone();
+        if matches!(r, OskResult::Edited) {
+            self.sfx(Sfx::Key);
+        }
+        if matches!(r, OskResult::Paste) {
+            return self.paste(cx);
+        }
         match (r, &target) {
             (OskResult::Edited, TextTarget::Search) => self.set_query(text),
             (OskResult::Edited, _) => self.caret_epoch = Instant::now(),
@@ -1758,9 +2005,47 @@ impl LauncherView {
                 self.set_modal(Modal::None);
                 self.apply_text(target, text);
             }
-            (OskResult::Nothing, _) => {}
+            (OskResult::Nothing | OskResult::Paste, _) => {}
         }
         cx.notify();
+    }
+
+    /// Pastes the clipboard's text into the field being typed in (Ctrl+V,
+    /// or the keyboard's Paste key).
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        let clip = cx.read_from_clipboard().and_then(|c| c.text());
+        let secret = matches!(&self.modal, Modal::Keyboard(k) if k.target.is_secret());
+        let Some(text) = clip
+            .map(|t| osk::clean_paste(&t, secret))
+            .filter(|t| !t.is_empty())
+        else {
+            self.sfx(Sfx::Error);
+            return self.toast("Nothing to paste: the clipboard has no text", cx);
+        };
+        self.text_input(&text, cx);
+    }
+
+    /// Opens the keyboard for an API key. A key already copied (from the
+    /// SteamGridDB or Steam website) is pasted in, ready to save.
+    fn open_key_entry(&mut self, target: TextTarget, cx: &mut Context<Self>) {
+        let copied = cx
+            .read_from_clipboard()
+            .and_then(|c| c.text())
+            .map(|t| osk::clean_paste(&t, true))
+            .filter(|t| osk::looks_like_key(t));
+        let pasted = copied.is_some();
+        self.set_modal(Modal::Keyboard(Osk::new(
+            target,
+            copied.unwrap_or_default(),
+        )));
+        if pasted {
+            let done = if self.input == InputMode::Gamepad {
+                "≡ to save"
+            } else {
+                "Enter to save"
+            };
+            self.toast(format!("Key pasted from the clipboard · {done}"), cx);
+        }
     }
 
     /// Text entered for a field other than search.
@@ -1908,6 +2193,7 @@ impl LauncherView {
                 self.picked_emulator_program(preset, emulator, path)
             }
             Purpose::RomFolder(emulator) => self.picked_rom_folder(emulator, path),
+            Purpose::MusicFolder => self.set_music_folder(Some(path)),
             Purpose::SteamFolder => {
                 if path.join("steamapps").is_dir() {
                     self.set_steam_folder(Some(path));
@@ -2226,11 +2512,13 @@ impl LauncherView {
     fn open_settings(&mut self) {
         self.search_focused = false;
         self.start_at_login = moonglass_platform::start_at_login().unwrap_or(false);
+        self.sfx(Sfx::Open);
         self.screen = Screen::Settings(SettingsState::new(self.emulators.len(), &self.prefs));
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
         if let Screen::Settings(st) = std::mem::replace(&mut self.screen, Screen::Home) {
+            self.sfx(Sfx::Close);
             self.settings_leaving = Some(st);
         }
         cx.notify();
@@ -2276,6 +2564,7 @@ impl LauncherView {
                 .map(|s| (s, self.store_game_count(s), self.stores_found.contains(&s)))
                 .collect(),
             logs: self.backend.paths.log_dir.display().to_string(),
+            music: self.music_summary(),
         }
     }
 
@@ -2283,7 +2572,19 @@ impl LauncherView {
         let Screen::Settings(st) = &mut self.screen else {
             return;
         };
+        let before = (st.section, st.item, st.in_sections);
         let cmd = st.nav(a, &mut self.prefs);
+        let in_sections = st.in_sections;
+        let moved = before != (st.section, st.item, in_sections);
+        if moved && matches!(cmd, SettingsCmd::None) {
+            self.sfx(if before.2 && !in_sections {
+                Sfx::Confirm
+            } else if !before.2 && in_sections {
+                Sfx::Back
+            } else {
+                Sfx::Move
+            });
+        }
         self.settings_cmd(cmd, cx);
     }
 
@@ -2300,12 +2601,21 @@ impl LauncherView {
     fn settings_click_section(&mut self, s: usize, cx: &mut Context<Self>) {
         self.set_input(InputMode::Mouse, cx);
         if let Screen::Settings(st) = &mut self.screen {
+            if st.section != s {
+                self.sfx_pending = Some(Sfx::Move);
+            }
             st.click_section(s);
         }
         cx.notify();
     }
 
     fn settings_cmd(&mut self, cmd: SettingsCmd, cx: &mut Context<Self>) {
+        match cmd {
+            SettingsCmd::None => {}
+            SettingsCmd::PrefsChanged | SettingsCmd::ToggleStartAtLogin => self.sfx(Sfx::Toggle),
+            SettingsCmd::Run(_) => self.sfx(Sfx::Confirm),
+            SettingsCmd::Close => {}
+        }
         match cmd {
             SettingsCmd::None => {}
             SettingsCmd::Close => self.close_settings(cx),
@@ -2332,18 +2642,9 @@ impl LauncherView {
                     }
                     self.open_setup();
                 }
-                Item::SteamKey => {
-                    self.set_modal(Modal::Keyboard(Osk::new(
-                        TextTarget::SteamApiKey,
-                        String::new(),
-                    )));
-                }
-                Item::SgdbKey => {
-                    self.set_modal(Modal::Keyboard(Osk::new(
-                        TextTarget::SgdbKey,
-                        String::new(),
-                    )));
-                }
+                Item::SteamKey => self.open_key_entry(TextTarget::SteamApiKey, cx),
+                Item::SgdbKey => self.open_key_entry(TextTarget::SgdbKey, cx),
+                Item::Music => self.open_music_menu(),
                 Item::Rescan => {
                     self.toast("Rescanning…", cx);
                     self.db_task(|db, cache| async move {
@@ -2404,6 +2705,7 @@ impl LauncherView {
         }
         self.play_anyway = None;
         self.search_focused = false;
+        self.sfx(Sfx::Launch);
         let origin = Instant::now();
         let effects = self.lifecycle.launch(Duration::ZERO);
         let running = Arc::new(Mutex::new(None::<Running>));
@@ -2937,6 +3239,9 @@ impl Render for LauncherView {
         self.advance_animation();
         self.advance_pulse(window.is_window_active());
         self.check_quit_hold(window, cx);
+        self.flush_sfx();
+        self.sync_music(window);
+        self.refresh_now_playing();
         let vp = window.viewport_size();
         let (w, h) = (f32::from(vp.width), f32::from(vp.height));
         let u = h / 1080.0; // 10-foot unit: 1 at 1080p

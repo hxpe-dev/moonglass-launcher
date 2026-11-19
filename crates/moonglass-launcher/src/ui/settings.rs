@@ -1,5 +1,5 @@
 //! Settings (spec 5.5): a full-screen, controller-navigable view with
-//! Appearance, Library, Stores, Emulators, Artwork and System sections, drawn as
+//! Appearance, Library, Stores, Emulators, Artwork, Sound and System sections, drawn as
 //! glass panels over the blurred backdrop. Every change applies immediately
 //! and is saved.
 
@@ -23,15 +23,17 @@ pub enum Section {
     Stores,
     Emulation,
     Artwork,
+    Sound,
     System,
 }
 
-pub const SECTIONS: [Section; 6] = [
+pub const SECTIONS: [Section; 7] = [
     Section::Appearance,
     Section::Library,
     Section::Stores,
     Section::Emulation,
     Section::Artwork,
+    Section::Sound,
     Section::System,
 ];
 
@@ -43,6 +45,7 @@ impl Section {
             Section::Stores => "Stores",
             Section::Emulation => "Emulators",
             Section::Artwork => "Artwork",
+            Section::Sound => "Sound",
             Section::System => "System",
         }
     }
@@ -98,6 +101,11 @@ pub enum Item {
     DisplayMode,
     /// The display's resolution in fullscreen (Windows).
     Resolution,
+    SfxVolume,
+    MusicVolume,
+    /// The music folder.
+    Music,
+    MusicInfo,
 }
 
 /// The rows of a section. `emulators` is how many profiles exist: the
@@ -144,6 +152,12 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::Store(Source::MsStore),
         ],
         Section::Artwork => &[Item::SgdbKey, Item::RefreshArt, Item::ArtInfo],
+        Section::Sound => &[
+            Item::SfxVolume,
+            Item::MusicVolume,
+            Item::Music,
+            Item::MusicInfo,
+        ],
         Section::System => &[
             Item::DisplayMode,
             Item::Resolution,
@@ -193,7 +207,9 @@ impl Item {
             | Item::Capture
             | Item::LaunchTimeout
             | Item::DisplayMode
-            | Item::Resolution => Kind::Choice,
+            | Item::Resolution
+            | Item::SfxVolume
+            | Item::MusicVolume => Kind::Choice,
             Item::StartupAnimation
             | Item::ReducedMotion
             | Item::ShowHidden
@@ -211,11 +227,13 @@ impl Item {
             | Item::SteamIgnored
             | Item::SgdbKey
             | Item::RefreshArt
+            | Item::Music
             | Item::RunSetup
             | Item::Exit => Kind::Action,
             Item::LibraryInfo
             | Item::FriendsInfo
             | Item::ArtInfo
+            | Item::MusicInfo
             | Item::RestoreHotkey
             | Item::CaptureInfo
             | Item::Logs
@@ -274,6 +292,10 @@ impl Item {
             Item::Exit => "Exit Moonglass",
             Item::DisplayMode => "Display",
             Item::Resolution => "Fullscreen resolution",
+            Item::SfxVolume => "Interface sounds",
+            Item::MusicVolume => "Music volume",
+            Item::Music => "Background music",
+            Item::MusicInfo => "Music",
         }
     }
 }
@@ -301,6 +323,8 @@ pub struct SettingsInfo {
     /// Each store: how many of its games are installed, and whether the
     /// store itself was found on this computer.
     pub stores: Vec<(Source, usize, bool)>,
+    /// The music folder, as its row shows it.
+    pub music: String,
 }
 
 fn store_value(s: Source, info: &SettingsInfo) -> String {
@@ -467,6 +491,12 @@ impl SettingsState {
             Item::Store(s) => prefs.set_store_enabled(s, !prefs.store_enabled(s)),
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
             Item::DisplayMode => prefs.display_mode = prefs.display_mode.step(delta),
+            Item::SfxVolume => {
+                prefs.sfx_volume = super::prefs::step_volume(prefs.sfx_volume, delta)
+            }
+            Item::MusicVolume => {
+                prefs.music_volume = super::prefs::step_volume(prefs.music_volume, delta)
+            }
             Item::Resolution => {
                 // The desktop's own resolution, then every other one.
                 let all: Vec<Option<(u32, u32)>> = std::iter::once(None)
@@ -632,6 +662,12 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::Store(s) => store_value(s, info),
         Item::DisplayMode => prefs.display_mode.label().into(),
         Item::Resolution => resolution_value(prefs),
+        Item::SfxVolume => super::prefs::volume_label(prefs.sfx_volume),
+        Item::MusicVolume => super::prefs::volume_label(prefs.music_volume),
+        Item::Music => info.music.clone(),
+        Item::MusicInfo => {
+            "MP3, FLAC, OGG and WAV files from the folder and its subfolders, shuffled. Pauses while you play".into()
+        }
         Item::SteamFolder => info.steam_folder.clone(),
         Item::SteamIgnored => info.steam_ignored.clone(),
         Item::RestoreButtons => prefs.restore_buttons.label().into(),

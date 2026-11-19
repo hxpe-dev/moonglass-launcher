@@ -5,6 +5,7 @@
 //! without the window.
 
 mod artwork;
+mod audio;
 mod friends;
 mod launch;
 mod library;

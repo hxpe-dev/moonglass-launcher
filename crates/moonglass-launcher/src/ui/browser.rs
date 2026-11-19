@@ -31,6 +31,8 @@ pub enum Purpose {
     RomFolder(String),
     /// Where Steam is installed.
     SteamFolder,
+    /// Background music.
+    MusicFolder,
 }
 
 impl Purpose {
@@ -42,6 +44,7 @@ impl Purpose {
             Purpose::EmulatorProgram { .. } => "Emulator: choose its program",
             Purpose::RomFolder(_) => "ROM folder: choose the folder with the games",
             Purpose::SteamFolder => "Steam folder: choose where Steam is installed",
+            Purpose::MusicFolder => "Background music: choose a folder of songs",
         }
     }
 
@@ -49,7 +52,10 @@ impl Purpose {
     fn picks_folder(&self) -> bool {
         matches!(
             self,
-            Purpose::WorkingDir(_) | Purpose::RomFolder(_) | Purpose::SteamFolder
+            Purpose::WorkingDir(_)
+                | Purpose::RomFolder(_)
+                | Purpose::SteamFolder
+                | Purpose::MusicFolder
         )
     }
 
@@ -63,7 +69,10 @@ impl Purpose {
                     .iter()
                     .any(|x| e.eq_ignore_ascii_case(x))
             }),
-            Purpose::WorkingDir(_) | Purpose::RomFolder(_) | Purpose::SteamFolder => false,
+            Purpose::WorkingDir(_)
+            | Purpose::RomFolder(_)
+            | Purpose::SteamFolder
+            | Purpose::MusicFolder => false,
         }
     }
 }

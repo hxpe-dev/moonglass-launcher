@@ -23,7 +23,9 @@ opens the carousel (or first-time setup on an empty library).
 | Carousel, ambient lighting (including the motion blur background), card art fitting, startup animation, interface animations | Done |
 | Gamepad, keyboard and mouse, with hints that follow the device; hold Esc / B to exit | Done |
 | Search and on-screen keyboard | Done |
-| Settings: Appearance, Library, Emulators, Artwork, System | Done |
+| Settings: Appearance, Library, Stores, Emulators, Artwork, Sound, System | Done |
+| Interface sounds and background music from a folder of your own, each with its own volume; the home screen shows the song with previous, pause and next (also View, LT and RT on a controller) | Done |
+| API keys pasted with Ctrl+V or the keyboard's Paste key; a key already copied is filled in | Done |
 | First-time setup | Done |
 | File browser, Add a game (also by dropping a program on the window), per-game Options | Done; dropping is untested |
 | Emulator profiles, presets (Switch included, Flatpaks found on Linux) and ROM folders | Done; Flatpak detection untested |

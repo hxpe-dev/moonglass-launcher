@@ -1,6 +1,7 @@
 //! Foreground gamepad navigation (spec 5.4): a dedicated `gilrs` thread
 //! turns controller input into typed actions sent to the UI. The left stick
 //! uses a radial deadzone; holding a direction repeats with acceleration.
+//! View plays and pauses the background music, LT and RT change song.
 //!
 //! Where the platform says so (Linux, whose evdev backend works without
 //! focus), the same thread also watches for the restore combination
@@ -72,9 +73,18 @@ pub struct ControllerStatus {
     pub charging: bool,
 }
 
+/// The music buttons: View plays and pauses, LT and RT change song.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicControl {
+    Previous,
+    PlayPause,
+    Next,
+}
+
 #[derive(Debug, Clone)]
 pub enum PadEvent {
     Nav(NavAction),
+    Music(MusicControl),
     Status(ControllerStatus),
     /// The restore combination was held while armed.
     Restore,
@@ -163,6 +173,9 @@ pub fn spawn(
                     let send = |a| {
                         let _ = tx.unbounded_send(PadEvent::Nav(a));
                     };
+                    let music = |m| {
+                        let _ = tx.unbounded_send(PadEvent::Music(m));
+                    };
                     let press_dir = |dir: NavAction, held: &mut Option<_>| {
                         send(dir);
                         let now = Instant::now();
@@ -181,6 +194,9 @@ pub fn spawn(
                             Button::LeftTrigger => send(NavAction::FilterPrev),
                             Button::RightTrigger => send(NavAction::FilterNext),
                             Button::Start => send(NavAction::OpenSettings),
+                            Button::Select => music(MusicControl::PlayPause),
+                            Button::LeftTrigger2 => music(MusicControl::Previous),
+                            Button::RightTrigger2 => music(MusicControl::Next),
                             _ => {}
                         },
                         EventType::ButtonReleased(

@@ -8,7 +8,7 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Div, SharedString};
 use moonglass_core::Source;
 
 use super::gamepad::NavAction;
-use super::osk::{Osk, TextTarget};
+use super::osk::TextTarget;
 use super::prefs::{store_name, STORES};
 use super::settings::toggle_switch;
 use super::theme::{black, keycap, on, selected, white};
@@ -208,10 +208,7 @@ impl LauncherView {
             SetupAction::ToggleStore(s) => return self.toggle_store(s, cx),
             SetupAction::Finish => return self.finish_setup(cx),
             SetupAction::AddEmulator => self.open_preset_menu(),
-            SetupAction::EnterSgdbKey => self.set_modal(Modal::Keyboard(Osk::new(
-                TextTarget::SgdbKey,
-                String::new(),
-            ))),
+            SetupAction::EnterSgdbKey => self.open_key_entry(TextTarget::SgdbKey, cx),
         }
         cx.notify();
     }

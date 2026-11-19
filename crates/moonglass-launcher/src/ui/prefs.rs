@@ -233,6 +233,10 @@ pub struct Prefs {
     pub display_mode: DisplayMode,
     /// Width and height used in fullscreen; `None` keeps the desktop's.
     pub resolution: Option<(u32, u32)>,
+    /// Interface sounds, 0 (off) to 100.
+    pub sfx_volume: u8,
+    /// Background music, 0 (off) to 100.
+    pub music_volume: u8,
     /// [`PREFS_VERSION`] when saved; 0 for preferences saved before it.
     #[serde(default)]
     pub version: u32,
@@ -267,6 +271,8 @@ impl Default for Prefs {
             msstore_enabled: true,
             display_mode: DisplayMode::DEFAULT,
             resolution: None,
+            sfx_volume: 60,
+            music_volume: 40,
             version: PREFS_VERSION,
         }
     }
@@ -419,6 +425,20 @@ impl Prefs {
     }
 }
 
+/// One step of a volume setting (10 points), stopping at 0 and 100.
+pub fn step_volume(v: u8, delta: isize) -> u8 {
+    (v as isize + 10 * delta.signum()).clamp(0, 100) as u8
+}
+
+/// "Off" or "60%".
+pub fn volume_label(v: u8) -> String {
+    if v == 0 {
+        "Off".into()
+    } else {
+        format!("{v}%")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,6 +487,15 @@ mod tests {
         }
         assert_eq!(seen.len(), CaptureTool::available().len() + 1);
         assert_eq!(Capture::Off.step(-1), *seen.last().unwrap());
+    }
+
+    #[test]
+    fn volume_steps_stop_at_the_ends() {
+        assert_eq!(step_volume(60, 1), 70);
+        assert_eq!(step_volume(100, 1), 100);
+        assert_eq!(step_volume(0, -1), 0);
+        assert_eq!(volume_label(0), "Off");
+        assert_eq!(volume_label(40), "40%");
     }
 
     #[test]

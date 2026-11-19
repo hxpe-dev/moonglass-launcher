@@ -32,6 +32,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 raw-window-handle = "0.6"
 gilrs = "0.11"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# UI sounds and background music. Only the decoders for common music files.
+rodio = { version = "0.23", default-features = false, features = ["playback", "flac", "mp3", "vorbis", "wav", "tracing"] }
 
 [dev-dependencies]
 tempfile.workspace = true

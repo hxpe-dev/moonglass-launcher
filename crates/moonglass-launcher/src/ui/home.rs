@@ -11,6 +11,7 @@ use gpui::{
 use moonglass_art::ingest::{blurred_hero_path, card_fill_image_path, card_image_path, CardCrop};
 use moonglass_core::{Game, Source};
 
+use super::gamepad::MusicControl;
 use super::icons::{icon, Icon};
 use super::prefs::{Ambient as AmbientMode, CardDetails, CardFit, CardShape, Clock};
 use super::theme::{
@@ -819,6 +820,63 @@ impl LauncherView {
         }
     }
 
+    /// The song's name and time over a thin bar showing how far it has
+    /// played. Without a known length, only the time played is shown.
+    fn render_song(&self, now: &crate::audio::NowPlaying, u: f32) -> Div {
+        use crate::audio::clock;
+        let time = match now.length {
+            Some(len) => format!("{} / {}", clock(now.position), clock(len)),
+            None => clock(now.position),
+        };
+        // Eased between updates, which come twice a second.
+        let progress = now.progress().map(|p| self.glide("music-progress", p));
+        div()
+            .ml(px(8.0 * u))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(5.0 * u))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0 * u))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(15.0 * u))
+                            .text_color(white(if now.paused { TEXT_3 } else { TEXT_2 }))
+                            .child(SharedString::from(now.title.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(mono())
+                            .text_size(px(12.0 * u))
+                            .text_color(white(TEXT_3))
+                            .child(time),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(3.0 * u))
+                    .rounded_full()
+                    .bg(white(0.18))
+                    .when_some(progress, |d, p| {
+                        d.child(
+                            div()
+                                .h_full()
+                                .w(gpui::relative(p))
+                                .rounded_full()
+                                .bg(white(if now.paused { 0.5 } else { 0.9 })),
+                        )
+                    }),
+            )
+    }
+
     fn render_top_bar(&self, w: f32, u: f32, alpha: f32, cx: &mut Context<Self>) -> Div {
         // Filter pills (clickable).
         let mut pills = div()
@@ -857,8 +915,9 @@ impl LauncherView {
         let lit = self.glide("search-focus", on(focused));
         let search = div()
             .id("search-box")
+            // Narrow enough to leave the middle of the bar to the music.
             .w(px(
-                (w * 0.22).clamp(260.0 * u, 420.0 * u) * (1.0 + 0.3 * lit)
+                (w * 0.17).clamp(220.0 * u, 330.0 * u) * (1.0 + 0.3 * lit)
             ))
             .h(px(42.0 * u))
             .px(px(16.0 * u))
@@ -961,6 +1020,79 @@ impl LauncherView {
             }))
             .child(icon(Icon::Gear, 24.0 * u, white(0.9)));
 
+        // The song playing, centered: it gives way while search widens.
+        // With a controller, the triggers that change song sit either side.
+        let pad = self.input == InputMode::Gamepad;
+        let [prev_key, next_key, _] = music_keys(self.controller.family);
+        let music = self
+            .now_playing
+            .clone()
+            .filter(|_| self.music_shown())
+            .map(|now| {
+                let shown = 1.0 - lit;
+                let button = |id: &'static str, which: Icon, b: MusicControl| {
+                    div()
+                        .id(id)
+                        .size(px(32.0 * u))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .cursor_pointer()
+                        .opacity(0.75)
+                        .hover(|s| s.bg(white(0.15)).opacity(1.0))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.set_input(InputMode::Mouse, cx);
+                            this.music_button(b, cx);
+                        }))
+                        .child(icon(which, 16.0 * u, white(1.0)))
+                };
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(42.0 * u))
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .gap(px(10.0 * u))
+                    .opacity(shown)
+                    .when(pad, |d| d.child(keycap(prev_key, u)))
+                    .child(
+                        div()
+                            .id("now-playing")
+                            // A fixed width: the bar keeps its length from
+                            // song to song.
+                            .w(px((w * 0.19).clamp(260.0 * u, 360.0 * u)))
+                            .h(px(42.0 * u))
+                            .pl(px(5.0 * u))
+                            .pr(px(20.0 * u))
+                            .rounded_full()
+                            .bg(black(0.35))
+                            .border_1()
+                            .border_color(white(0.3))
+                            .flex()
+                            .items_center()
+                            .gap(px(2.0 * u))
+                            .child(button(
+                                "music-previous",
+                                Icon::Previous,
+                                MusicControl::Previous,
+                            ))
+                            .child(button(
+                                "music-play-pause",
+                                if now.paused { Icon::Play } else { Icon::Pause },
+                                MusicControl::PlayPause,
+                            ))
+                            .child(button("music-next", Icon::Next, MusicControl::Next))
+                            .child(self.render_song(&now, u)),
+                    )
+                    .when(pad, |d| d.child(keycap(next_key, u)))
+            });
+
         div()
             .absolute()
             .top(px(30.0 * u))
@@ -970,6 +1102,7 @@ impl LauncherView {
             .flex()
             .items_center()
             .justify_between()
+            .children(music)
             .child(pills)
             .child(
                 div()
@@ -1010,6 +1143,14 @@ impl LauncherView {
                 ("LB RB", "Filter", Hint::Filter),
                 ("≡", "Settings", Hint::Settings),
             ]);
+            if self.music_shown() {
+                let paused = self.now_playing.as_ref().is_some_and(|n| n.paused);
+                hints.push((
+                    music_keys(f)[2],
+                    if paused { "Play music" } else { "Pause music" },
+                    Hint::Music,
+                ));
+            }
             if !searching {
                 hints.push((b, "Hold to exit", Hint::Exit));
             }
@@ -1280,5 +1421,16 @@ impl LauncherView {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+/// The controller's music buttons: previous song, next song, and play /
+/// pause (the triggers and the View button, by their names on each family).
+fn music_keys(f: super::gamepad::Family) -> [&'static str; 3] {
+    use super::gamepad::Family;
+    match f {
+        Family::Xbox => ["LT", "RT", "View"],
+        Family::PlayStation => ["L2", "R2", "Create"],
+        Family::Nintendo => ["ZL", "ZR", "−"],
     }
 }

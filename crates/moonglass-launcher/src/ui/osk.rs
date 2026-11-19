@@ -4,7 +4,7 @@
 //! physical keyboard types into the same fields.
 //!
 //! Gamepad: D-pad moves, A types the key, X deletes, Y types a space,
-//! Menu (Start) is Done, B cancels.
+//! RB pastes, Menu (Start) is Done, B cancels. Ctrl+V pastes too.
 
 use gpui::{
     div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, SharedString,
@@ -29,13 +29,15 @@ pub enum Special {
     Shift,
     Space,
     Delete,
+    Paste,
     Done,
 }
 
-const SPECIALS: [Special; 4] = [
+const SPECIALS: [Special; 5] = [
     Special::Shift,
     Special::Space,
     Special::Delete,
+    Special::Paste,
     Special::Done,
 ];
 
@@ -80,9 +82,29 @@ impl TextTarget {
         }
     }
 
-    fn secret(&self) -> bool {
+    pub fn is_secret(&self) -> bool {
         matches!(self, TextTarget::SgdbKey | TextTarget::SteamApiKey)
     }
+}
+
+/// Clipboard text made fit for a one-line field: the first non-empty line,
+/// trimmed, without control characters. A key (`secret`) loses every space,
+/// as copying from a web page often adds some.
+pub fn clean_paste(text: &str, secret: bool) -> String {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default();
+    line.chars()
+        .filter(|c| !c.is_control() && !(secret && c.is_whitespace()))
+        .collect()
+}
+
+/// Whether text looks like a SteamGridDB or Steam Web API key: 32
+/// hexadecimal digits. Only such text is pasted without asking.
+pub fn looks_like_key(text: &str) -> bool {
+    text.len() == 32 && text.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 pub struct Osk {
@@ -97,6 +119,8 @@ pub struct Osk {
 pub enum OskResult {
     /// Text changed (search filters live).
     Edited,
+    /// Paste the clipboard (the view reads it).
+    Paste,
     Done,
     Cancel,
     Nothing,
@@ -158,6 +182,7 @@ impl Osk {
             }
             Some(Special::Space) => self.type_text(" "),
             Some(Special::Delete) => self.backspace(),
+            Some(Special::Paste) => OskResult::Paste,
             Some(Special::Done) => OskResult::Done,
             None => OskResult::Nothing,
         }
@@ -190,7 +215,8 @@ impl Osk {
             NavAction::Options => return self.type_text(" "),
             NavAction::OpenSettings => return OskResult::Done,
             NavAction::Back => return OskResult::Cancel,
-            NavAction::FilterPrev | NavAction::FilterNext => {}
+            NavAction::FilterNext => return OskResult::Paste,
+            NavAction::FilterPrev => {}
         }
         OskResult::Nothing
     }
@@ -203,7 +229,7 @@ impl Osk {
     }
 
     pub fn shown_text(&self) -> String {
-        if self.target.secret() && !self.text.is_empty() {
+        if self.target.is_secret() && !self.text.is_empty() {
             let tail: String = self
                 .text
                 .chars()
@@ -290,8 +316,9 @@ impl LauncherView {
         for (c, sp) in SPECIALS.iter().enumerate() {
             let (label, w, strong) = match sp {
                 Special::Shift => ("SHIFT", key_w * 2.0, osk.shift),
-                Special::Space => ("SPACE", key_w * 4.0, false),
+                Special::Space => ("SPACE", key_w * 3.0, false),
                 Special::Delete => ("DELETE", key_w * 2.0, false),
+                Special::Paste => ("PASTE", key_w * 2.0, false),
                 Special::Done => ("DONE", key_w * 2.0, true),
             };
             let r = ROWS.len();
@@ -340,12 +367,14 @@ impl LauncherView {
                 ("A", "Type"),
                 ("X", "Delete"),
                 ("Y", "Space"),
+                ("RB", "Paste"),
                 ("≡", "Done"),
                 ("B", "Cancel"),
             ]
         } else {
             &[
                 ("Type", "with your keyboard or click"),
+                ("Ctrl+V", "Paste"),
                 ("Enter", "Done"),
                 ("Esc", "Cancel"),
             ]
@@ -426,6 +455,32 @@ mod tests {
         k.click(1, 0);
         k.click(1, 0);
         assert_eq!(k.text, "Qq");
+    }
+
+    #[test]
+    fn pasted_text_is_one_clean_line() {
+        assert_eq!(
+            clean_paste("\n  hello world \r\nsecond", false),
+            "hello world"
+        );
+        assert_eq!(clean_paste(" ab cd\tef \n", true), "abcdef");
+        assert_eq!(clean_paste("", false), "");
+    }
+
+    #[test]
+    fn keys_are_recognised() {
+        assert!(looks_like_key("0123456789abcdef0123456789ABCDEF"));
+        assert!(!looks_like_key("0123456789abcdef0123456789ABCDE"));
+        assert!(!looks_like_key("0123456789abcdef0123456789ABCDEG"));
+        assert!(!looks_like_key("https://www.steamgriddb.com/profi"));
+    }
+
+    #[test]
+    fn paste_key_and_rb_ask_to_paste() {
+        let mut k = Osk::new(TextTarget::SgdbKey, String::new());
+        assert!(matches!(k.nav(NavAction::FilterNext), OskResult::Paste));
+        let paste = SPECIALS.iter().position(|s| *s == Special::Paste).unwrap();
+        assert!(matches!(k.click(ROWS.len(), paste), OskResult::Paste));
     }
 
     #[test]
