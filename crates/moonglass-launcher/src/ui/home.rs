@@ -46,6 +46,8 @@ fn source_label(g: &Game) -> String {
         Source::Steam => "STEAM".into(),
         Source::Epic => "EPIC".into(),
         Source::Gog => "GOG".into(),
+        Source::BattleNet => "BATTLE.NET".into(),
+        Source::MsStore => "MS STORE".into(),
         Source::Exe => "APP".into(),
         Source::Rom => g
             .platform

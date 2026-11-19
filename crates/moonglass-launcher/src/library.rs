@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use moonglass_core::Source;
 use moonglass_db::{Db, ScanScope};
 use moonglass_platform::{EpicSource, GogSource};
-use moonglass_scan::{epic, gog, heroic, roms, steam, ScanError, ScannedGame};
+use moonglass_scan::{battlenet, epic, gog, heroic, msstore, roms, steam, ScanError, ScannedGame};
 
 /// Settings keys.
 pub const SETTING_STEAM_ROOT: &str = "steam_root";
@@ -94,6 +94,46 @@ pub async fn scan_all(db: &Db, now: i64) -> anyhow::Result<ScanSummary> {
         None => ("GOG", Ok(Vec::new())),
     };
     apply(db, &mut summary, label, ScanScope::Gog, result, now).await?;
+
+    // Battle.net (Windows): its games in Windows' installed programs.
+    let games = moonglass_platform::battlenet_source()
+        .map(|s| {
+            battlenet::from_uninstall(s.games.into_iter().map(|g| battlenet::UninstallEntry {
+                name: g.name,
+                install_location: g.install_location,
+                uninstall_string: g.uninstall_string,
+            }))
+        })
+        .unwrap_or_default();
+    apply(
+        db,
+        &mut summary,
+        "Battle.net",
+        ScanScope::BattleNet,
+        Ok(games),
+        now,
+    )
+    .await?;
+
+    // Microsoft Store (Windows): the current user's game packages.
+    let games = moonglass_platform::msstore_packages()
+        .map(|packages| {
+            msstore::from_packages(packages.into_iter().map(|p| msstore::Package {
+                full_name: p.full_name,
+                display_name: p.display_name,
+                root: p.root,
+            }))
+        })
+        .unwrap_or_default();
+    apply(
+        db,
+        &mut summary,
+        "Microsoft Store",
+        ScanScope::MsStore,
+        Ok(games),
+        now,
+    )
+    .await?;
 
     for dir in db.rom_directories().await? {
         let label = format!("ROMs {} ({})", dir.path.display(), dir.platform);

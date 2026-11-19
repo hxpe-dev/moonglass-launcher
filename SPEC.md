@@ -1,6 +1,6 @@
 # Project Specification: **Moonglass** (Console-Style PC Game Launcher)
 
-*Spec revision 1.8.*
+*Spec revision 1.9.*
 
 ## 1. Vision & Core Philosophy
 
@@ -8,14 +8,14 @@
 
 * **Zero Clutter:** No storefronts, news feeds, ads, or dense metadata walls on the home screen.
 * **Premium Aesthetic:** Fluid GPU-rendered animation at the display's refresh rate (up to 120 Hz), ambient lighting derived from the selected game's artwork, and clean typography.
-* **Native Integrity:** Launching is delegated to the official clients (Steam, Epic, GOG Galaxy) so achievements, cloud saves, Steam Input profiles, and the client's own playtime tracking keep working. Moonglass never replaces or patches a client. On Linux, where Epic and GOG have no official client, their games are launched through Heroic Games Launcher (section 2).
+* **Native Integrity:** Launching is delegated to the official clients (Steam, Epic, GOG Galaxy, Battle.net, the Microsoft Store) so achievements, cloud saves, Steam Input profiles, and the client's own playtime tracking keep working. Moonglass never replaces or patches a client. On Linux, where Epic and GOG have no official client, their games are launched through Heroic Games Launcher (section 2).
 * **One Codebase, Two Platforms:** Windows and Linux are both first-class. Everything that differs between them sits behind one platform layer (section 4.3); the UI, database, scanners, and artwork pipeline are shared.
 * **Controller-First:** Every Moonglass screen, including first-run setup, is navigable by gamepad, and equally usable with keyboard and mouse (section 3, Keyboard and Mouse). Dialogs owned by other programs (Steam EULA prompts, cloud-save conflicts, UAC) are outside Moonglass's control; see section 9.
 
 ### Non-Goals (v1.0)
 
 * No store browsing, purchasing, downloading, installing, or updating of games.
-* No launchers other than Steam, Epic and GOG (EA, Ubisoft, Xbox app, Battle.net are post-1.0).
+* No launchers other than Steam, Epic, GOG, Battle.net and the Microsoft Store (EA and Ubisoft are post-1.0).
 * No replacement of the Windows shell or the Linux desktop session. Moonglass is a normal fullscreen app that can start at login.
 * No support for running inside a gamescope session (SteamOS Game Mode and similar). Linux support targets regular X11 and Wayland desktop sessions.
 * No Flatpak or Snap package of Moonglass itself. A sandbox would block reading other launchers' files and observing game processes.
@@ -27,7 +27,7 @@
 
 v1.0 ships exactly this, on both platforms:
 
-1. Five launch sources (below).
+1. Seven launch sources (below); Battle.net and the Microsoft Store exist on Windows only.
 2. Automatic artwork with a manual override.
 3. The carousel home screen with ambient lighting and built-in customization.
 4. Reliable launch, exit detection, and focus recovery.
@@ -40,6 +40,8 @@ Deferred to post-1.0: UI sound effects and ambient audio, animated cover art, ad
 Added in revision 1.7: GOG as a fifth source, Steam's own playtime shown alongside Moonglass's (5.1), the time and controller battery on the Now Playing screen (5.3), turning stores off (section 3, Stores), and a library that checks and repairs itself (section 6, Keeping the library sound).
 
 Added in revision 1.8: the Quick Menu on the Now Playing screen, with clips and screenshots through the player's capture tool and the game's own volume (5.8).
+
+Added in revision 1.9: Battle.net and Microsoft Store games (Windows), sources 4 and 5 below.
 
 ### Supported Game Sources
 
@@ -63,12 +65,23 @@ Added in revision 1.8: the Quick Menu on the Now Playing screen, with clips and 
    * On both platforms the install folder holds `goggame-<product ID>.info`, GOG's own description of the game. Its `name` is preferred as the title, and an entry whose `rootGameId` is another product is an add-on and skipped.
    * Launched, on Windows, through GOG Galaxy: `GalaxyClient.exe /command=runGame /gameId=<id> /path=<install folder>`, so Galaxy's cloud saves and playtime keep working. Without Galaxy (an offline-installer game), the registered `exe` is started directly as Moonglass's own child. On Linux: `heroic --no-gui "heroic://launch?appName=<id>&runner=gog"`.
    * Detected while running by its install folder, like Epic.
-4. **Standalone Executables**
+4. **Battle.net** (Windows only)
+   * Battle.net registers each game it installs in Windows' installed programs (`HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\<name>`, and the 64-bit view), with `DisplayName`, `InstallLocation` and an `UninstallString` that runs `Blizzard Uninstaller.exe … --uid=<product UID>`. Entries without a UID, Battle.net's own entry (`--uid=battle.net`), and entries whose folder no longer exists are skipped.
+   * Battle.net's program is found from `HKLM\SOFTWARE\WOW6432Node\Blizzard Entertainment\Battle.net\Capabilities\ApplicationIcon`, else its default folder.
+   * Launched through Battle.net: `Battle.net.exe --exec="launch <product code>"`, so its sign-in, updates and cloud features keep working. The product code is not the UID (`s2` is `S2`, `prometheus` is `Pro`, `hs_beta` is `WTCG`); Moonglass carries a table of the known ones. A game outside the table is started through its own `<Game> Launcher.exe`, which hands the start to Battle.net and is watched as Moonglass's child.
+   * Detected while running by its install folder, like Epic.
+5. **Microsoft Store** (Windows only; also PC Game Pass games installed by the Xbox app)
+   * Every Store app is a package registered for the current user under `HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages\<full name>` (`DisplayName`, resolved with `SHLoadIndirectString` when it is a resource reference, and `PackageRootFolder`). Games are the packages built with Microsoft's game kit, which ship a `MicrosoftGame.config`; other apps, the Xbox app and Gaming Services included, have none.
+   * The title is the package's display name, else `ShellVisuals/@DefaultDisplayName` from `MicrosoftGame.config`. The application ID is the first `Application/@Id` in the package's `AppxManifest.xml`.
+   * Launched through Windows: `shell:AppsFolder\<package family name>!<application ID>`.
+   * Detected while running by its package folder. Under `C:\Program Files\WindowsApps` that folder is often a junction to `C:\XboxGames\<Game>\Content`; the folder is resolved, and a process reported under `WindowsApps` is resolved before it is compared.
+   * Store games have no client window to dismiss after a game, and their playtime is not imported.
+6. **Standalone Executables**
    * Windows: `.exe` files. Linux: any file with the executable bit, including native binaries, AppImages, and shell scripts. Running a Windows `.exe` on Linux is not handled directly; the user points Moonglass at a wrapper script that calls Wine or Proton.
    * Added through Moonglass's own controller-navigable file browser, or by drag-and-drop when a mouse is present.
    * Launched directly as a child process. The working directory defaults to the executable's folder and can be overridden per game.
    * Optional launch arguments.
-5. **Emulated ROMs**
+7. **Emulated ROMs**
    * The user registers ROM directories. Each directory is bound to one emulator profile and one platform label (for example "GameCube"). This removes ambiguity when several emulators accept the same extension, such as `.iso`.
    * Emulator profiles hold an executable path, an argument template, and accepted extensions. Presets ship for RetroArch, Dolphin, PCSX2, RPCS3, Ryujinx, and the yuzu family (Eden, Citron); any emulator with a command-line interface can be added. On Linux an emulator installed as a Flatpak is supported by setting the executable to `flatpak` and starting the template with `run <app-id>`; presets detect this automatically: a preset whose Flatpak is installed says so in the list, and choosing it creates the profile with `flatpak run <app-id>` without asking for a program.
    * Scanning rules: one entry per `.m3u` playlist when present (its discs are hidden); `.cue` hides its `.bin` files; folder-based games are matched by a marker file defined in the profile (for example `EBOOT.BIN` for RPCS3); Switch updates and add-on content (`.nsp` files whose title ID does not end in `000`, or tagged `[UPD]` / `[DLC]`) are not games and are left out. A title is the file name without the tags at its end ("Hades [0100535012974000][v0]" is "Hades"); disc numbers are kept.
@@ -94,7 +107,7 @@ The interface should feel calm, tactile, and responsive on a 4K television viewe
 ### Layout & Visual Hierarchy
 
 * **Top Bar**
-  * Left: filter pills `All`, `Recent`, `Favorites`, `Steam`, `Epic`, `GOG`, `Apps`, `Emulators`, switched with `LB / RB`. Pills for sources with no games are hidden.
+  * Left: filter pills `All`, `Recent`, `Favorites`, `Steam`, `Epic`, `GOG`, `Battle.net`, `MS Store`, `Apps`, `Emulators`, switched with `LB / RB`. Pills for sources with no games are hidden.
   * Right: the search box, controller connection and battery, clock, and a settings gear (clickable). The battery comes from `gilrs` where the OS reports it there, and from XInput on Windows (four levels, or "wired").
 
 * **Hero Carousel**
@@ -138,13 +151,13 @@ All of these live in Settings → Appearance, apply immediately, and are saved.
 
 ### Stores
 
-Steam, Epic and GOG can each be turned off, in first-time setup or in Settings → Library ("Show Steam games", and so on). A store turned off is still scanned, so turning it back on is instant and its games keep their favorites, playtime and artwork; but its games are not shown in the carousel, under any pill, or in search, and its pill disappears. Standalone executables and emulated games are the player's own additions and are always shown. All stores are on by default.
+Steam, Epic, GOG, Battle.net and the Microsoft Store can each be turned off, in first-time setup or in Settings → Library ("Show Steam games", and so on). A store turned off is still scanned, so turning it back on is instant and its games keep their favorites, playtime and artwork; but its games are not shown in the carousel, under any pill, or in search, and its pill disappears. Standalone executables and emulated games are the player's own additions and are always shown. All stores are on by default. On Linux, Settings does not list Battle.net or the Microsoft Store.
 
 ### First-Run Flow
 
 Shown on the first start when the library is empty, from the "Add your games" card, and from Settings → System → First-time setup. A glass panel over the blurred backdrop, one step at a time, with dots showing progress; `[A]` chooses, `[B]` goes back (on the first step it skips setup). Finishing or skipping is remembered, so it never opens by itself again.
 
-1. Scan Steam, Epic and GOG automatically and show the count found. Each store found on this computer (its client, or some of its games) is listed with its number of games and a switch, all on by default; the player can turn off the stores whose games they do not want to see (Stores, below). The step opens with Continue selected, so a quick `[A]` never turns a store off; up/down move, `[A]` or left/right flip a switch.
+1. Scan every store automatically and show the count found. Each store found on this computer (its client, or some of its games; for the Microsoft Store, which every Windows has, only its games) is listed with its number of games and a switch, all on by default; the player can turn off the stores whose games they do not want to see (Stores, below). The step opens with Continue selected, so a quick `[A]` never turns a store off; up/down move, `[A]` or left/right flip a switch.
 2. Offer to add emulators and ROM folders (skippable): the emulator presets, then the usual profile menu.
 3. Offer to enter a SteamGridDB API key (skippable; see 5.2).
 4. Land on the carousel. Artwork fills in as it downloads.
@@ -202,7 +215,7 @@ Everything OS-specific is behind one internal interface with a Windows and a Lin
 | A game's own volume (5.8) | Core Audio sessions (`ISimpleAudioVolume`) of the game's processes and their children, on every active output | PulseAudio / PipeWire streams of those processes, through `pactl` |
 | Start at login | `HKCU\...\Run` registry value | `.desktop` file in `~/.config/autostart/` |
 | Single-instance guard | Named mutex | Lock file plus a Unix socket in the runtime directory |
-| Steam, Epic and GOG discovery | Registry and `ProgramData` | Known directories, including Flatpak and Snap locations |
+| Store discovery | Registry and `ProgramData` | Known directories, including Flatpak and Snap locations |
 
 ### 4.4 File Locations
 
@@ -230,7 +243,7 @@ Moonglass is single-instance. A second launch brings the existing window forward
 
 * At startup, behind the startup animation: the library as stored is read while the UI toolkit starts, so the first frame already shows it, and the scan then brings it up to date.
 * When Moonglass resumes after a game exits.
-* On file-system events (debounced by 2 seconds) from watchers on every Steam `steamapps` folder, the Epic manifests folder, Heroic's GOG folder on Linux, and every ROM directory. GOG on Windows is in the registry, which is not watched: a GOG game installed while Moonglass runs appears after the next game or a rescan from Settings.
+* On file-system events (debounced by 2 seconds) from watchers on every Steam `steamapps` folder, the Epic manifests folder, Heroic's GOG folder on Linux, and every ROM directory. GOG on Windows, Battle.net and the Microsoft Store are in the registry, which is not watched: a game from them installed while Moonglass runs appears after the next game or a rescan from Settings.
 * On demand from Settings.
 
 **Reconciliation rules**
@@ -244,7 +257,7 @@ Moonglass is single-instance. A second launch brings the existing window forward
 * Moonglass counts its own sessions in `playtime_seconds` (5.3), for every source.
 * Steam keeps its own count per account, which includes play outside Moonglass and on other computers: `Software/Valve/Steam/apps/<AppID>/Playtime`, in minutes, in `userdata/<account ID>/config/localconfig.vdf`. Each scan copies it for the signed-in account into `store_playtime_seconds`, replacing the previous figures, so switching account (5.7) switches them too.
 * The playtime shown is the larger of the two. Steam's count already includes the sessions Moonglass recorded, so they are never added.
-* Epic and GOG keep their counts on their servers only; for those games Moonglass's own count is shown.
+* Epic, GOG, Battle.net and the Microsoft Store keep their counts on their servers only; for those games Moonglass's own count is shown.
 
 ### 5.2 Artwork Pipeline
 
@@ -254,7 +267,7 @@ Sources are tried in this order. The first hit wins per asset type (cover, hero,
 2. **Steam's local library cache** (Steam games only). Steam already stores cover, hero, and logo images on disk; using them needs no network and no API key.
 3. **The Epic Games Launcher's catalog cache** (Epic games on Windows). The launcher keeps a list of the player's library with links to each game's artwork on Epic's image host (`Data\Catalog\catcache.bin`, next to the manifests folder); the cover and hero are downloaded from there, with no API key. A game left with a placeholder is tried again on later refreshes.
 4. **GOG's public catalog** (GOG games). `api.gog.com/v2/games/<product ID>` needs no key and links a box-art cover (`boxArtImage`), a wide background (`galaxyBackgroundImage`, else `backgroundImage`) and a transparent logo (`logo`) on GOG's image host; only `https` links to GOG's own hosts are followed. A game left with a placeholder is tried again on later refreshes.
-5. **SteamGridDB**, queried by Steam AppID for Steam games and by title search for everything else. Requires the user's own free API key, entered in Settings. Without a key this step is skipped.
+5. **SteamGridDB**, queried by Steam AppID for Steam games and by title search for everything else (Battle.net and Microsoft Store games have no keyless source and start here). Requires the user's own free API key, entered in Settings. Without a key this step is skipped.
 6. **Keyless game databases, for emulated games.** Switch games are looked up by title ID on nlib.cc, which serves each title's eShop icon (used as the cover) and its 16:9 banner (the hero art); the ID comes from the dump's file name (`[0100535012974000]`) or, failing that, from the games the Ryujinx family of emulators has already run (`games/<title id>/gui/metadata.json` holds the name). Other systems use the libretro thumbnail collection's box art, named after No-Intro / Redump dump names; the system is chosen from the emulator and the file type, and the dump's own name is tried before the clean title with the usual region tags. A game left with a placeholder is tried again on later refreshes.
 7. **Generated placeholder.** A title card with the game's name on a gradient derived from a hash of the title.
 
@@ -294,6 +307,8 @@ Idle → Launching → Running → Exiting → Idle
 | Steam | Any process whose executable lives under the game's install folder | Any process whose environment contains `SteamAppId=<AppID>`. Steam sets this on the game's own processes, native or Proton, which avoids the problem that a Proton game's executable is Wine rather than a file in the install folder |
 | Epic | Same as Steam on Windows | Any process whose executable, working directory, or command line points inside the install folder (the game runs under Wine, started by Heroic) |
 | GOG | Same as Epic. Started without Galaxy, the child is watched too, since GOG's programs are often small launchers | Same as Epic |
+| Battle.net | Same as Epic. Started through its own `<Game> Launcher.exe`, the child is watched too | (Windows only) |
+| Microsoft Store | Same as Epic, with the `WindowsApps` junction resolved (2) | (Windows only) |
 
 Polling is once per second with `sysinfo` on both platforms.
 
@@ -319,7 +334,7 @@ Rules that make the folder signal reliable:
 1. **Regain focus, Windows.** Restore the window (`ShowWindow(SW_RESTORE)`), then `SetForegroundWindow`. Confirm with `GetForegroundWindow`. If focus was not obtained, retry with the `AttachThreadInput` technique, then with a synthetic `Alt` key event, up to three attempts in total.
 2. **Regain focus, Linux.** Check whether the window is active. If it is not, request activation through GPUI (an `_NET_ACTIVE_WINDOW` request on X11; an activation request on Wayland, which the compositor may decline).
 3. If focus still fails on either platform, raise an attention request (taskbar flash or the desktop's "demands attention" hint), show a desktop notification saying how to return, and log the failure. Never loop indefinitely. Windows: the notification is a tray balloon, which Windows 10 and 11 show as a regular notification; the tray icon goes away after a while. Linux: `notify-send`, two seconds after the activation request if the window is still not active.
-4. **Dismiss the launcher window.** If the Steam, Epic, GOG Galaxy or Heroic window is in front after a game from that client exits, Moonglass asks the client to hide it. On Windows this is a normal window-close request, which sends the client to the system tray. On Linux, Moonglass cannot close another application's window on Wayland, so it avoids the window appearing in the first place: Heroic is always started with `--no-gui`, and Steam is started minimized to the tray if Moonglass is the one starting it. On X11 a close request is also sent. In all cases the client process keeps running so cloud saves finish syncing, and dialogs such as a cloud-save conflict prompt are left alone. On by default; can be turned off in Settings → System.
+4. **Dismiss the launcher window.** If the Steam, Epic, GOG Galaxy, Battle.net or Heroic window is in front after a game from that client exits, Moonglass asks the client to hide it. On Windows this is a normal window-close request, which sends the client to the system tray. On Linux, Moonglass cannot close another application's window on Wayland, so it avoids the window appearing in the first place: Heroic is always started with `--no-gui`, and Steam is started minimized to the tray if Moonglass is the one starting it. On X11 a close request is also sent. In all cases the client process keeps running so cloud saves finish syncing, and dialogs such as a cloud-save conflict prompt are left alone. On by default; can be turned off in Settings → System.
 5. Set `last_played`, add the session length to `playtime_seconds`, rescan (which also refreshes Steam's playtime, 5.1), and re-render.
 
 Playtime counts from the Running state to exit, so update and launcher time is excluded.
@@ -350,7 +365,7 @@ Playtime counts from the Running state to exit, so update and launcher time is e
 * **Settings** is a full-screen view of glass panels over the blurred backdrop (4.1), opened with `[Menu]`, `Ctrl+,` or the gear, and navigable by gamepad, keyboard and mouse. It opens with the focus on the list of sections; right or `[A]`/`Enter` moves into the chosen one. Sections: Appearance (section 3, Customization), Library (add a game, `Recent` window, show hidden games, rescan, which stores to show (section 3, Stores; each row says how many games the store has, or that it was not found), the Steam account and whether to show only the Steam games it can play (5.7), the Steam folder (found automatically, or chosen), the Steam apps marked as not games (listed again from here), the Steam Web API key for friends, 5.6), Emulators (one row per emulator profile, and "Add an emulator" which offers the presets and then asks for the program; a profile's menu changes its program, arguments and file types, adds a ROM folder with its platform name, and removes folders or the profile, each removal asking for a second press), Artwork (SteamGridDB key, refresh all artwork), System (start at login, send the launcher to the tray after a game, the restore hotkey for the connected controller with its buttons and hold time, the tool for clips and screenshots with what it needs (5.8), how long to wait for a game to start, first-time setup, logs, version, Exit Moonglass). `Ctrl+Q`, or holding `Esc` / `[B]` on the home screen, also exits when no game is running. A section with more rows than fit shows a window of them that follows the selection, with arrows where there are more. `LB/RB` or `Tab` switch sections, left/right change values, `[A]`/`Enter` selects, `[B]`/`Esc` goes back.
 * **File browser:** a built-in list view of folders, used wherever a path is needed. It starts from the home folder plus the drive list on Windows, and from the home folder plus mounted volumes on Linux. Filters by extension when picking a file, or by the executable bit when adding a Linux executable.
 * **On-screen keyboard:** a bottom sheet used for library search and the few text fields (API key, launch arguments, process to watch, emulator arguments and file types, platform name). Its last row has the characters arguments and paths need (`{ } " / \ : _ = + @`). Gamepad: `[A]` types, `[X]` deletes, `[Y]` space, `[Menu]` done, `[B]` cancel. Keys are clickable, and a physical keyboard types into the same fields (`Enter` done, `Esc` cancel). In the file browser, typing a letter jumps to the next entry starting with it.
-* **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments (standalone executables, ROM entries, and Steam games as launch options; the Epic launcher and GOG Galaxy accept none), Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch, and Not a Game for Steam apps (adds it to the deny-list, 2). Remove and Not a Game ask for a second press.
+* **Per-game options (`[Y]`, `Ctrl+O`, or right-click on a card):** Play, Favorite, Hide, Change Artwork (and back to automatic artwork once changed), Launch Arguments (standalone executables, ROM entries, and Steam games as launch options; the Epic launcher, GOG Galaxy, Battle.net and the Microsoft Store accept none), Remove (standalone executables and ROM entries), Working Directory and the launcher-style toggle (standalone executables), Process to Watch, and Not a Game for Steam apps (adds it to the deny-list, 2). Remove and Not a Game ask for a second press.
 * **Start at login:** a toggle. Windows: writes or removes a value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Linux: writes or removes `~/.config/autostart/moonglass.desktop`.
 
 ### 5.6 Steam Friends
@@ -403,6 +418,8 @@ IDs are deterministic so rescans update in place:
 * Steam: `steam:<AppID>`
 * Epic: `epic:<AppName>`
 * GOG: `gog:<product ID>`
+* Battle.net: `battlenet:<product UID>`
+* Microsoft Store: `msstore:<package family name>` (stable across updates, unlike the full name)
 * Executable: `exe:<hash of normalized path>`
 * ROM: `rom:<hash of normalized path>`
 
@@ -433,14 +450,14 @@ CREATE TABLE games (
     title             TEXT NOT NULL,
     sort_title        TEXT NOT NULL,           -- lowercased, leading articles removed
     search_title      TEXT NOT NULL,           -- lowercased, accents and punctuation stripped; matched by search
-    source            TEXT NOT NULL CHECK (source IN ('steam', 'epic', 'gog', 'exe', 'rom')),
-    source_id         TEXT,                    -- Steam AppID, Epic AppName or GOG product ID; NULL for exe/rom
-    launch_target     TEXT,                    -- .exe or ROM path; for GOG, the game's own program (used without Galaxy); NULL for steam/epic
+    source            TEXT NOT NULL CHECK (source IN ('steam', 'epic', 'gog', 'battlenet', 'msstore', 'exe', 'rom')),
+    source_id         TEXT,                    -- Steam AppID, Epic AppName, GOG product ID, Battle.net UID or Store app ID (family!app); NULL for exe/rom
+    launch_target     TEXT,                    -- .exe or ROM path; for GOG and Battle.net, the game's own program (fallback); NULL for steam/epic/msstore
     launch_args       TEXT,
     working_dir       TEXT,                    -- exe only; NULL = executable's folder
     rom_directory_id  TEXT REFERENCES rom_directories(id) ON DELETE CASCADE,
     platform          TEXT,                    -- copied from the ROM directory, for badges
-    install_dir       TEXT,                    -- absolute path; watched for steam/epic/gog
+    install_dir       TEXT,                    -- absolute path; watched for store games
     watch_process     TEXT,                    -- optional exact process name override
     track_by_folder   INTEGER NOT NULL DEFAULT 0 CHECK (track_by_folder IN (0, 1)),
 
@@ -531,9 +548,10 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
   * Verification against the section 7 targets on both platforms.
 
 * **Post-1.0**
-  * UI sounds and ambient audio (`rodio`), animated covers, more launchers (EA app, Ubisoft Connect, Xbox app, Battle.net, Heroic's Amazon games).
+  * UI sounds and ambient audio (`rodio`), animated covers, more launchers (EA app, Ubisoft Connect, Heroic's Amazon games).
   * Done in revision 1.7: GOG, Steam playtime import.
   * Done in revision 1.8: the Quick Menu (5.8).
+  * Done in revision 1.9: Battle.net and the Microsoft Store.
   * Later for the Quick Menu: audio output choice, performance figures, OBS's replay buffer.
 
 ## 9. Risks and Known Limitations
@@ -548,7 +566,7 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
 | Global keyboard shortcuts are inconsistent on Wayland | Keyboard restore hotkey may be unavailable | Gamepad combination works everywhere through evdev; Settings shows what is available |
 | Windows restricts which process may take foreground focus | Moonglass may not regain focus after a game | Three-step fallback in 5.3; taskbar flash; restore hotkey as a manual path |
 | Folder-based detection can misjudge start or exit | Moonglass returns too early or too late | Grace period, ignore list, per-game override, Steam registry signal if validated |
-| Dialogs owned by Steam, Epic, GOG Galaxy or Windows | May need a mouse or keyboard | Documented limitation; the restore hotkey always returns to Moonglass |
+| Dialogs owned by Steam, Epic, GOG Galaxy, Battle.net or Windows | May need a mouse or keyboard | Documented limitation; the restore hotkey always returns to Moonglass |
 | Dismissing a launcher window could close one the user wanted | Minor annoyance | Only the main client window is closed, never dialogs; setting to disable |
 | Games that start their own launcher (EA, Ubisoft, Rockstar) | Real game process may sit outside the install folder | Per-game process override |
 | On Windows the background hotkey works only for XInput controllers | Other pads cannot summon Moonglass mid-game | Global keyboard hotkey; note in Settings |
@@ -556,6 +574,8 @@ These are acceptance criteria for v1.0, measured on a mid-range gaming PC with a
 | GOG on Linux depends on Heroic, like Epic | Its file locations or launch URI may change | One scanner module; source hidden when Heroic is absent |
 | GOG Galaxy's command line is not documented by GOG | A Galaxy update could change `/command=runGame` | Isolated in the platform layer; the registered `exe` remains a fallback |
 | GOG's catalog API is public but undocumented | Artwork lookups may fail | One small module; SteamGridDB and the placeholder remain |
+| Battle.net's product codes and `--exec` option are not documented by Blizzard | A new game, or a Battle.net update, may not start from Moonglass | Isolated in one table; the game's own `<Game> Launcher.exe` remains a fallback |
+| Only Store games built with Microsoft's game kit are found | Older Store games (UWP, without `MicrosoftGame.config`) are missing | Documented limitation; a later revision may read the Xbox app's own list |
 | Epic URI format may vary by title | Some games may not launch from the bare `AppName` | Fallback to the namespaced form |
 | GPUI's Windows vsync thread wakes the main thread at the display refresh rate, even while the window is minimized | The section 7 CPU target while a game runs is missed (about 1.4-2.4% of one core measured, all of it GPUI's) | Moonglass's own polling is minimal; stopping the thread for minimized windows needs a GPUI change, to be taken up when GPUI is next upgraded |
 | Switching Steam accounts relies on Steam's saved sign-in and its registry values | A switch may stop at Steam's sign-in window, or break if Steam changes how it stores them | Moonglass waits for the account to appear and reports when it does not; Steam's own switcher still works |

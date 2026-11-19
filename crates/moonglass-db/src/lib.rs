@@ -72,6 +72,8 @@ pub enum ScanScope {
     Steam,
     Epic,
     Gog,
+    BattleNet,
+    MsStore,
     RomDirectory(String),
 }
 
@@ -249,6 +251,8 @@ impl Db {
             ScanScope::Steam => ("steam", None),
             ScanScope::Epic => ("epic", None),
             ScanScope::Gog => ("gog", None),
+            ScanScope::BattleNet => ("battlenet", None),
+            ScanScope::MsStore => ("msstore", None),
             ScanScope::RomDirectory(id) => ("rom", Some(id.as_str())),
         };
 

@@ -13,6 +13,9 @@ pub enum Source {
     Steam,
     Epic,
     Gog,
+    BattleNet,
+    /// Microsoft Store and Xbox app (PC Game Pass) games.
+    MsStore,
     /// Standalone executable, whatever its file type.
     Exe,
     Rom,
@@ -24,6 +27,8 @@ impl Source {
             Source::Steam => "steam",
             Source::Epic => "epic",
             Source::Gog => "gog",
+            Source::BattleNet => "battlenet",
+            Source::MsStore => "msstore",
             Source::Exe => "exe",
             Source::Rom => "rom",
         }
@@ -34,17 +39,19 @@ impl Source {
             "steam" => Source::Steam,
             "epic" => Source::Epic,
             "gog" => Source::Gog,
+            "battlenet" => Source::BattleNet,
+            "msstore" => Source::MsStore,
             "exe" => Source::Exe,
             "rom" => Source::Rom,
             _ => return None,
         })
     }
 
-    /// Steam, Epic and GOG games run inside their client and are never
-    /// killed by Moonglass (spec 5.4); executables and ROMs are Moonglass's
-    /// own children.
+    /// Store games (Steam, Epic, GOG, Battle.net, Microsoft Store) are
+    /// started by their store and never killed by Moonglass (spec 5.4);
+    /// executables and ROMs are Moonglass's own children.
     pub fn is_launcher(self) -> bool {
-        matches!(self, Source::Steam | Source::Epic | Source::Gog)
+        !matches!(self, Source::Exe | Source::Rom)
     }
 }
 
@@ -136,18 +143,22 @@ pub enum Filter {
     Steam,
     Epic,
     Gog,
+    BattleNet,
+    MsStore,
     Apps,
     Emulators,
 }
 
 impl Filter {
-    pub const ORDER: [Filter; 8] = [
+    pub const ORDER: [Filter; 10] = [
         Filter::All,
         Filter::Recent,
         Filter::Favorites,
         Filter::Steam,
         Filter::Epic,
         Filter::Gog,
+        Filter::BattleNet,
+        Filter::MsStore,
         Filter::Apps,
         Filter::Emulators,
     ];
@@ -160,6 +171,8 @@ impl Filter {
             Filter::Steam => "Steam",
             Filter::Epic => "Epic",
             Filter::Gog => "GOG",
+            Filter::BattleNet => "Battle.net",
+            Filter::MsStore => "MS Store",
             Filter::Apps => "Apps",
             Filter::Emulators => "Emulators",
         }
@@ -176,6 +189,8 @@ impl Filter {
             Filter::Steam => game.source == Source::Steam,
             Filter::Epic => game.source == Source::Epic,
             Filter::Gog => game.source == Source::Gog,
+            Filter::BattleNet => game.source == Source::BattleNet,
+            Filter::MsStore => game.source == Source::MsStore,
             Filter::Apps => game.source == Source::Exe,
             Filter::Emulators => game.source == Source::Rom,
         }

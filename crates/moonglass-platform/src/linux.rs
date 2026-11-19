@@ -10,8 +10,8 @@ use std::time::Duration;
 use rustix::process::{kill_process_group, test_kill_process_group, Pid, Signal};
 
 use crate::{
-    name_matches, within_normalized, AppPaths, EpicSource, GogSource, PlatformError, Prepared,
-    ProcessInfo, Result,
+    name_matches, within_normalized, AppPaths, BattleNetSource, EpicSource, GogSource,
+    PlatformError, Prepared, ProcessInfo, Result, StorePackage,
 };
 
 /// evdev delivers controller input without focus, so the gamepad thread
@@ -19,6 +19,9 @@ use crate::{
 pub const GAMEPAD_RESTORE_VIA_GILRS: bool = true;
 
 pub const PLATFORM_NAME: &str = "Linux";
+
+/// Battle.net and the Microsoft Store are Windows programs.
+pub const WINDOWS_STORES: bool = false;
 
 const STEAM_FLATPAK_ID: &str = "com.valvesoftware.Steam";
 const HEROIC_FLATPAK_ID: &str = "com.heroicgameslauncher.hgl";
@@ -169,6 +172,14 @@ pub fn gog_source() -> Option<GogSource> {
     })
 }
 
+pub fn battlenet_source() -> Option<BattleNetSource> {
+    None
+}
+
+pub fn msstore_packages() -> Option<Vec<StorePackage>> {
+    None
+}
+
 // ---------------------------------------------------------------- launching
 
 /// Starts a helper program detached from Moonglass's lifecycle, reaping it in
@@ -257,6 +268,18 @@ pub fn launch_gog(source: &GogSource, product_id: &str, _install_dir: &Path) -> 
             "GOG Galaxy is not available on Linux".into(),
         )),
     }
+}
+
+pub fn launch_battlenet(_client: &Path, _code: &str) -> Result<()> {
+    Err(PlatformError::Os(
+        "Battle.net is not available on Linux".into(),
+    ))
+}
+
+pub fn launch_msstore(_aumid: &str) -> Result<()> {
+    Err(PlatformError::Os(
+        "the Microsoft Store is not available on Linux".into(),
+    ))
 }
 
 /// A child started in its own process group, so the group can be checked

@@ -220,6 +220,8 @@ pub struct Prefs {
     pub steam_enabled: bool,
     pub epic_enabled: bool,
     pub gog_enabled: bool,
+    pub battlenet_enabled: bool,
+    pub msstore_enabled: bool,
     /// [`PREFS_VERSION`] when saved; 0 for preferences saved before it.
     #[serde(default)]
     pub version: u32,
@@ -250,6 +252,8 @@ impl Default for Prefs {
             steam_enabled: true,
             epic_enabled: true,
             gog_enabled: true,
+            battlenet_enabled: true,
+            msstore_enabled: true,
             version: PREFS_VERSION,
         }
     }
@@ -258,13 +262,27 @@ impl Default for Prefs {
 /// The stores that can be turned off, in display order. Standalone
 /// executables and emulated games are the player's own additions and are
 /// always shown.
-pub const STORES: [Source; 3] = [Source::Steam, Source::Epic, Source::Gog];
+pub const STORES: [Source; 5] = [
+    Source::Steam,
+    Source::Epic,
+    Source::Gog,
+    Source::BattleNet,
+    Source::MsStore,
+];
+
+/// Whether `s` can exist on this platform (Battle.net and the Microsoft
+/// Store are Windows only). Settings lists only these.
+pub fn store_possible(s: Source) -> bool {
+    !matches!(s, Source::BattleNet | Source::MsStore) || moonglass_platform::WINDOWS_STORES
+}
 
 pub fn store_name(s: Source) -> &'static str {
     match s {
         Source::Steam => "Steam",
         Source::Epic => "Epic",
         Source::Gog => "GOG",
+        Source::BattleNet => "Battle.net",
+        Source::MsStore => "Microsoft Store",
         Source::Exe => "Apps",
         Source::Rom => "Emulators",
     }
@@ -288,6 +306,8 @@ impl Prefs {
             Source::Steam => self.steam_enabled,
             Source::Epic => self.epic_enabled,
             Source::Gog => self.gog_enabled,
+            Source::BattleNet => self.battlenet_enabled,
+            Source::MsStore => self.msstore_enabled,
             Source::Exe | Source::Rom => true,
         }
     }
@@ -297,6 +317,8 @@ impl Prefs {
             Source::Steam => self.steam_enabled = on,
             Source::Epic => self.epic_enabled = on,
             Source::Gog => self.gog_enabled = on,
+            Source::BattleNet => self.battlenet_enabled = on,
+            Source::MsStore => self.msstore_enabled = on,
             Source::Exe | Source::Rom => {}
         }
     }

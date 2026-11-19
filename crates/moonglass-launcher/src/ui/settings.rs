@@ -64,7 +64,8 @@ pub enum Item {
     ShowHidden,
     Rescan,
     LibraryInfo,
-    /// Whether a store's games are shown (Steam, Epic, GOG).
+    /// Whether a store's games are shown (Steam, Epic, GOG, Battle.net,
+    /// Microsoft Store).
     Store(Source),
     SteamAccount,
     SteamPlayableOnly,
@@ -124,6 +125,8 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::Store(Source::Steam),
             Item::Store(Source::Epic),
             Item::Store(Source::Gog),
+            Item::Store(Source::BattleNet),
+            Item::Store(Source::MsStore),
             Item::SteamAccount,
             Item::SteamPlayableOnly,
             Item::SteamFolder,
@@ -147,7 +150,10 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::Exit,
         ],
     };
-    rows.to_vec()
+    rows.iter()
+        .copied()
+        .filter(|i| !matches!(i, Item::Store(s) if !super::prefs::store_possible(*s)))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,7 +231,9 @@ impl Item {
             Item::Store(s) => match s {
                 Source::Steam => "Show Steam games",
                 Source::Epic => "Show Epic games",
-                _ => "Show GOG games",
+                Source::Gog => "Show GOG games",
+                Source::BattleNet => "Show Battle.net games",
+                _ => "Show Microsoft Store games",
             },
             Item::SteamAccount => "Steam account",
             Item::SteamPlayableOnly => "Only Steam games this account can play",
@@ -240,7 +248,7 @@ impl Item {
             Item::RefreshArt => "Refresh all artwork",
             Item::ArtInfo => "Sources",
             Item::StartAtLogin => "Start Moonglass at login",
-            Item::DismissLauncher => "Send Steam / Epic / GOG to the tray after a game",
+            Item::DismissLauncher => "Send the store's launcher to the tray after a game",
             Item::RestoreHotkey => "Return to Moonglass during a game",
             Item::RestoreButtons => "Return to Moonglass: buttons",
             Item::RestoreHold => "Return to Moonglass: hold for",

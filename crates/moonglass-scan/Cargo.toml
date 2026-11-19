@@ -1,6 +1,6 @@
 [package]
 name = "moonglass-scan"
-description = "Library scanners for Steam, Epic (Windows client manifests and Heroic/Legendary on Linux) and ROM directories. Pure file parsing: discovery of where those files live is the platform layer's job."
+description = "Library scanners for Steam, Epic (Windows client manifests and Heroic/Legendary on Linux), GOG, Battle.net, the Microsoft Store and ROM directories. Pure file parsing: discovery of where those files live is the platform layer's job."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

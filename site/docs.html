@@ -98,7 +98,7 @@
         <h2>First-time setup</h2>
         <p>A short guide shown on the first start, from the <em>Add your games</em> card when the library is empty, and any time from <em>Settings → System → First-time setup</em>. Dots at the bottom show how far along you are. <kbd>A</kbd> chooses, <kbd>B</kbd> goes back; <kbd>B</kbd> on the first step skips setup. Finishing or skipping is remembered, so it never opens on its own again.</p>
         <ol class="steps">
-          <li><strong>Your stores.</strong> Moonglass looks for Steam, Epic and GOG and shows how many games it found. Each store found on your computer has a switch, all on. Turn off any store whose games you do not want on the shelf (<a href="#stores">more on stores</a>). The step opens with <em>Continue</em> selected, so a quick <kbd>A</kbd> never turns anything off. Up and down move; <kbd>A</kbd> or left and right flip a switch.</li>
+          <li><strong>Your stores.</strong> Moonglass looks for Steam, Epic, GOG, Battle.net and the Microsoft Store and shows how many games it found. Each store found on your computer has a switch, all on. Turn off any store whose games you do not want on the shelf (<a href="#stores">more on stores</a>). The step opens with <em>Continue</em> selected, so a quick <kbd>A</kbd> never turns anything off. Up and down move; <kbd>A</kbd> or left and right flip a switch.</li>
           <li><strong>Emulators</strong> (optional). Pick an emulator from the presets and add your ROM folders. See <a href="#emulators">Emulators and ROMs</a>.</li>
           <li><strong>SteamGridDB key</strong> (optional). Enter a free key to get artwork for games your stores don't provide pictures for. See <a href="#artwork">Artwork</a>.</li>
           <li><strong>Done.</strong> You land on your games. Artwork fills in as it downloads.</li>
@@ -171,7 +171,7 @@
           <dt>All</dt><dd>Every game. Always shown.</dd>
           <dt>Recent</dt><dd>Games played within the last 30 days. Change it to 7 or 90 days in <em>Settings → Library</em>.</dd>
           <dt>Favorites</dt><dd>Games you starred from their <a href="#options">options</a>.</dd>
-          <dt>Steam · Epic · GOG</dt><dd>Games from that store.</dd>
+          <dt>Steam · Epic · GOG · Battle.net · MS Store</dt><dd>Games from that store.</dd>
           <dt>Apps</dt><dd>Programs you added yourself.</dd>
           <dt>Emulators</dt><dd>Games from your ROM folders.</dd>
         </dl>
@@ -218,7 +218,7 @@
         <h2>Playing a game</h2>
 
         <h3>Launching</h3>
-        <p>Press <kbd>A</kbd> on a game. Moonglass shows <em>Launching…</em> and starts it the way its store would: Steam, Epic and GOG games start through their own client, so achievements, cloud saves, Steam Input and the store's own playtime all keep working. Programs and emulators are started directly.</p>
+        <p>Press <kbd>A</kbd> on a game. Moonglass shows <em>Launching…</em> and starts it the way its store would: Steam, Epic, GOG and Battle.net games start through their own client, Microsoft Store games through Windows, so achievements, cloud saves, Steam Input and the store's own playtime all keep working. Programs and emulators are started directly.</p>
         <p>If the game takes a while, after 20 seconds the screen adds <em>Still waiting…</em> with <kbd>B</kbd> to cancel. A long wait is normal when Steam is updating the game first. After 3 minutes Moonglass stops waiting (change this in <em>Settings → System → Stop waiting for a game after</em>: 1, 3, 5 or 10 minutes).</p>
 
         <h3>While you play</h3>
@@ -242,7 +242,7 @@
         <h3>After the game</h3>
         <ul>
           <li>Moonglass comes back to the front, usually within a second or two. A game that hands over to another program (a launcher starting the real game) gets 5 seconds of grace, so Moonglass doesn't jump back too early.</li>
-          <li>If Steam, Epic, GOG Galaxy or Heroic popped up its window, Moonglass sends it back to the tray. The client keeps running so cloud saves finish. Turn this off with <em>Send Steam / Epic / GOG to the tray after a game</em>.</li>
+          <li>If Steam, Epic, GOG Galaxy, Battle.net or Heroic popped up its window, Moonglass sends it back to the tray. The client keeps running so cloud saves finish. Turn this off with <em>Send the store's launcher to the tray after a game</em>.</li>
           <li>The session is added to the game's playtime, and the game moves to the front of the shelf.</li>
           <li>If Windows refuses to bring Moonglass forward, it flashes in the taskbar and shows a notification saying how to return.</li>
         </ul>
@@ -306,8 +306,22 @@
           <li>On Windows, a GOG game installed while Moonglass is open appears after your next game, or after <em>Rescan library now</em>.</li>
         </ul>
 
+        <h3>Battle.net</h3>
+        <ul>
+          <li><strong>Windows only:</strong> every game installed by Battle.net. Games start through Battle.net, so its sign-in and updates work as usual; if Battle.net asks you to sign in, do that once.</li>
+          <li>A game Moonglass doesn't know how to ask Battle.net for yet starts through its own launcher program instead, which opens Battle.net with that game.</li>
+        </ul>
+
+        <h3>Microsoft Store and Xbox app</h3>
+        <ul>
+          <li><strong>Windows only:</strong> games from the Microsoft Store, including PC Game Pass games installed with the Xbox app. They start through Windows, as they would from the Start menu.</li>
+          <li>Only games made with Microsoft's current game kit are found, which covers recent Store and Game Pass games; some older Store games are not.</li>
+          <li>Battle.net and Store games have no free source of artwork: add a <a href="#artwork">SteamGridDB key</a> for covers, or they get a title card.</li>
+          <li>A Battle.net or Store game installed while Moonglass is open appears after your next game, or after <em>Rescan library now</em>.</li>
+        </ul>
+
         <h3 id="stores">Turning a store off</h3>
-        <p>Don't want a store's games on the shelf? Turn it off in <em>Settings → Library</em> (<em>Show Steam games</em>, <em>Show Epic games</em>, <em>Show GOG games</em>) or during setup. Its games disappear from the shelf, the filters and search. Moonglass still keeps track of them, so turning the store back on is instant and their favorites, playtime and artwork are intact. Each row shows how many games the store has, or that it wasn't found. Your own programs and emulated games are always shown.</p>
+        <p>Don't want a store's games on the shelf? Turn it off in <em>Settings → Library</em> (<em>Show Steam games</em>, <em>Show Epic games</em>, and so on) or during setup. Its games disappear from the shelf, the filters and search. Moonglass still keeps track of them, so turning the store back on is instant and their favorites, playtime and artwork are intact. Each row shows how many games the store has, or that it wasn't found. Your own programs and emulated games are always shown.</p>
       </section>
 
       <!-- ================================================== apps -->
@@ -460,7 +474,7 @@
           <li>Cards show a green dot with the number of friends in that game, and the focused game names them ("Alex and Sam are playing").</li>
           <li>When a friend's session can be joined, the game's options offer <em>Join</em> with their name.</li>
           <li>The <em>Friends</em> row in Settings shows how many friends were found and how many are playing, or why it didn't work.</li>
-          <li>Moonglass checks once a minute, and not at all while you play. Friends who appear offline or have a private profile aren't shown. Epic and GOG offer nothing similar.</li>
+          <li>Moonglass checks once a minute, and not at all while you play. Friends who appear offline or have a private profile aren't shown. Epic, GOG, Battle.net and the Microsoft Store offer nothing similar.</li>
           <li>The key is sent only to Steam and never logged.</li>
         </ul>
 
@@ -504,7 +518,7 @@
               <tr><th scope="row">Show hidden games</th><td>On · <strong>Off</strong>. Hidden games come back on the shelf with a Hidden tag.</td></tr>
               <tr><th scope="row">Rescan library now</th><td>Look for new and removed games straight away.</td></tr>
               <tr><th scope="row">Library</th><td>How many games you have, and how many are hidden.</td></tr>
-              <tr><th scope="row">Show Steam / Epic / GOG games</th><td><strong>On</strong> · Off. See <a href="#stores">Turning a store off</a>.</td></tr>
+              <tr><th scope="row">Show Steam / Epic / GOG / Battle.net / Microsoft Store games</th><td><strong>On</strong> · Off. See <a href="#stores">Turning a store off</a>.</td></tr>
               <tr><th scope="row">Steam account</th><td>Switch account. See <a href="#steam">Steam accounts</a>.</td></tr>
               <tr><th scope="row">Only Steam games this account can play</th><td><strong>On</strong> · Off</td></tr>
               <tr><th scope="row">Steam folder</th><td><strong>Found automatically</strong>, or a folder you pick.</td></tr>
@@ -536,7 +550,7 @@
             <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
             <tbody>
               <tr><th scope="row">Start Moonglass at login</th><td>On · <strong>Off</strong></td></tr>
-              <tr><th scope="row">Send Steam / Epic / GOG to the tray after a game</th><td><strong>On</strong> · Off</td></tr>
+              <tr><th scope="row">Send the store's launcher to the tray after a game</th><td><strong>On</strong> · Off</td></tr>
               <tr><th scope="row">Return to Moonglass during a game</th><td>The combination for your controller, and whether the keyboard shortcut is available.</td></tr>
               <tr><th scope="row">Return to Moonglass: buttons</th><td>View + Menu · <strong>Both sticks pressed in</strong></td></tr>
               <tr><th scope="row">Return to Moonglass: hold for</th><td>1 second · <strong>2 seconds</strong> · 3 seconds</td></tr>
@@ -615,7 +629,7 @@
           <table class="ref cli">
             <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
             <tbody>
-              <tr><th scope="row"><code>list [--filter &lt;filter&gt;] [--search &lt;text&gt;]</code></th><td>Scan, then list games in shelf order. Filters: all, recent, favorites, steam, epic, gog, apps, emulators.</td></tr>
+              <tr><th scope="row"><code>list [--filter &lt;filter&gt;] [--search &lt;text&gt;]</code></th><td>Scan, then list games in shelf order. Filters: all, recent, favorites, steam, epic, gog, battlenet, msstore, apps, emulators.</td></tr>
               <tr><th scope="row"><code>scan</code></th><td>Scan and report what changed.</td></tr>
               <tr><th scope="row"><code>launch &lt;game&gt; [--epic-fallback] [--give-up &lt;secs&gt;]</code></th><td>Start a game and report each step until it closes.</td></tr>
               <tr><th scope="row"><code>add-exe &lt;path&gt; [title]</code></th><td>Add a program.</td></tr>
@@ -717,7 +731,7 @@
     </div>
     <div class="legal rule label">
       <span>Moonglass 0.1.0</span>
-      <span>Not affiliated with Valve, Epic Games, GOG, Playnite or One Game Launcher</span>
+      <span>Not affiliated with Valve, Epic Games, GOG, Blizzard, Microsoft, Playnite or One Game Launcher</span>
     </div>
   </footer>
 

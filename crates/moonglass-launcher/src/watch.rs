@@ -44,8 +44,9 @@ pub async fn watch_targets(db: &Db) -> anyhow::Result<Vec<(PathBuf, RecursiveMod
         }
         None => {}
     }
-    // GOG on Windows lives in the registry, which is not watched: those
-    // games are found at startup, after each game and from Settings.
+    // GOG on Windows, Battle.net and the Microsoft Store live in the
+    // registry, which is not watched: those games are found at startup,
+    // after each game and from Settings.
     if let Some(GogSource::Heroic { installed_json, .. }) = moonglass_platform::gog_source() {
         if let Some(dir) = installed_json.parent() {
             out.push((dir.to_path_buf(), RecursiveMode::NonRecursive));

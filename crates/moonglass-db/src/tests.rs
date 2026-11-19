@@ -405,6 +405,50 @@ async fn gog_games_are_their_own_scope() {
 }
 
 #[tokio::test]
+async fn battlenet_and_msstore_games_are_stored() {
+    let db = db().await;
+    let game = |id: GameId, source: Source, source_id: &str, dir: &str| ScannedGame {
+        id,
+        title: "Game".into(),
+        source,
+        source_id: Some(source_id.into()),
+        launch_target: None,
+        install_dir: Some(dir.into()),
+        rom_directory_id: None,
+        platform: None,
+        last_played_hint: None,
+    };
+    let sc2 = game(
+        GameId::battlenet("s2"),
+        Source::BattleNet,
+        "s2",
+        "C:/Program Files (x86)/StarCraft II",
+    );
+    let fh = game(
+        GameId::msstore("Microsoft.ForteBaseGame_8wekyb3d8bbwe"),
+        Source::MsStore,
+        "Microsoft.ForteBaseGame_8wekyb3d8bbwe!Forzahorizon6",
+        "C:/XboxGames/Forza Horizon 6/Content",
+    );
+    db.reconcile(&ScanScope::BattleNet, &[sc2], 0)
+        .await
+        .unwrap();
+    db.reconcile(&ScanScope::MsStore, &[fh], 0).await.unwrap();
+    let g = db.game(&GameId::battlenet("s2")).await.unwrap().unwrap();
+    assert_eq!(g.source, Source::BattleNet);
+    // Each is its own scope: an empty Store scan leaves Battle.net alone.
+    db.reconcile(&ScanScope::MsStore, &[], 0).await.unwrap();
+    assert!(db.game(&g.id).await.unwrap().unwrap().is_installed);
+    let fh = db
+        .game(&GameId::msstore("Microsoft.ForteBaseGame_8wekyb3d8bbwe"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fh.source, Source::MsStore);
+    assert!(!fh.is_installed);
+}
+
+#[tokio::test]
 async fn store_playtime_is_kept_apart_and_replaced() {
     let db = db().await;
     db.reconcile(

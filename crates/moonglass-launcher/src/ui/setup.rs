@@ -271,7 +271,7 @@ impl LauncherView {
                     .map(|(n, name)| format!("{} on {name}", count_label(n, "game", "games")))
                     .collect();
                     match stores.as_slice() {
-                        [] => "No Steam, Epic or GOG games were found on this computer.".into(),
+                        [] => "No store games were found on this computer.".into(),
                         [one] => format!("Found {one}."),
                         [rest @ .., last] => format!("Found {} and {last}.", rest.join(", ")),
                     }

@@ -3,6 +3,8 @@
 //! * Steam: `steam:<AppID>`
 //! * Epic: `epic:<AppName>`
 //! * GOG: `gog:<product ID>`
+//! * Battle.net: `battlenet:<product UID>` (`s2`, `wow`, …)
+//! * Microsoft Store: `msstore:<package family name>`
 //! * Executable: `exe:<hash of normalized path>`
 //! * ROM: `rom:<hash of normalized path>`
 //!
@@ -26,6 +28,14 @@ impl GameId {
 
     pub fn gog(product_id: &str) -> Self {
         Self(format!("gog:{product_id}"))
+    }
+
+    pub fn battlenet(uid: &str) -> Self {
+        Self(format!("battlenet:{uid}"))
+    }
+
+    pub fn msstore(package_family: &str) -> Self {
+        Self(format!("msstore:{package_family}"))
     }
 
     /// `normalized_path` must come from `Platform::normalize_path`.
@@ -79,6 +89,11 @@ mod tests {
         assert_eq!(GameId::steam("620").as_str(), "steam:620");
         assert_eq!(GameId::epic("Fortnite").as_str(), "epic:Fortnite");
         assert_eq!(GameId::gog("1207658924").as_str(), "gog:1207658924");
+        assert_eq!(GameId::battlenet("s2").as_str(), "battlenet:s2");
+        assert_eq!(
+            GameId::msstore("Microsoft.ForteBaseGame_8wekyb3d8bbwe").as_str(),
+            "msstore:Microsoft.ForteBaseGame_8wekyb3d8bbwe"
+        );
     }
 
     #[test]

@@ -22,12 +22,12 @@ use windows::Win32::System::Registry::{
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE,
 };
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::Shell::{SHLoadIndirectString, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 use crate::{
-    name_matches, within_normalized, AppPaths, EpicSource, GogRegistryGame, GogSource,
-    PlatformError, Prepared, ProcessInfo, Result,
+    name_matches, within_normalized, AppPaths, BattleNetEntry, BattleNetSource, EpicSource,
+    GogRegistryGame, GogSource, PlatformError, Prepared, ProcessInfo, Result, StorePackage,
 };
 
 /// Windows reads the background restore combination with its own XInput
@@ -35,6 +35,8 @@ use crate::{
 pub const GAMEPAD_RESTORE_VIA_GILRS: bool = false;
 
 pub const PLATFORM_NAME: &str = "Windows";
+
+pub const WINDOWS_STORES: bool = true;
 
 fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain(std::iter::once(0)).collect()
@@ -229,6 +231,101 @@ pub fn gog_source() -> Option<GogSource> {
     (!games.is_empty() || galaxy.is_some()).then_some(GogSource::Registry { games, galaxy })
 }
 
+const UNINSTALL_KEYS: [&str; 2] = [
+    r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+];
+
+/// `Battle.net.exe`: from Battle.net's registered capabilities, else its
+/// default folder.
+fn battlenet_client() -> Option<PathBuf> {
+    reg_get_string_in(
+        HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\WOW6432Node\Blizzard Entertainment\Battle.net\Capabilities",
+        "ApplicationIcon",
+    )
+    // `"C:\…\Battle.net.exe",0`
+    .and_then(|v| {
+        let v = v.trim().trim_start_matches('"');
+        let end = v.to_ascii_lowercase().find(".exe")? + 4;
+        Some(PathBuf::from(&v[..end]))
+    })
+    .filter(|p| p.is_file())
+    .or_else(|| {
+        let pf = std::env::var_os("ProgramFiles(x86)")
+            .unwrap_or_else(|| r"C:\Program Files (x86)".into());
+        Some(PathBuf::from(pf).join(r"Battle.net\Battle.net.exe")).filter(|p| p.is_file())
+    })
+}
+
+pub fn battlenet_source() -> Option<BattleNetSource> {
+    let games: Vec<BattleNetEntry> = UNINSTALL_KEYS
+        .iter()
+        .flat_map(|root| {
+            reg_subkeys(HKEY_LOCAL_MACHINE, root)
+                .into_iter()
+                .map(move |k| format!(r"{root}\{k}"))
+        })
+        .filter_map(|key| {
+            let get = |v: &str| reg_get_string_in(HKEY_LOCAL_MACHINE, &key, v).unwrap_or_default();
+            let uninstall_string = get("UninstallString");
+            // Only Battle.net's own uninstaller carries a product UID.
+            (uninstall_string.contains("Blizzard Uninstaller")
+                && uninstall_string.contains("--uid="))
+            .then(|| BattleNetEntry {
+                name: get("DisplayName"),
+                install_location: get("InstallLocation"),
+                uninstall_string,
+            })
+        })
+        .collect();
+    let client = battlenet_client();
+    (!games.is_empty() || client.is_some()).then_some(BattleNetSource { games, client })
+}
+
+/// Resolves an `@{Package?ms-resource://…}` display name. Plain names are
+/// returned as they are; one that cannot be resolved becomes empty.
+fn resolve_indirect(s: &str) -> String {
+    if !s.starts_with('@') {
+        return s.to_string();
+    }
+    let source = HSTRING::from(s);
+    let mut buf = [0u16; 512];
+    match unsafe { SHLoadIndirectString(&source, &mut buf, None) } {
+        Ok(()) => {
+            let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            String::from_utf16_lossy(&buf[..end])
+        }
+        Err(_) => String::new(),
+    }
+}
+
+/// The packages registered for the current user, from the AppX
+/// repository in the registry: their full name, display name and folder.
+pub fn msstore_packages() -> Option<Vec<StorePackage>> {
+    const REPO: &str = r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
+    Some(
+        reg_subkeys(HKEY_CURRENT_USER, REPO)
+            .into_iter()
+            .filter_map(|full_name| {
+                let key = format!(r"{REPO}\{full_name}");
+                let root = reg_get_string_in(HKEY_CURRENT_USER, &key, "PackageRootFolder")?;
+                if !Path::new(&root).is_dir() {
+                    return None;
+                }
+                let display_name = reg_get_string_in(HKEY_CURRENT_USER, &key, "DisplayName")
+                    .map(|n| resolve_indirect(&n))
+                    .unwrap_or_default();
+                Some(StorePackage {
+                    full_name,
+                    display_name,
+                    root,
+                })
+            })
+            .collect(),
+    )
+}
+
 // ---------------------------------------------------------------- launching
 
 pub fn open_uri(uri: &str) -> Result<()> {
@@ -313,6 +410,21 @@ pub fn launch_gog(source: &GogSource, product_id: &str, install_dir: &Path) -> R
         }
         GogSource::Heroic { .. } => Err(PlatformError::Os("Heroic is not used on Windows".into())),
     }
+}
+
+pub fn launch_battlenet(client: &Path, code: &str) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    // Battle.net is usually running already: this hands the request over
+    // and exits. The quotes are Battle.net's own syntax; `code` was checked
+    // to be letters and digits.
+    Command::new(client)
+        .raw_arg(format!("--exec=\"launch {code}\""))
+        .spawn()?;
+    Ok(())
+}
+
+pub fn launch_msstore(aumid: &str) -> Result<()> {
+    open_uri(&format!(r"shell:AppsFolder\{aumid}"))
 }
 
 /// A child process inside a Job Object. The job is not kill-on-close, so a
@@ -417,12 +529,16 @@ pub(crate) fn process_matches(p: &ProcessInfo<'_>, m: &Prepared<'_>) -> bool {
                 // (`C:\Users\RUNNER~1\…`) reports that path, while `dir` is
                 // in its long form. Short names are rare, so only those
                 // paths pay for the lookup.
-                if exe.as_os_str().to_string_lossy().contains('~') {
-                    let long = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
-                    within_normalized(&long, dir)
-                } else {
-                    within_normalized(exe, dir)
+                //
+                // A Store game's folder under `WindowsApps` is often a
+                // junction to `C:\XboxGames\<Game>\Content`: `dir` is
+                // resolved, and the process may report either path.
+                if within_normalized(exe, dir) {
+                    return true;
                 }
+                let s = exe.as_os_str().to_string_lossy();
+                (s.contains('~') || s.to_ascii_lowercase().contains(r"\windowsapps\"))
+                    && std::fs::canonicalize(exe).is_ok_and(|long| within_normalized(&long, dir))
             }
             _ => false,
         },
@@ -1123,6 +1239,7 @@ pub mod window {
             Launcher::Steam => (&["steamwebhelper.exe", "steam.exe"], "Steam"),
             Launcher::Epic => (&["epicgameslauncher.exe"], "Epic Games Launcher"),
             Launcher::Gog => (&["galaxyclient.exe"], "GOG Galaxy"),
+            Launcher::BattleNet => (&["battle.net.exe"], "Battle.net"),
         }
     }
 

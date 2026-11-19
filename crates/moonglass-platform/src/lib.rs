@@ -7,7 +7,7 @@
 //!
 //! | Capability | Here |
 //! | --- | --- |
-//! | Start a store game | [`launch_steam`], [`launch_epic`], [`launch_gog`] |
+//! | Start a store game | [`launch_steam`], [`launch_epic`], [`launch_gog`], [`launch_battlenet`], [`launch_msstore`] |
 //! | Track and kill a spawned game | [`TrackedChild`] |
 //! | Detect a launcher-started game | [`ProcessWatcher`] + [`GameMatcher`] |
 //! | Hide Moonglass / regain focus / dismiss the launcher window | [`window`] |
@@ -15,7 +15,7 @@
 //! | Quick Menu: clips and screenshots, the game's volume | [`capture`], [`game_volume`], [`set_game_volume`] |
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |
 //! | Single-instance guard | [`InstanceGuard`] |
-//! | Steam, Epic and GOG discovery | [`steam_root`], [`epic_source`], [`gog_source`] |
+//! | Store discovery | [`steam_root`], [`epic_source`], [`gog_source`], [`battlenet_source`], [`msstore_packages`] |
 //! | File locations | [`AppPaths`] |
 
 use std::ffi::OsStr;
@@ -269,12 +269,56 @@ pub fn gog_source() -> Option<GogSource> {
     imp::gog_source()
 }
 
+/// Whether this platform can have Battle.net and Microsoft Store games
+/// (Windows only).
+pub const WINDOWS_STORES: bool = imp::WINDOWS_STORES;
+
+/// One Blizzard game in Windows' installed programs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BattleNetEntry {
+    pub name: String,
+    pub install_location: String,
+    pub uninstall_string: String,
+}
+
+/// Battle.net games and the Battle.net program (Windows).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BattleNetSource {
+    pub games: Vec<BattleNetEntry>,
+    /// `Battle.net.exe`, if Battle.net is installed.
+    pub client: Option<PathBuf>,
+}
+
+/// `None` when neither Battle.net nor any of its games is installed (always
+/// on Linux), in which case the Battle.net source and pill do not appear.
+pub fn battlenet_source() -> Option<BattleNetSource> {
+    imp::battlenet_source()
+}
+
+/// One package installed for the current user (Microsoft Store apps).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorePackage {
+    /// `Name_Version_Architecture_ResourceId_PublisherId`.
+    pub full_name: String,
+    /// Resolved display name; empty when it could not be read.
+    pub display_name: String,
+    /// The package's folder.
+    pub root: String,
+}
+
+/// Every package installed for the current user whose folder exists. Which
+/// of them are games is the scanner's call. `None` on Linux.
+pub fn msstore_packages() -> Option<Vec<StorePackage>> {
+    imp::msstore_packages()
+}
+
 /// A launcher client whose window Moonglass may dismiss after a game exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Launcher {
     Steam,
     Epic,
     Gog,
+    BattleNet,
 }
 
 /// Outcome of [`window::regain_focus`].
@@ -325,6 +369,29 @@ pub fn launch_gog(source: &GogSource, product_id: &str, install_dir: &Path) -> R
         return Err(PlatformError::Os("not a GOG product ID".into()));
     }
     imp::launch_gog(source, product_id, install_dir)
+}
+
+/// Starts a Battle.net game through Battle.net: `code` is the product code
+/// (`S2`, `WoW`), not the UID. Battle.net asks to sign in first if needed.
+pub fn launch_battlenet(client: &Path, code: &str) -> Result<()> {
+    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return Err(PlatformError::Os("not a Battle.net product code".into()));
+    }
+    imp::launch_battlenet(client, code)
+}
+
+/// Starts a Microsoft Store game by its Application User Model ID
+/// (`<package family>!<application ID>`).
+pub fn launch_msstore(aumid: &str) -> Result<()> {
+    let ok_part = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    };
+    match aumid.split_once('!') {
+        Some((family, app)) if ok_part(family) && ok_part(app) => imp::launch_msstore(aumid),
+        _ => Err(PlatformError::Os("not a Store application ID".into())),
+    }
 }
 
 /// A standalone executable or emulator started by Moonglass, placed in a Job

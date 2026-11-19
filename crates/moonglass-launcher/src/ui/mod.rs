@@ -1449,7 +1449,9 @@ impl LauncherView {
             }
             Source::Epic => moonglass_platform::epic_source().is_some(),
             Source::Gog => moonglass_platform::gog_source().is_some(),
-            Source::Exe | Source::Rom => false,
+            Source::BattleNet => moonglass_platform::battlenet_source().is_some(),
+            // Every Windows has the Store: it counts once a game is found.
+            Source::MsStore | Source::Exe | Source::Rom => false,
         };
         let found: Vec<Source> = prefs::STORES
             .into_iter()
@@ -2492,7 +2494,8 @@ impl LauncherView {
     }
 
     /// A game started by Moonglass usually comes in front by itself. One
-    /// started through its store's client (Steam, Epic, GOG) may not be
+    /// started through its store (Steam, Epic, GOG, Battle.net, Microsoft
+    /// Store) may not be
     /// allowed to: Windows keeps the foreground with Moonglass and only
     /// flashes the game's taskbar button. While Moonglass is still in
     /// front, this looks for the game's window a few times a second and
@@ -2576,7 +2579,7 @@ impl LauncherView {
         );
     }
 
-    /// Spec 5.3: after a Steam, Epic or GOG game, a client window left in front
+    /// Spec 5.3: after a Steam, Epic, GOG or Battle.net game, a client window left in front
     /// goes to the tray (unless turned off in Settings).
     fn dismiss_launcher(&self, game: &Game) {
         if !self.prefs.dismiss_launcher_window {
@@ -2586,7 +2589,8 @@ impl LauncherView {
             Source::Steam => moonglass_platform::Launcher::Steam,
             Source::Epic => moonglass_platform::Launcher::Epic,
             Source::Gog => moonglass_platform::Launcher::Gog,
-            Source::Exe | Source::Rom => return,
+            Source::BattleNet => moonglass_platform::Launcher::BattleNet,
+            Source::MsStore | Source::Exe | Source::Rom => return,
         };
         let closed = moonglass_platform::window::dismiss_launcher_window(launcher);
         tracing::debug!(?launcher, closed, "launcher window dismissal");

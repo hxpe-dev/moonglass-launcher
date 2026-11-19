@@ -48,7 +48,7 @@ USAGE:
     moonglass autostart on|off|status
     moonglass paths
 
-Pills: all, recent, favorites, steam, epic, gog, apps, emulators.
+Pills: all, recent, favorites, steam, epic, gog, battlenet, msstore, apps, emulators.
 <number> is the position shown by `moonglass list`.";
 
 static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -91,9 +91,16 @@ fn init_logging(paths: &AppPaths) -> anyhow::Result<tracing_appender::non_blocki
 }
 
 fn parse_filter(s: &str) -> anyhow::Result<Filter> {
+    // "battlenet" and "msstore" name "Battle.net" and "MS Store".
+    let key = |x: &str| {
+        x.chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase()
+    };
     Filter::ORDER
         .into_iter()
-        .find(|f| f.label().eq_ignore_ascii_case(s))
+        .find(|f| key(f.label()) == key(s))
         .ok_or_else(|| anyhow!("unknown filter {s:?}"))
 }
 
@@ -158,9 +165,7 @@ async fn print_list(db: &Db, filter: Filter, query: Option<&str>) -> anyhow::Res
         None => carousel(&games, filter, now, recent),
     };
     if games.iter().all(|g| !g.is_visible()) {
-        println!(
-            "\n[ Add your games ]  (moonglass add-exe / add-rom-dir, or install Steam/Epic/GOG games)"
-        );
+        println!("\n[ Add your games ]  (moonglass add-exe / add-rom-dir, or install store games)");
         return Ok(());
     }
     if order.is_empty() {

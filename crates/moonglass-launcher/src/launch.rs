@@ -166,6 +166,63 @@ pub async fn start(
                 launcher: None,
             })
         }
+        Source::BattleNet => {
+            let uid = game
+                .source_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("Battle.net game without product UID"))?;
+            let install_dir = PathBuf::from(
+                game.install_dir
+                    .clone()
+                    .ok_or_else(|| anyhow!("Battle.net game without install folder"))?,
+            );
+            let matcher = override_matcher.unwrap_or_else(|| GameMatcher::Folder {
+                install_dir: install_dir.clone(),
+            });
+            let client = moonglass_platform::battlenet_source().and_then(|s| s.client);
+            if let (Some(client), Some(code)) =
+                (&client, moonglass_scan::battlenet::launch_code(uid))
+            {
+                moonglass_platform::launch_battlenet(client, code)?;
+                return Ok(Running {
+                    child: None,
+                    matcher: Some(matcher),
+                    launcher: Some(Launcher::BattleNet),
+                });
+            }
+            // A game Moonglass has no product code for: its own
+            // `<Game> Launcher.exe`, which hands the start to Battle.net.
+            let target = game.launch_target.clone().ok_or_else(|| {
+                anyhow!(
+                    "{} cannot be started from Moonglass yet; start it once from Battle.net",
+                    game.title
+                )
+            })?;
+            let child = TrackedChild::spawn(Path::new(&target), &[], Some(&install_dir))?;
+            Ok(Running {
+                child: Some(child),
+                matcher: Some(matcher),
+                launcher: client.map(|_| Launcher::BattleNet),
+            })
+        }
+        Source::MsStore => {
+            let aumid = game
+                .source_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("Store game without application ID"))?;
+            let install_dir = game
+                .install_dir
+                .clone()
+                .ok_or_else(|| anyhow!("Store game without install folder"))?;
+            moonglass_platform::launch_msstore(aumid)?;
+            Ok(Running {
+                child: None,
+                matcher: Some(override_matcher.unwrap_or_else(|| GameMatcher::Folder {
+                    install_dir: install_dir.into(),
+                })),
+                launcher: None,
+            })
+        }
         Source::Exe => {
             let target = PathBuf::from(
                 game.launch_target

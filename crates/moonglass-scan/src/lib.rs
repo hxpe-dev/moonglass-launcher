@@ -12,9 +12,11 @@ use std::path::{Path, PathBuf};
 use moonglass_core::{GameId, Source};
 use thiserror::Error;
 
+pub mod battlenet;
 pub mod epic;
 pub mod gog;
 pub mod heroic;
+pub mod msstore;
 pub mod roms;
 pub mod steam;
 pub mod steam_accounts;
@@ -55,10 +57,11 @@ pub struct ScannedGame {
     pub id: GameId,
     pub title: String,
     pub source: Source,
-    /// Steam AppID, Epic AppName or GOG product ID.
+    /// Steam AppID, Epic AppName, GOG product ID, Battle.net product UID
+    /// or a Store game's Application User Model ID.
     pub source_id: Option<String>,
-    /// ROM path, or a GOG game's own program (executables are added by
-    /// the user, not scanned).
+    /// ROM path, or a GOG or Battle.net game's own program (executables
+    /// are added by the user, not scanned).
     pub launch_target: Option<String>,
     pub install_dir: Option<String>,
     pub rom_directory_id: Option<String>,
