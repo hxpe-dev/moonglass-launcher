@@ -1,5 +1,5 @@
 //! Settings (spec 5.5): a full-screen, controller-navigable view with
-//! Appearance, Library, Emulators, Artwork and System sections, drawn as
+//! Appearance, Library, Stores, Emulators, Artwork and System sections, drawn as
 //! glass panels over the blurred backdrop. Every change applies immediately
 //! and is saved.
 
@@ -20,14 +20,16 @@ use super::LauncherView;
 pub enum Section {
     Appearance,
     Library,
+    Stores,
     Emulation,
     Artwork,
     System,
 }
 
-pub const SECTIONS: [Section; 5] = [
+pub const SECTIONS: [Section; 6] = [
     Section::Appearance,
     Section::Library,
+    Section::Stores,
     Section::Emulation,
     Section::Artwork,
     Section::System,
@@ -38,6 +40,7 @@ impl Section {
         match self {
             Section::Appearance => "Appearance",
             Section::Library => "Library",
+            Section::Stores => "Stores",
             Section::Emulation => "Emulators",
             Section::Artwork => "Artwork",
             Section::System => "System",
@@ -91,6 +94,10 @@ pub enum Item {
     Logs,
     Version,
     Exit,
+    /// Fullscreen, borderless window or window.
+    DisplayMode,
+    /// The display's resolution in fullscreen (Windows).
+    Resolution,
 }
 
 /// The rows of a section. `emulators` is how many profiles exist: the
@@ -122,11 +129,6 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::ShowHidden,
             Item::Rescan,
             Item::LibraryInfo,
-            Item::Store(Source::Steam),
-            Item::Store(Source::Epic),
-            Item::Store(Source::Gog),
-            Item::Store(Source::BattleNet),
-            Item::Store(Source::MsStore),
             Item::SteamAccount,
             Item::SteamPlayableOnly,
             Item::SteamFolder,
@@ -134,8 +136,17 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::SteamKey,
             Item::FriendsInfo,
         ],
+        Section::Stores => &[
+            Item::Store(Source::Steam),
+            Item::Store(Source::Epic),
+            Item::Store(Source::Gog),
+            Item::Store(Source::BattleNet),
+            Item::Store(Source::MsStore),
+        ],
         Section::Artwork => &[Item::SgdbKey, Item::RefreshArt, Item::ArtInfo],
         Section::System => &[
+            Item::DisplayMode,
+            Item::Resolution,
             Item::StartAtLogin,
             Item::DismissLauncher,
             Item::RestoreHotkey,
@@ -180,7 +191,9 @@ impl Item {
             | Item::RestoreButtons
             | Item::RestoreHold
             | Item::Capture
-            | Item::LaunchTimeout => Kind::Choice,
+            | Item::LaunchTimeout
+            | Item::DisplayMode
+            | Item::Resolution => Kind::Choice,
             Item::StartupAnimation
             | Item::ReducedMotion
             | Item::ShowHidden
@@ -259,6 +272,8 @@ impl Item {
             Item::Logs => "Logs",
             Item::Version => "Version",
             Item::Exit => "Exit Moonglass",
+            Item::DisplayMode => "Display",
+            Item::Resolution => "Fullscreen resolution",
         }
     }
 }
@@ -341,6 +356,30 @@ pub struct SettingsState {
     /// The first item row shown. How many rows fit is known only when
     /// drawing, so drawing moves it.
     top: Cell<usize>,
+    /// The resolution row is shown only in fullscreen, where it applies.
+    show_resolution: bool,
+}
+
+/// Whether the fullscreen resolution can be chosen with these prefs.
+fn resolution_applies(prefs: &Prefs) -> bool {
+    moonglass_platform::window::CAN_SET_RESOLUTION
+        && prefs.display_mode == super::prefs::DisplayMode::Fullscreen
+}
+
+/// "1920 × 1080".
+fn size_label((w, h): (u32, u32)) -> String {
+    format!("{w} × {h}")
+}
+
+fn resolution_value(prefs: &Prefs) -> String {
+    match (
+        prefs.resolution,
+        moonglass_platform::window::desktop_resolution(),
+    ) {
+        (Some(r), _) => size_label(r),
+        (None, Some(d)) => format!("Desktop ({})", size_label(d)),
+        (None, None) => "Desktop".into(),
+    }
 }
 
 /// What Settings asks the view to do.
@@ -355,18 +394,37 @@ pub enum SettingsCmd {
 
 impl SettingsState {
     /// Opens on the section list, so the first thing to do is choose one.
-    pub fn new(emulators: usize) -> Self {
+    pub fn new(emulators: usize, prefs: &Prefs) -> Self {
         Self {
             section: 0,
             item: 0,
             in_sections: true,
             emulators,
             top: Cell::new(0),
+            show_resolution: resolution_applies(prefs),
         }
     }
 
     pub fn items(&self) -> Vec<Item> {
-        items(SECTIONS[self.section], self.emulators)
+        let mut rows = items(SECTIONS[self.section], self.emulators);
+        if !self.show_resolution {
+            rows.retain(|i| *i != Item::Resolution);
+        }
+        rows
+    }
+
+    /// Rows that depend on prefs follow a change, keeping the selection.
+    fn follow_prefs(&mut self, prefs: &Prefs) {
+        let show = resolution_applies(prefs);
+        if show != self.show_resolution {
+            let current = self.current();
+            self.show_resolution = show;
+            let rows = self.items();
+            self.item = rows
+                .iter()
+                .position(|i| *i == current)
+                .unwrap_or(self.item.min(rows.len() - 1));
+        }
     }
 
     pub fn current(&self) -> Item {
@@ -408,6 +466,22 @@ impl SettingsState {
             Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
             Item::Store(s) => prefs.set_store_enabled(s, !prefs.store_enabled(s)),
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
+            Item::DisplayMode => prefs.display_mode = prefs.display_mode.step(delta),
+            Item::Resolution => {
+                // The desktop's own resolution, then every other one.
+                let all: Vec<Option<(u32, u32)>> = std::iter::once(None)
+                    .chain(
+                        moonglass_platform::window::resolutions()
+                            .into_iter()
+                            .filter(|r| {
+                                Some(*r) != moonglass_platform::window::desktop_resolution()
+                            })
+                            .map(Some),
+                    )
+                    .collect();
+                let i = all.iter().position(|r| *r == prefs.resolution).unwrap_or(0) as isize;
+                prefs.resolution = all[(i + delta).rem_euclid(all.len() as isize) as usize];
+            }
             _ => return false,
         }
         true
@@ -431,6 +505,12 @@ impl SettingsState {
     }
 
     pub fn nav(&mut self, a: NavAction, prefs: &mut Prefs) -> SettingsCmd {
+        let cmd = self.nav_inner(a, prefs);
+        self.follow_prefs(prefs);
+        cmd
+    }
+
+    fn nav_inner(&mut self, a: NavAction, prefs: &mut Prefs) -> SettingsCmd {
         let n_items = self.items().len();
         match a {
             NavAction::FilterPrev => self.set_section(self.section + SECTIONS.len() - 1),
@@ -472,7 +552,9 @@ impl SettingsState {
     pub fn click_item(&mut self, i: usize, prefs: &mut Prefs) -> SettingsCmd {
         self.in_sections = false;
         self.item = i;
-        Self::activate(self.current(), prefs, 1)
+        let cmd = Self::activate(self.current(), prefs, 1);
+        self.follow_prefs(prefs);
+        cmd
     }
 
     pub fn click_section(&mut self, s: usize) {
@@ -548,6 +630,8 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::SteamAccount => info.steam_account.clone(),
         Item::SteamPlayableOnly => on_off(prefs.steam_playable_only).into(),
         Item::Store(s) => store_value(s, info),
+        Item::DisplayMode => prefs.display_mode.label().into(),
+        Item::Resolution => resolution_value(prefs),
         Item::SteamFolder => info.steam_folder.clone(),
         Item::SteamIgnored => info.steam_ignored.clone(),
         Item::RestoreButtons => prefs.restore_buttons.label().into(),
@@ -858,7 +942,7 @@ impl LauncherView {
                             .rounded_full()
                             .border_1()
                             .border_color(white(0.45))
-                            .hover(|s| s.bg(white(1.0)).text_color(rgb(INK)))
+                            .hover(|s| s.bg(white(0.15)).border_color(white(0.8)))
                             .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx)))
                             .child("Close"),
                     ),
@@ -893,7 +977,7 @@ mod tests {
 
     #[test]
     fn choices_change_with_left_right() {
-        let mut st = SettingsState::new(0);
+        let mut st = SettingsState::new(0, &Prefs::default());
         let mut p = Prefs::default();
         st.nav(NavAction::Confirm, &mut p); // into Appearance
         let before = p.card_shape;
@@ -908,7 +992,7 @@ mod tests {
 
     #[test]
     fn back_goes_to_sections_then_closes() {
-        let mut st = SettingsState::new(0);
+        let mut st = SettingsState::new(0, &Prefs::default());
         let mut p = Prefs::default();
         assert!(st.in_sections, "opens on the section list");
         st.nav(NavAction::Right, &mut p);
@@ -925,7 +1009,7 @@ mod tests {
 
     #[test]
     fn actions_and_toggles() {
-        let mut st = SettingsState::new(0);
+        let mut st = SettingsState::new(0, &Prefs::default());
         let mut p = Prefs::default();
         st.nav(NavAction::FilterNext, &mut p); // Library
         st.nav(NavAction::Confirm, &mut p); // into its rows
@@ -937,6 +1021,38 @@ mod tests {
         st.nav(NavAction::Down, &mut p); // Show hidden
         st.nav(NavAction::Confirm, &mut p);
         assert!(p.show_hidden);
+    }
+
+    #[test]
+    fn store_switches_have_their_own_section() {
+        let stores = items(Section::Stores, 0);
+        assert!(stores.iter().all(|i| matches!(i, Item::Store(_))));
+        assert!(stores.contains(&Item::Store(Source::Steam)));
+        assert!(!items(Section::Library, 0)
+            .iter()
+            .any(|i| matches!(i, Item::Store(_))));
+    }
+
+    #[test]
+    fn resolution_row_follows_the_display_mode() {
+        use super::super::prefs::DisplayMode;
+        let mut p = Prefs::default();
+        let mut st = SettingsState::new(0, &p);
+        st.click_section(SECTIONS.iter().position(|s| *s == Section::System).unwrap());
+        assert_eq!(st.items()[0], Item::DisplayMode);
+        assert!(!st.items().contains(&Item::Resolution));
+        // Borderless → Fullscreen (left from the default).
+        assert!(matches!(
+            st.click_item(0, &mut p),
+            SettingsCmd::PrefsChanged
+        ));
+        p.display_mode = DisplayMode::Fullscreen;
+        st.follow_prefs(&p);
+        assert_eq!(
+            st.items().contains(&Item::Resolution),
+            moonglass_platform::window::CAN_SET_RESOLUTION
+        );
+        assert_eq!(st.current(), Item::DisplayMode);
     }
 
     #[test]
@@ -952,8 +1068,9 @@ mod tests {
             items(Section::Emulation, 2),
             [Item::Emulator(0), Item::Emulator(1), Item::AddEmulator]
         );
-        let mut st = SettingsState::new(2);
+        let mut st = SettingsState::new(2, &Prefs::default());
         let mut p = Prefs::default();
+        st.nav(NavAction::FilterNext, &mut p);
         st.nav(NavAction::FilterNext, &mut p);
         st.nav(NavAction::FilterNext, &mut p); // Emulators
         st.nav(NavAction::Confirm, &mut p);

@@ -10,7 +10,7 @@
 //! | Start a store game | [`launch_steam`], [`launch_epic`], [`launch_gog`], [`launch_battlenet`], [`launch_msstore`] |
 //! | Track and kill a spawned game | [`TrackedChild`] |
 //! | Detect a launcher-started game | [`ProcessWatcher`] + [`GameMatcher`] |
-//! | Hide Moonglass / regain focus / dismiss the launcher window | [`window`] |
+//! | Hide Moonglass / regain focus / dismiss the launcher window / display resolution | [`window`] |
 //! | Background restore hotkey | [`hotkey`] |
 //! | Quick Menu: clips and screenshots, the game's volume | [`capture`], [`game_volume`], [`set_game_volume`] |
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |

@@ -185,6 +185,14 @@ choice!(LaunchTimeout {
     M10 => "10 minutes",
 } default M3);
 
+// How Moonglass's window covers the screen. Fullscreen also sets the
+// display's resolution (Windows), only while Moonglass is in front.
+choice!(DisplayMode {
+    Fullscreen => "Fullscreen",
+    Borderless => "Borderless window",
+    Windowed => "Window",
+} default Borderless);
+
 choice!(RecentDays {
     D7 => "7 days",
     D30 => "30 days",
@@ -222,6 +230,9 @@ pub struct Prefs {
     pub gog_enabled: bool,
     pub battlenet_enabled: bool,
     pub msstore_enabled: bool,
+    pub display_mode: DisplayMode,
+    /// Width and height used in fullscreen; `None` keeps the desktop's.
+    pub resolution: Option<(u32, u32)>,
     /// [`PREFS_VERSION`] when saved; 0 for preferences saved before it.
     #[serde(default)]
     pub version: u32,
@@ -254,6 +265,8 @@ impl Default for Prefs {
             gog_enabled: true,
             battlenet_enabled: true,
             msstore_enabled: true,
+            display_mode: DisplayMode::DEFAULT,
+            resolution: None,
             version: PREFS_VERSION,
         }
     }

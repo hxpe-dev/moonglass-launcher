@@ -126,7 +126,7 @@
               <tr><th scope="row">Settings</th><td><kbd>Menu</kbd></td><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Click the gear</td></tr>
               <tr><th scope="row">Back, or clear search</th><td><kbd>B</kbd></td><td><kbd>Esc</kbd></td><td>The × in the search box</td></tr>
               <tr><th scope="row">Exit Moonglass</th><td>Hold <kbd>B</kbd></td><td>Hold <kbd>Esc</kbd>, or <kbd>Ctrl</kbd>+<kbd>Q</kbd></td><td></td></tr>
-              <tr><th scope="row">Full screen on or off</th><td></td><td><kbd>F11</kbd></td><td></td></tr>
+              <tr><th scope="row">Window on or off</th><td></td><td><kbd>F11</kbd></td><td></td></tr>
               <tr><th scope="row">Add a program</th><td></td><td></td><td>Drop its file on the window</td></tr>
             </tbody>
           </table>
@@ -321,7 +321,7 @@
         </ul>
 
         <h3 id="stores">Turning a store off</h3>
-        <p>Don't want a store's games on the shelf? Turn it off in <em>Settings → Library</em> (<em>Show Steam games</em>, <em>Show Epic games</em>, and so on) or during setup. Its games disappear from the shelf, the filters and search. Moonglass still keeps track of them, so turning the store back on is instant and their favorites, playtime and artwork are intact. Each row shows how many games the store has, or that it wasn't found. Your own programs and emulated games are always shown.</p>
+        <p>Don't want a store's games on the shelf? Turn it off in <em>Settings → Stores</em> (<em>Show Steam games</em>, <em>Show Epic games</em>, and so on) or during setup. Its games disappear from the shelf, the filters and search. Moonglass still keeps track of them, so turning the store back on is instant and their favorites, playtime and artwork are intact. Each row shows how many games the store has, or that it wasn't found. Your own programs and emulated games are always shown.</p>
       </section>
 
       <!-- ================================================== apps -->
@@ -518,13 +518,22 @@
               <tr><th scope="row">Show hidden games</th><td>On · <strong>Off</strong>. Hidden games come back on the shelf with a Hidden tag.</td></tr>
               <tr><th scope="row">Rescan library now</th><td>Look for new and removed games straight away.</td></tr>
               <tr><th scope="row">Library</th><td>How many games you have, and how many are hidden.</td></tr>
-              <tr><th scope="row">Show Steam / Epic / GOG / Battle.net / Microsoft Store games</th><td><strong>On</strong> · Off. See <a href="#stores">Turning a store off</a>.</td></tr>
               <tr><th scope="row">Steam account</th><td>Switch account. See <a href="#steam">Steam accounts</a>.</td></tr>
               <tr><th scope="row">Only Steam games this account can play</th><td><strong>On</strong> · Off</td></tr>
               <tr><th scope="row">Steam folder</th><td><strong>Found automatically</strong>, or a folder you pick.</td></tr>
               <tr><th scope="row">Steam apps that are not games</th><td>The Steam apps you marked as not games. Select one to put it back.</td></tr>
               <tr><th scope="row">Steam friends: Web API key</th><td>See <a href="#friends">Steam friends</a>.</td></tr>
               <tr><th scope="row">Friends</th><td>What the friends feature last found.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Stores</h3>
+        <div class="table-wrap flush">
+          <table class="ref">
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Show Steam / Epic / GOG / Battle.net / Microsoft Store games</th><td><strong>On</strong> · Off, with how many games each store has. Battle.net and the Microsoft Store are Windows only. See <a href="#stores">Turning a store off</a>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -549,6 +558,8 @@
           <table class="ref">
             <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
             <tbody>
+              <tr><th scope="row">Display</th><td>Fullscreen · <strong>Borderless window</strong> · Window. <kbd>F11</kbd> switches to a window and back.</td></tr>
+              <tr><th scope="row">Fullscreen resolution</th><td>Shown in Fullscreen, on Windows. <strong>Desktop</strong> or any resolution your screen supports. It's used only while Moonglass is in front: your games and desktop keep their own resolution.</td></tr>
               <tr><th scope="row">Start Moonglass at login</th><td>On · <strong>Off</strong></td></tr>
               <tr><th scope="row">Send the store's launcher to the tray after a game</th><td><strong>On</strong> · Off</td></tr>
               <tr><th scope="row">Return to Moonglass during a game</th><td>The combination for your controller, and whether the keyboard shortcut is available.</td></tr>
@@ -665,7 +676,7 @@
         <h2>Troubleshooting</h2>
         <dl class="faq">
           <dt>A game is missing.</dt>
-          <dd>Check that it's fully installed and that its store is turned on (<em>Settings → Library</em>), then choose <em>Rescan library now</em>. For Steam in an unusual place, set <em>Steam folder</em>. On Linux, Epic and GOG need Heroic. Also check <em>Show hidden games</em> and, with several Steam accounts, <em>Only Steam games this account can play</em>.</dd>
+          <dd>Check that it's fully installed and that its store is turned on (<em>Settings → Stores</em>), then choose <em>Rescan library now</em>. For Steam in an unusual place, set <em>Steam folder</em>. On Linux, Epic and GOG need Heroic. Also check <em>Show hidden games</em> and, with several Steam accounts, <em>Only Steam games this account can play</em>.</dd>
 
           <dt>Moonglass comes back while I'm still playing, or never comes back.</dt>
           <dd>Some games run from a program outside their folder, often through another launcher. Set <em>Process to watch</em> in the game's options to the name of the game's real program (Task Manager shows it). For a program that starts a launcher and exits, turn on <em>Launcher-style executable</em>.</dd>

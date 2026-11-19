@@ -36,7 +36,8 @@ opens the carousel (or first-time setup on an empty library).
 | Steam's own playtime for the signed-in account, shown with Moonglass's (5.1) | Done on Windows |
 | Now Playing shows the time, controller battery and total playtime | Done |
 | Quick Menu on Now Playing: save a clip or screenshot through Xbox Game Bar, NVIDIA or AMD (Windows) or gpu-screen-recorder (Linux), the game's own volume, Stop (5.8) | Done on Windows; not yet tried with a game, Linux untested |
-| Turning any store off, in Settings → Library and in first-time setup | Done |
+| Turning any store off, in Settings → Stores and in first-time setup | Done |
+| Display: fullscreen with a resolution (Windows), borderless window, or a window | Done; resolution change not yet tried on a second display |
 | Library database checked on every start, backed up, repaired from the backup when damaged, closed cleanly; SQLite 3.51.3 (spec 6) | Done on Windows |
 | Releasing images that are no longer drawn | Done |
 | Packaging: Windows `.exe` and zip, Linux tarball and AppImage, release workflow | Done; the Linux packaging and the workflow have not run yet |

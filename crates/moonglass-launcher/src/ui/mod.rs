@@ -41,8 +41,8 @@ use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, ExternalPaths, FocusHandle, Hsla,
-    KeyDownEvent, KeyUpEvent, MouseMoveEvent, ScrollWheelEvent, Window, WindowBounds,
-    WindowOptions,
+    KeyDownEvent, KeyUpEvent, MouseMoveEvent, ScrollWheelEvent, TitlebarOptions, Window,
+    WindowBounds, WindowOptions,
 };
 use moonglass_art::ingest::{blurred_hero_path, motion_hero_path};
 use moonglass_core::library::{carousel, search, visible_filters, Filter};
@@ -66,7 +66,7 @@ use gamepad::{ControllerStatus, NavAction, PadEvent};
 use menu::Menu;
 use options::{Opt, OptionsMenu};
 use osk::{Osk, OskResult, TextTarget};
-use prefs::Prefs;
+use prefs::{DisplayMode, Prefs};
 use quick::{QuickItem, QuickMenu};
 use settings::{Item, SettingsCmd, SettingsInfo, SettingsState};
 use spring::Spring;
@@ -311,6 +311,8 @@ pub struct LauncherView {
     tx: UnboundedSender<UiEvent>,
     focus: FocusHandle,
     prefs: Prefs,
+    /// What the window and display were last set to ([`Self::sync_display`]).
+    display: DisplayState,
 
     /// As stored.
     games: Vec<Game>,
@@ -566,6 +568,14 @@ impl LauncherView {
             backend,
             tx,
             focus: cx.focus_handle(),
+            display: DisplayState {
+                forced_window: std::env::var_os("MOONGLASS_WINDOWED").is_some(),
+                full: opens_fullscreen(&loaded.prefs),
+                resolution: None,
+                refit: 0,
+                before_f11: None,
+                worker: DisplayWorker::default(),
+            },
             prefs: loaded.prefs,
             games: Vec::new(),
             emulators: loaded.emulators,
@@ -1221,7 +1231,20 @@ impl LauncherView {
             "tab" if k.modifiers.shift => Some(NavAction::FilterPrev),
             "tab" => Some(NavAction::FilterNext),
             "f11" => {
-                window.toggle_fullscreen();
+                // Between a window and the mode chosen in Settings.
+                let mode = match self.display.before_f11.take() {
+                    Some(m) if self.prefs.display_mode == DisplayMode::Windowed => m,
+                    _ if self.prefs.display_mode == DisplayMode::Windowed => {
+                        DisplayMode::Borderless
+                    }
+                    _ => {
+                        self.display.before_f11 = Some(self.prefs.display_mode);
+                        DisplayMode::Windowed
+                    }
+                };
+                self.prefs.display_mode = mode;
+                self.save_prefs();
+                cx.notify();
                 None
             }
             "backspace" if typing => {
@@ -2203,7 +2226,7 @@ impl LauncherView {
     fn open_settings(&mut self) {
         self.search_focused = false;
         self.start_at_login = moonglass_platform::start_at_login().unwrap_or(false);
-        self.screen = Screen::Settings(SettingsState::new(self.emulators.len()));
+        self.screen = Screen::Settings(SettingsState::new(self.emulators.len(), &self.prefs));
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
@@ -2910,6 +2933,7 @@ impl Render for LauncherView {
                 window.on_next_frame(move |_, _| splash.close());
             }
         }
+        self.sync_display(window, cx);
         self.advance_animation();
         self.advance_pulse(window.is_window_active());
         self.check_quit_hold(window, cx);
@@ -3121,6 +3145,116 @@ impl Render for LauncherView {
     }
 }
 
+/// The window and display as last set, so a frame changes them only when
+/// the preferences or the situation changed.
+struct DisplayState {
+    /// `MOONGLASS_WINDOWED`: always a window.
+    forced_window: bool,
+    /// The window was asked to be fullscreen (borderless or not).
+    full: bool,
+    /// The resolution Moonglass set; `None` is the desktop's.
+    resolution: Option<(u32, u32)>,
+    /// Frames left in which to fit the window to the display again, after
+    /// the toolkit made it fullscreen at the size it had cached.
+    refit: u8,
+    /// The mode F11 returns to.
+    before_f11: Option<DisplayMode>,
+    worker: DisplayWorker,
+}
+
+fn opens_fullscreen(prefs: &Prefs) -> bool {
+    prefs.display_mode != DisplayMode::Windowed
+}
+
+impl LauncherView {
+    /// Settings → System → Display (spec 5.5). The window follows the
+    /// chosen mode; in fullscreen, the chosen resolution is used only while
+    /// Moonglass is in front and no game runs, so games and the desktop
+    /// always get the desktop's own resolution.
+    fn sync_display(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let d = &mut self.display;
+        let full = !d.forced_window && opens_fullscreen(&self.prefs);
+        let toggle = full != d.full;
+        if toggle {
+            d.full = full;
+            d.refit = 2;
+        }
+        let resolution = (full
+            && self.prefs.display_mode == DisplayMode::Fullscreen
+            && self.session.is_none()
+            && window.is_window_active())
+        .then_some(self.prefs.resolution)
+        .flatten();
+        let change = (resolution != d.resolution).then_some(resolution);
+        if change.is_some() {
+            // Not retried every frame when the display refuses.
+            d.resolution = resolution;
+            d.refit = 2;
+        }
+        let refit = d.refit > 0 && full && window.is_fullscreen();
+        d.refit = d.refit.saturating_sub(1);
+        if d.refit > 0 {
+            cx.notify();
+        }
+        if toggle {
+            // The toolkit applies it in a task of its own.
+            window.defer(cx, move |window, _| {
+                if window.is_fullscreen() != full {
+                    window.toggle_fullscreen();
+                }
+            });
+        }
+        if change.is_some() || refit {
+            d.worker.send(DisplayJob {
+                resolution: change,
+                fit: refit.then(|| raw_window(window)),
+            });
+        }
+    }
+}
+
+/// A change to the display, done by [`DisplayWorker`].
+struct DisplayJob {
+    /// `Some(None)` returns to the desktop's resolution.
+    resolution: Option<Option<(u32, u32)>>,
+    /// Fit this window to the display afterwards.
+    fit: Option<isize>,
+}
+
+/// Changes the display's resolution and fits the window on a thread of
+/// its own. On the UI thread, Windows would call back into the window
+/// while the toolkit is busy with it (the resolution change is announced
+/// to every window, and a resize is delivered at once); from here, those
+/// messages reach the window in its normal turn. One thread keeps the
+/// changes in order.
+#[derive(Default)]
+struct DisplayWorker(Option<std::sync::mpsc::Sender<DisplayJob>>);
+
+impl DisplayWorker {
+    fn send(&mut self, job: DisplayJob) {
+        let tx = self.0.get_or_insert_with(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<DisplayJob>();
+            std::thread::Builder::new()
+                .name("display".into())
+                .spawn(move || {
+                    for job in rx {
+                        if let Some(resolution) = job.resolution {
+                            if let Err(e) = moonglass_platform::window::set_resolution(resolution) {
+                                tracing::warn!(error = %e, ?resolution, "display resolution");
+                            }
+                        }
+                        if let Some(raw) = job.fit {
+                            moonglass_platform::window::fit_to_display(raw);
+                        }
+                    }
+                })
+                .expect("display thread");
+            tx
+        });
+        let _ = tx.send(job);
+    }
+}
+
 /// Opens the fullscreen window and runs until it closes. `start` supplies
 /// what was prepared while the toolkit started, which is where most of the
 /// startup time goes.
@@ -3138,14 +3272,21 @@ pub fn run(
         }
         theme::pick_fonts(&cx.text_system().all_font_names());
         let bounds = Bounds::centered(None, size(px(1600.), px(900.)), cx);
-        let windowed = std::env::var_os("MOONGLASS_WINDOWED").is_some();
+        let windowed =
+            std::env::var_os("MOONGLASS_WINDOWED").is_some() || !opens_fullscreen(&loaded.prefs);
         let options = WindowOptions {
             window_bounds: Some(if windowed {
                 WindowBounds::Windowed(bounds)
             } else {
                 WindowBounds::Fullscreen(bounds)
             }),
-            titlebar: None,
+            // Shown only as a window (Settings → System → Display); the
+            // toolkit takes it off in fullscreen.
+            titlebar: Some(TitlebarOptions {
+                title: Some("Moonglass".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
             app_id: Some("moonglass".into()),
             ..Default::default()
         };

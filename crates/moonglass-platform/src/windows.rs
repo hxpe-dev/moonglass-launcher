@@ -964,6 +964,127 @@ pub mod window {
         WINDOWPLACEMENT, WM_CLOSE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
+    // ------------------------------------------------- display resolution
+
+    use windows::core::PCWSTR;
+    use windows::Win32::Graphics::Gdi::{
+        ChangeDisplaySettingsExW, EnumDisplaySettingsW, GetMonitorInfoW, MonitorFromWindow,
+        CDS_FULLSCREEN, CDS_TYPE, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY,
+        DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_DISPLAY_SETTINGS_MODE, ENUM_REGISTRY_SETTINGS,
+        MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER,
+    };
+
+    pub const CAN_SET_RESOLUTION: bool = true;
+
+    /// One of the primary display's modes; `None` past the last one.
+    fn display_mode(i: ENUM_DISPLAY_SETTINGS_MODE) -> Option<DEVMODEW> {
+        let mut dm = DEVMODEW {
+            dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        unsafe { EnumDisplaySettingsW(PCWSTR::null(), i, &mut dm) }
+            .as_bool()
+            .then_some(dm)
+    }
+
+    /// The primary display's resolution on the desktop (its saved mode,
+    /// not one Moonglass set for itself).
+    pub fn desktop_resolution() -> Option<(u32, u32)> {
+        display_mode(ENUM_REGISTRY_SETTINGS).map(|d| (d.dmPelsWidth, d.dmPelsHeight))
+    }
+
+    /// The primary display's resolutions in its desktop orientation,
+    /// largest first, each once.
+    pub fn resolutions() -> Vec<(u32, u32)> {
+        let landscape = desktop_resolution().is_none_or(|(w, h)| w >= h);
+        let mut out: Vec<(u32, u32)> = (0..)
+            .map_while(|i| display_mode(ENUM_DISPLAY_SETTINGS_MODE(i)))
+            .filter(|d| d.dmBitsPerPel >= 32)
+            .map(|d| (d.dmPelsWidth, d.dmPelsHeight))
+            .filter(|&(w, h)| w > 0 && h > 0 && (w >= h) == landscape)
+            .collect();
+        out.sort_unstable_by_key(|&(w, h)| std::cmp::Reverse((w * h, w)));
+        out.dedup();
+        out
+    }
+
+    /// The best mode at `w`×`h`: the desktop's refresh rate if the display
+    /// has it at that size, else the highest.
+    fn mode_for(w: u32, h: u32) -> Option<DEVMODEW> {
+        let desktop_hz = display_mode(ENUM_REGISTRY_SETTINGS).map(|d| d.dmDisplayFrequency);
+        (0..)
+            .map_while(|i| display_mode(ENUM_DISPLAY_SETTINGS_MODE(i)))
+            .filter(|d| d.dmPelsWidth == w && d.dmPelsHeight == h && d.dmBitsPerPel >= 32)
+            .max_by_key(|d| {
+                (
+                    Some(d.dmDisplayFrequency) == desktop_hz,
+                    d.dmDisplayFrequency,
+                )
+            })
+    }
+
+    /// Switches the primary display to `size` for as long as Moonglass
+    /// runs (`CDS_FULLSCREEN`: never saved, and undone by Windows when
+    /// Moonglass exits), or back to the desktop's own resolution with
+    /// `None`.
+    pub fn set_resolution(size: Option<(u32, u32)>) -> crate::Result<()> {
+        let rc = match size {
+            Some((w, h)) => {
+                let mut dm = mode_for(w, h).ok_or_else(|| {
+                    crate::PlatformError::Os(format!("the display has no {w} × {h} mode"))
+                })?;
+                dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+                unsafe {
+                    ChangeDisplaySettingsExW(PCWSTR::null(), Some(&dm), None, CDS_FULLSCREEN, None)
+                }
+            }
+            None => unsafe {
+                ChangeDisplaySettingsExW(PCWSTR::null(), None, None, CDS_TYPE(0), None)
+            },
+        };
+        if rc == DISP_CHANGE_SUCCESSFUL {
+            Ok(())
+        } else {
+            Err(crate::PlatformError::Os(format!(
+                "the display mode could not be changed ({})",
+                rc.0
+            )))
+        }
+    }
+
+    /// Resizes a fullscreen window to cover its display. The toolkit keeps
+    /// the display size it saw when the window opened, which is wrong once
+    /// the resolution changed. Meant for another thread than the window's:
+    /// the window handles the resize in its own turn.
+    pub fn fit_to_display(raw: isize) {
+        if raw == 0 {
+            return;
+        }
+        let h = hwnd(raw);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            let monitor = MonitorFromWindow(h, MONITOR_DEFAULTTOPRIMARY);
+            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                let r = mi.rcMonitor;
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS,
+                );
+            }
+        }
+    }
+
     /// A desktop notification: a tray balloon, which Windows 10 and 11 show
     /// as a regular notification. The tray icon is removed after a while.
     pub fn notify(raw: isize, title: &str, body: &str) {

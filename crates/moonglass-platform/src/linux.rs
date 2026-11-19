@@ -756,6 +756,25 @@ pub mod window {
         pub fn close(self) {}
     }
 
+    /// Changing the display's resolution is not done on Linux (Wayland
+    /// does not allow it): fullscreen uses the desktop's resolution.
+    pub const CAN_SET_RESOLUTION: bool = false;
+
+    pub fn desktop_resolution() -> Option<(u32, u32)> {
+        None
+    }
+
+    pub fn resolutions() -> Vec<(u32, u32)> {
+        Vec::new()
+    }
+
+    pub fn set_resolution(_size: Option<(u32, u32)>) -> crate::Result<()> {
+        Ok(())
+    }
+
+    /// The toolkit sizes fullscreen windows itself on Linux.
+    pub fn fit_to_display(_raw: isize) {}
+
     /// No-op: Moonglass stays fullscreen underneath the game.
     pub fn hide_for_game(_raw: isize) {}
 

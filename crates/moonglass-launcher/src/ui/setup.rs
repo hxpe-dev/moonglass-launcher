@@ -279,7 +279,7 @@ impl LauncherView {
                 let mut lines = vec![found];
                 if !self.stores_found.is_empty() {
                     lines.push(
-                        "Turn off the stores whose games you don't want to see. Settings → Library can change this later."
+                        "Turn off the stores whose games you don't want to see. Settings → Stores can change this later."
                             .into(),
                     );
                 }
