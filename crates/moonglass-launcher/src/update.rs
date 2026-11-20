@@ -399,15 +399,17 @@ mod tests {
     #[test]
     fn picks_this_computers_file() {
         let names = [
+            // The installer comes first, and must not be taken for the program.
+            "moonglass-0.2.0-windows-x86_64-setup.exe",
             "moonglass-0.2.0-windows-x86_64.exe",
             "moonglass-0.2.0-windows-x86_64.zip",
             "moonglass-0.2.0-linux-x86_64.tar.gz",
             "moonglass-0.2.0-linux-x86_64.AppImage",
         ];
         for (want, name) in [
-            (ReleaseAsset::WindowsExe, names[0]),
-            (ReleaseAsset::LinuxTarball, names[2]),
-            (ReleaseAsset::LinuxAppImage, names[3]),
+            (ReleaseAsset::WindowsExe, names[1]),
+            (ReleaseAsset::LinuxTarball, names[3]),
+            (ReleaseAsset::LinuxAppImage, names[4]),
         ] {
             let Check::Available(r) =
                 evaluate(vec![release("v0.2.0", &names)], "0.1.0", want).unwrap()

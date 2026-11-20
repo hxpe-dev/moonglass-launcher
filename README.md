@@ -49,8 +49,9 @@ It starts in under a second, and while you play, it does nothing at all.
 - **Set it up your way.** Posters, banners or squares; each game's colors,
   its art behind everything, or pure black for OLED screens. Interface
   sounds and background music from your own folder.
-- **One file, no account.** Nothing to install and nothing left running once
-  you close it. Updates install from inside the app.
+- **No account, nothing left running.** Use the installer or the single
+  portable file; nothing keeps running once you close it. Updates install
+  from inside the app.
 
 ## Install
 
@@ -59,7 +60,8 @@ Download the latest build from the
 
 | Platform | Download | |
 | --- | --- | --- |
-| Windows 10 and 11, 64-bit | `moonglass-…-windows-x86_64.exe` | Run it; there is no installer. A `.zip` with the same program is also attached. |
+| Windows 10 and 11, 64-bit | `moonglass-…-windows-x86_64-setup.exe` | The installer: Start menu entry, optional desktop shortcut, uninstall from Windows settings. No administrator rights needed. |
+| Windows, portable | `moonglass-…-windows-x86_64.exe` | The same program as one file: run it from anywhere. A `.zip` with it is also attached. |
 | Linux, 64-bit, X11 and Wayland (preview) | `moonglass-…-linux-x86_64.AppImage` | `chmod +x` it and run it. A `.tar.gz` with a desktop entry is also attached. |
 
 The first start scans your stores and walks you through optional extras
