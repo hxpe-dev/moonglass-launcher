@@ -237,6 +237,8 @@ pub struct Prefs {
     pub sfx_volume: u8,
     /// Background music, 0 (off) to 100.
     pub music_volume: u8,
+    /// Look for a new release a few seconds after starting.
+    pub check_updates: bool,
     /// [`PREFS_VERSION`] when saved; 0 for preferences saved before it.
     #[serde(default)]
     pub version: u32,
@@ -273,6 +275,7 @@ impl Default for Prefs {
             resolution: None,
             sfx_volume: 60,
             music_volume: 40,
+            check_updates: true,
             version: PREFS_VERSION,
         }
     }

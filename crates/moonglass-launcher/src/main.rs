@@ -11,6 +11,7 @@ mod launch;
 mod library;
 mod steam_accounts;
 mod ui;
+mod update;
 mod watch;
 
 use std::path::PathBuf;
@@ -47,10 +48,15 @@ USAGE:
     moonglass steam-accounts             the remembered Steam accounts and what each can play
     moonglass steam-switch <number>      sign Steam in with another account (restarts Steam)
     moonglass autostart on|off|status
+    moonglass update [--check]           install the latest release (--check only looks)
     moonglass paths
 
 Pills: all, recent, favorites, steam, epic, gog, battlenet, msstore, apps, emulators.
 <number> is the position shown by `moonglass list`.";
+
+/// Passed to the new version when an update restarts Moonglass: it waits for
+/// the old process to let go of the single-instance guard.
+pub(crate) const AFTER_UPDATE_ARG: &str = "--after-update";
 
 static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
@@ -223,8 +229,10 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     }
 
     // Single instance: a launch while a game is being tracked would race it.
-    // `steam-signal` only reads, so it may run next to the carousel.
-    let read_only = cmd == "steam-signal";
+    // `steam-signal` and `update --check` only read, so they may run next
+    // to the carousel.
+    let read_only =
+        cmd == "steam-signal" || (cmd == "update" && rest.iter().any(|a| a == "--check"));
     let _instance = if read_only {
         None
     } else {
@@ -519,6 +527,34 @@ async fn commands(db: &Db, paths: &AppPaths, cmd: &str, rest: &[String]) -> anyh
                 println!("Start at login: {}", if on { "on" } else { "off" });
             }
         },
+        "update" => {
+            let release = match update::check().await? {
+                update::Check::NoReleases => {
+                    println!("No releases published yet.");
+                    return Ok(());
+                }
+                update::Check::UpToDate => {
+                    println!("Moonglass {} is up to date.", update::CURRENT);
+                    return Ok(());
+                }
+                update::Check::Available(r) => r,
+            };
+            println!(
+                "Moonglass {} is available (running {}): {}",
+                release.version,
+                update::CURRENT,
+                release.page
+            );
+            if rest.iter().any(|a| a == "--check") {
+                return Ok(());
+            }
+            println!("Downloading {}…", release.asset.name);
+            update::install(&release, |_| {}).await?;
+            println!(
+                "Installed. Moonglass {} runs from the next start.",
+                release.version
+            );
+        }
         other => bail!("unknown command {other:?}\n\n{USAGE}"),
     }
     Ok(())
@@ -540,7 +576,9 @@ fn main() {
         }
     };
     let result = if args.is_empty() {
-        run_ui(&rt)
+        run_ui(&rt, false)
+    } else if args.len() == 1 && args[0] == AFTER_UPDATE_ARG {
+        run_ui(&rt, true)
     } else {
         rt.block_on(run(args))
     };
@@ -552,7 +590,8 @@ fn main() {
 }
 
 /// The carousel. GPUI owns the main thread; I/O runs on `rt`.
-fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
+/// `after_update`: started by an update, while the old version exits.
+fn run_ui(rt: &tokio::runtime::Runtime, after_update: bool) -> anyhow::Result<()> {
     let paths = AppPaths::discover()?;
     paths.create_all()?;
     let _log = init_logging(&paths)?;
@@ -561,12 +600,13 @@ fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
         version = env!("CARGO_PKG_VERSION"),
         "starting UI"
     );
+    moonglass_platform::clean_after_update();
     // Development only: lets a test window run next to a normal one.
     let instance = if std::env::var_os("MOONGLASS_DEV_SECOND_INSTANCE").is_some() {
         tracing::warn!("second instance allowed for development");
         None
     } else {
-        match InstanceGuard::acquire()? {
+        match acquire_instance(after_update)? {
             InstanceStatus::Primary(g) => Some(g),
             InstanceStatus::AlreadyRunning => {
                 tracing::info!("already running; asked the other instance to come forward");
@@ -604,4 +644,20 @@ fn run_ui(rt: &tokio::runtime::Runtime) -> anyhow::Result<()> {
         },
         splash,
     )
+}
+
+/// The single-instance guard. After an update the old version is still
+/// closing, so this waits for it a while instead of handing over to it.
+fn acquire_instance(after_update: bool) -> anyhow::Result<InstanceStatus> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        match InstanceGuard::acquire()? {
+            InstanceStatus::AlreadyRunning
+                if after_update && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            status => return Ok(status),
+        }
+    }
 }

@@ -15,6 +15,7 @@
 //! | Quick Menu: clips and screenshots, the game's volume | [`capture`], [`game_volume`], [`set_game_volume`] |
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |
 //! | Single-instance guard | [`InstanceGuard`] |
+//! | Updating Moonglass itself | [`update_target`], [`install_update`], [`clean_after_update`] |
 //! | Store discovery | [`steam_root`], [`epic_source`], [`gog_source`], [`battlenet_source`], [`msstore_packages`] |
 //! | File locations | [`AppPaths`] |
 
@@ -902,6 +903,61 @@ pub fn set_start_at_login(enabled: bool) -> Result<()> {
     imp::set_start_at_login(enabled)
 }
 
+// ------------------------------------------------------- self-update
+
+/// The release file an update downloads on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseAsset {
+    /// `moonglass-<version>-windows-x86_64.exe`
+    WindowsExe,
+    /// `moonglass-<version>-linux-x86_64.AppImage`
+    LinuxAppImage,
+    /// `moonglass-<version>-linux-x86_64.tar.gz`, holding `<name>/moonglass`.
+    LinuxTarball,
+}
+
+impl ReleaseAsset {
+    /// The end of the release file's name, after the version
+    /// (`scripts/package-*`).
+    pub fn suffix(self) -> &'static str {
+        match self {
+            ReleaseAsset::WindowsExe => "-windows-x86_64.exe",
+            ReleaseAsset::LinuxAppImage => "-linux-x86_64.AppImage",
+            ReleaseAsset::LinuxTarball => "-linux-x86_64.tar.gz",
+        }
+    }
+}
+
+/// What an update replaces: the program file the player starts, and the
+/// release file it is made from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateTarget {
+    /// The running program (the AppImage itself, inside one).
+    pub file: PathBuf,
+    pub asset: ReleaseAsset,
+}
+
+/// The file an update replaces and the release file it needs.
+pub fn update_target() -> Result<UpdateTarget> {
+    imp::update_target()
+}
+
+/// Puts the downloaded release file `downloaded` (in the same folder as
+/// `target.file`) in place of the program. The running process carries on
+/// with the old one; the next start is the new version. `downloaded` is
+/// gone afterwards, whether or not this succeeds.
+pub fn install_update(target: &UpdateTarget, downloaded: &Path) -> Result<()> {
+    let result = imp::install_update(target, downloaded);
+    let _ = std::fs::remove_file(downloaded);
+    result
+}
+
+/// Removes what an earlier update left next to the program (Windows keeps
+/// the replaced `.exe` until the next start). Call once at startup.
+pub fn clean_after_update() {
+    imp::clean_after_update()
+}
+
 // ------------------------------------------------------- single instance
 
 /// Held for the life of the process. A second launch signals the first one
@@ -935,6 +991,32 @@ impl InstanceGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_replaces_the_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("moonglass-test");
+        let downloaded = dir.path().join("moonglass-test.download");
+        std::fs::write(&file, "old").unwrap();
+        std::fs::write(&downloaded, "new").unwrap();
+        // The asset kind that installs the downloaded file as it is.
+        let asset = if cfg!(windows) {
+            ReleaseAsset::WindowsExe
+        } else {
+            ReleaseAsset::LinuxAppImage
+        };
+        let target = UpdateTarget {
+            file: file.clone(),
+            asset,
+        };
+        install_update(&target, &downloaded).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        assert!(!downloaded.exists());
+        // Twice in one session: the program set aside earlier is replaced.
+        std::fs::write(&downloaded, "newer").unwrap();
+        install_update(&target, &downloaded).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "newer");
+    }
 
     #[test]
     fn within() {

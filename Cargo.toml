@@ -13,6 +13,8 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+# Releases are published here; Settings → System → Updates reads them.
+repository = "https://github.com/hxpe-dev/moonglass-launcher"
 rust-version = "1.94"
 
 # Cargo.lock holds libc at 0.2.186 (and mio at 1.2.4, which allows it): GPUI

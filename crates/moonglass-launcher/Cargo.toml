@@ -4,6 +4,7 @@ description = "Moonglass, a console-style PC game launcher: the GPUI carousel an
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [[bin]]
@@ -19,7 +20,8 @@ moonglass-art.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+# fs and io-util: update downloads are written as they arrive.
+tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
@@ -30,6 +32,8 @@ futures = "0.3"
 # The same HTTP stack as moonglass-art, for Steam's Web API (friends).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 raw-window-handle = "0.6"
+# Checks downloaded updates against the digest GitHub publishes.
+sha2 = "0.10"
 gilrs = "0.11"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # UI sounds and background music. Only the decoders for common music files.

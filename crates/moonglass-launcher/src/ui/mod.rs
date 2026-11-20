@@ -60,6 +60,7 @@ use crate::friends::{self, Friend};
 use crate::launch::{self, Running, SteamJoin};
 use crate::now_unix;
 use crate::steam_accounts::SteamAccounts;
+use crate::update;
 use anim::Anims;
 use browser::{Browser, BrowserResult, Entry, Purpose};
 use emulators::EmulatorInfo;
@@ -222,6 +223,12 @@ enum UiEvent {
     },
     Tick,
     Toast(String),
+    /// An update check or install moved on. `announce`: say so in a toast
+    /// (the player is not necessarily looking at Settings).
+    Update {
+        state: UpdateState,
+        announce: bool,
+    },
     /// Artwork files were written again at the same paths: GPUI's cached
     /// images of them are out of date.
     ArtworkRewritten,
@@ -230,6 +237,40 @@ enum UiEvent {
         dir: Option<PathBuf>,
         result: Result<Vec<Entry>, String>,
     },
+}
+
+/// Where an update stands (Settings → System → Updates).
+#[derive(Debug, Clone, PartialEq)]
+enum UpdateState {
+    /// Not checked since Moonglass started.
+    Idle,
+    Checking,
+    UpToDate,
+    NoReleases,
+    Available(update::Release),
+    /// The fraction downloaded.
+    Downloading(update::Release, f32),
+    /// The new version is in place; it runs from the next start.
+    Installed(String),
+    Failed(String),
+}
+
+impl UpdateState {
+    /// The Updates row's text.
+    fn text(&self) -> String {
+        match self {
+            UpdateState::Idle => format!("Check now (running {})", update::CURRENT),
+            UpdateState::Checking => "Checking…".into(),
+            UpdateState::UpToDate => "Up to date · check again".into(),
+            UpdateState::NoReleases => "No releases published yet · check again".into(),
+            UpdateState::Available(r) => format!("Version {} available · install", r.version),
+            UpdateState::Downloading(r, f) => {
+                format!("Downloading {}… {:.0}%", r.version, f * 100.0)
+            }
+            UpdateState::Installed(v) => format!("Version {v} installed · restart now"),
+            UpdateState::Failed(e) => format!("{e} · try again"),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -396,6 +437,7 @@ pub struct LauncherView {
     modal_leaving: Option<Modal>,
     overlay: Overlay,
     toast: Option<(String, Instant)>,
+    update: UpdateState,
     browser_generation: u64,
 
     lifecycle: Lifecycle,
@@ -646,6 +688,7 @@ impl LauncherView {
                 None => Overlay::None,
             },
             toast: None,
+            update: UpdateState::Idle,
             quit_hold: None,
             browser_generation: 0,
             lifecycle: Lifecycle::new(Timing {
@@ -691,6 +734,9 @@ impl LauncherView {
             view.open_setup();
         }
         view.startup();
+        if view.prefs.check_updates {
+            view.check_for_update(false, Duration::from_secs(10));
+        }
         window.focus(&view.focus);
         view
     }
@@ -1215,6 +1261,28 @@ impl LauncherView {
                 }
             }
             UiEvent::Toast(msg) => self.toast(msg, cx),
+            UiEvent::Update { state, announce } => {
+                let msg = match &state {
+                    UpdateState::Available(r) => Some(format!(
+                        "Moonglass {} is available · install it from Settings → System",
+                        r.version
+                    )),
+                    UpdateState::Installed(v) => Some(format!(
+                        "Moonglass {v} is installed · restart from Settings → System"
+                    )),
+                    UpdateState::UpToDate => Some("Moonglass is up to date".into()),
+                    UpdateState::NoReleases => Some("No releases published yet".into()),
+                    UpdateState::Failed(e) => Some(e.clone()),
+                    _ => None,
+                };
+                // A check at startup speaks up only when there is news.
+                let news = matches!(state, UpdateState::Available(_) | UpdateState::Installed(_));
+                self.update = state;
+                if let Some(msg) = msg.filter(|_| announce || news) {
+                    self.toast(msg, cx);
+                }
+                cx.notify();
+            }
             UiEvent::Dir {
                 generation,
                 dir,
@@ -2568,6 +2636,7 @@ impl LauncherView {
                 .collect(),
             logs: self.backend.paths.log_dir.display().to_string(),
             music: self.music_summary(),
+            update: self.update.text(),
         }
     }
 
@@ -2657,6 +2726,7 @@ impl LauncherView {
                     });
                 }
                 Item::Exit => cx.quit(),
+                Item::Updates => self.update_action(cx),
                 Item::AddEmulator => self.open_preset_menu(),
                 Item::Emulator(i) => {
                     if let Some(id) = self.emulators.get(i).map(|e| e.emulator.id.clone()) {
@@ -2676,6 +2746,84 @@ impl LauncherView {
             },
         }
         cx.notify();
+    }
+
+    // ------------------------------------------------------------ updates
+
+    /// What the Updates row does next: check, install, or restart.
+    fn update_action(&mut self, cx: &mut Context<Self>) {
+        match self.update.clone() {
+            UpdateState::Checking | UpdateState::Downloading(..) => {}
+            UpdateState::Available(release) => self.install_update(release, cx),
+            UpdateState::Installed(_) => self.restart_after_update(cx),
+            UpdateState::Idle
+            | UpdateState::UpToDate
+            | UpdateState::NoReleases
+            | UpdateState::Failed(_) => {
+                self.update = UpdateState::Checking;
+                self.check_for_update(true, Duration::ZERO);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Asks GitHub for the latest release after `delay`. `announce`: the
+    /// player asked, so every outcome is told in a toast.
+    fn check_for_update(&self, announce: bool, delay: Duration) {
+        let tx = self.tx.clone();
+        self.backend.rt.spawn(async move {
+            tokio::time::sleep(delay).await;
+            let state = match update::check().await {
+                Ok(update::Check::UpToDate) => UpdateState::UpToDate,
+                Ok(update::Check::NoReleases) => UpdateState::NoReleases,
+                Ok(update::Check::Available(r)) => UpdateState::Available(r),
+                Err(e) => {
+                    tracing::warn!("update check failed: {e:#}");
+                    UpdateState::Failed(format!("Couldn't check for updates: {e}"))
+                }
+            };
+            let _ = tx.unbounded_send(UiEvent::Update { state, announce });
+        });
+    }
+
+    fn install_update(&mut self, release: update::Release, cx: &mut Context<Self>) {
+        self.update = UpdateState::Downloading(release.clone(), 0.0);
+        self.toast(format!("Downloading Moonglass {}…", release.version), cx);
+        let tx = self.tx.clone();
+        self.backend.rt.spawn(async move {
+            let progress = {
+                let tx = tx.clone();
+                let release = release.clone();
+                move |f: f32| {
+                    let _ = tx.unbounded_send(UiEvent::Update {
+                        state: UpdateState::Downloading(release.clone(), f),
+                        announce: false,
+                    });
+                }
+            };
+            let state = match update::install(&release, progress).await {
+                Ok(()) => UpdateState::Installed(release.version.clone()),
+                Err(e) => {
+                    tracing::error!("update failed: {e:#}");
+                    UpdateState::Failed(format!("Couldn't install the update: {e}"))
+                }
+            };
+            let _ = tx.unbounded_send(UiEvent::Update {
+                state,
+                announce: true,
+            });
+        });
+    }
+
+    /// Starts the new version and exits.
+    fn restart_after_update(&mut self, cx: &mut Context<Self>) {
+        if self.session.is_some() {
+            return self.toast("Close the game first, then restart", cx);
+        }
+        match update::restart() {
+            Ok(()) => cx.quit(),
+            Err(e) => self.toast(format!("Couldn't restart: {e}. Start Moonglass again"), cx),
+        }
     }
 
     // ------------------------------------------------------------- launch

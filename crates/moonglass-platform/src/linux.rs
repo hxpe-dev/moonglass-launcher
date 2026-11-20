@@ -633,6 +633,80 @@ mod quick_menu_tests {
     }
 }
 
+// ------------------------------------------------------------ self-update
+
+pub fn update_target() -> Result<crate::UpdateTarget> {
+    // Inside an AppImage, current_exe is a temporary mount; $APPIMAGE is
+    // the file the player starts.
+    Ok(match std::env::var_os("APPIMAGE") {
+        Some(p) => crate::UpdateTarget {
+            file: PathBuf::from(p),
+            asset: crate::ReleaseAsset::LinuxAppImage,
+        },
+        None => crate::UpdateTarget {
+            file: std::env::current_exe()?,
+            asset: crate::ReleaseAsset::LinuxTarball,
+        },
+    })
+}
+
+pub fn install_update(target: &crate::UpdateTarget, downloaded: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = target.file.parent().unwrap_or(Path::new("."));
+    let program = match target.asset {
+        crate::ReleaseAsset::LinuxTarball => {
+            // The tarball holds `<name>/moonglass`; unpacked beside the
+            // program so the rename below stays on one file system.
+            let unpacked = dir.join(".moonglass-update");
+            let _ = std::fs::remove_dir_all(&unpacked);
+            std::fs::create_dir_all(&unpacked)?;
+            let status = Command::new("tar")
+                .arg("-xzf")
+                .arg(downloaded)
+                .arg("-C")
+                .arg(&unpacked)
+                .stdin(Stdio::null())
+                .status();
+            let found = match status {
+                Ok(s) if s.success() => std::fs::read_dir(&unpacked)?
+                    .flatten()
+                    .map(|e| e.path().join("moonglass"))
+                    .find(|p| p.is_file()),
+                Ok(s) => {
+                    let _ = std::fs::remove_dir_all(&unpacked);
+                    return Err(PlatformError::Os(format!("tar failed ({s})")));
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&unpacked);
+                    return Err(PlatformError::Os(format!("could not run tar: {e}")));
+                }
+            };
+            let Some(found) = found else {
+                let _ = std::fs::remove_dir_all(&unpacked);
+                return Err(PlatformError::Os(
+                    "the download does not contain moonglass".into(),
+                ));
+            };
+            let staged = dir.join(".moonglass-update-bin");
+            let moved = std::fs::rename(&found, &staged);
+            let _ = std::fs::remove_dir_all(&unpacked);
+            moved?;
+            staged
+        }
+        _ => downloaded.to_path_buf(),
+    };
+    let result = std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+        // Replacing a running program's file is fine on Linux: the
+        // process keeps the old one open.
+        .and_then(|()| std::fs::rename(&program, &target.file));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&program);
+    }
+    Ok(result?)
+}
+
+pub fn clean_after_update() {}
+
 // ------------------------------------------------------- start at login
 
 fn autostart_file() -> Result<PathBuf> {

@@ -138,6 +138,20 @@ database is needed to build (`SQLX_OFFLINE=true` is set in
 `sqlx-cli` 0.9 (`cargo install sqlx-cli --version "^0.9" --no-default-features --features sqlite`)
 and run `scripts/sqlx-prepare.sh`.
 
+## Releasing
+
+Bump `version` in the root `Cargo.toml`, commit, then push a matching tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The release workflow refuses a tag that does not match `Cargo.toml`, builds
+both platforms, and publishes the GitHub release. Installed copies find it
+in Settings → System → Updates (and with a check shortly after startup),
+download the file for their platform, verify its SHA-256, and swap it in on
+the next start.
+
 ## Using the debug build
 
 ```bash
@@ -152,6 +166,7 @@ moonglass options 3 --watch RealGame.exe --track-folder
 moonglass autostart on
 moonglass steam-accounts             # remembered Steam accounts, what the signed-in one can play
 moonglass steam-switch 2             # sign Steam in with account 2 (restarts Steam)
+moonglass update --check             # is there a newer GitHub release?
 ```
 
 Set `MOONGLASS_LOG=debug` for verbose logs; `moonglass paths` shows where they are.

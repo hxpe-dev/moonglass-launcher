@@ -96,6 +96,9 @@ pub enum Item {
     RunSetup,
     Logs,
     Version,
+    /// Check for, install, or restart into a new release.
+    Updates,
+    CheckUpdates,
     Exit,
     /// Fullscreen, borderless window or window.
     DisplayMode,
@@ -172,6 +175,8 @@ pub fn items(section: Section, emulators: usize) -> Vec<Item> {
             Item::RunSetup,
             Item::Logs,
             Item::Version,
+            Item::Updates,
+            Item::CheckUpdates,
             Item::Exit,
         ],
     };
@@ -216,6 +221,7 @@ impl Item {
             | Item::SteamPlayableOnly
             | Item::Store(_)
             | Item::StartAtLogin
+            | Item::CheckUpdates
             | Item::DismissLauncher => Kind::Toggle,
             Item::AddGame
             | Item::Rescan
@@ -229,6 +235,7 @@ impl Item {
             | Item::RefreshArt
             | Item::Music
             | Item::RunSetup
+            | Item::Updates
             | Item::Exit => Kind::Action,
             Item::LibraryInfo
             | Item::FriendsInfo
@@ -289,6 +296,8 @@ impl Item {
             Item::RunSetup => "First-time setup",
             Item::Logs => "Logs",
             Item::Version => "Version",
+            Item::Updates => "Updates",
+            Item::CheckUpdates => "Check for updates at startup",
             Item::Exit => "Exit Moonglass",
             Item::DisplayMode => "Display",
             Item::Resolution => "Fullscreen resolution",
@@ -325,6 +334,8 @@ pub struct SettingsInfo {
     pub stores: Vec<(Source, usize, bool)>,
     /// The music folder, as its row shows it.
     pub music: String,
+    /// Where an update stands, as the Updates row shows it.
+    pub update: String,
 }
 
 fn store_value(s: Source, info: &SettingsInfo) -> String {
@@ -496,6 +507,7 @@ impl SettingsState {
             Item::SteamPlayableOnly => prefs.steam_playable_only = !prefs.steam_playable_only,
             Item::Store(s) => prefs.set_store_enabled(s, !prefs.store_enabled(s)),
             Item::DismissLauncher => prefs.dismiss_launcher_window = !prefs.dismiss_launcher_window,
+            Item::CheckUpdates => prefs.check_updates = !prefs.check_updates,
             Item::DisplayMode => prefs.display_mode = prefs.display_mode.step(delta),
             Item::SfxVolume => {
                 prefs.sfx_volume = super::prefs::step_volume(prefs.sfx_volume, delta)
@@ -711,6 +723,8 @@ fn value(item: Item, prefs: &Prefs, info: &SettingsInfo) -> String {
         Item::RunSetup => "Open".into(),
         Item::Logs => info.logs.clone(),
         Item::Version => env!("CARGO_PKG_VERSION").into(),
+        Item::Updates => info.update.clone(),
+        Item::CheckUpdates => on_off(prefs.check_updates).into(),
         Item::Exit => "Exit".into(),
     }
 }

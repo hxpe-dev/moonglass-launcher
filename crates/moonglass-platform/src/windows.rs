@@ -850,6 +850,45 @@ pub fn request_close(pids: &[u32]) {
     }
 }
 
+// ------------------------------------------------------------ self-update
+
+/// The replaced program, kept until the next start: Windows will not
+/// delete or overwrite a running `.exe`, but it lets one be renamed.
+fn replaced_exe(exe: &Path) -> PathBuf {
+    let mut name = exe.as_os_str().to_owned();
+    name.push(".old");
+    PathBuf::from(name)
+}
+
+pub fn update_target() -> Result<crate::UpdateTarget> {
+    Ok(crate::UpdateTarget {
+        file: std::env::current_exe()?,
+        asset: crate::ReleaseAsset::WindowsExe,
+    })
+}
+
+pub fn install_update(target: &crate::UpdateTarget, downloaded: &Path) -> Result<()> {
+    let old = replaced_exe(&target.file);
+    // Left by an update this session has not restarted from yet.
+    match std::fs::remove_file(&old) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+        _ => {}
+    }
+    std::fs::rename(&target.file, &old)?;
+    if let Err(e) = std::fs::rename(downloaded, &target.file) {
+        // Put the running program back where the player starts it.
+        let _ = std::fs::rename(&old, &target.file);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+pub fn clean_after_update() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(replaced_exe(&exe));
+    }
+}
+
 // ------------------------------------------------------- start at login
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
