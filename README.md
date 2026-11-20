@@ -1,170 +1,194 @@
+<div align="center">
+
+<img src="assets/logo.svg" alt="Moonglass logo" width="112">
+
 # Moonglass
 
-<img src="assets/logo.svg" alt="" width="96">
+**A game launcher for the couch.**
 
-A console-style, controller-first PC game launcher for Windows and Linux.
-The repository and workspace are named `moonglass-launcher`; the app and its
-executable are `Moonglass` / `moonglass`.
-The full design is in [docs/SPEC.md](docs/SPEC.md).
+One full-screen shelf for your Steam, Epic, GOG, Battle.net, Microsoft Store
+and emulated games, made to be browsed with a controller.
+It starts in under a second, and while you play, it does nothing at all.
 
-## Status
+[![Release](https://img.shields.io/github/v/release/hxpe-dev/moonglass-launcher?include_prereleases&label=release)](https://github.com/hxpe-dev/moonglass-launcher/releases)
+[![CI](https://github.com/hxpe-dev/moonglass-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/hxpe-dev/moonglass-launcher/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+![Platforms: Windows, Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-All three phases are implemented. Everything runs on Windows; the Linux code
-compiles but has not been run yet. Running `moonglass` with no arguments
-opens the carousel (or first-time setup on an empty library).
+[**Download**](https://github.com/hxpe-dev/moonglass-launcher/releases) ·
+[User guide](site/docs.html) ·
+[Benchmarks](BENCH.md) ·
+[Design](docs/SPEC.md)
 
-| Area | State |
-| --- | --- |
-| Database, logs, single instance, scanners, file watchers | Done |
-| Launch, exit detection, focus return, Now Playing with Stop / Force stop | Done on Windows |
-| Notification when Moonglass cannot come back to the front | Done; Linux untested |
-| Restore hotkey (controller hold, `Ctrl+Alt+Home`), with its buttons and hold time in Settings | Done; the controller hold is untested |
-| Artwork: Steam's cache, Epic's catalog (Windows), GOG's catalog, SteamGridDB, Switch and libretro art for emulated games, placeholder | Done |
-| Carousel, ambient lighting (including the motion blur background), card art fitting, startup animation, interface animations | Done |
-| Gamepad, keyboard and mouse, with hints that follow the device; hold Esc / B to exit | Done |
-| Search and on-screen keyboard | Done |
-| Settings: Appearance, Library, Stores, Emulators, Artwork, Sound, System | Done |
-| Interface sounds and background music from a folder of your own, each with its own volume; the home screen shows the song with previous, pause and next (also View, LT and RT on a controller) | Done |
-| API keys pasted with Ctrl+V or the keyboard's Paste key; a key already copied is filled in | Done |
-| First-time setup | Done |
-| File browser, Add a game (also by dropping a program on the window), per-game Options | Done; dropping is untested |
-| Emulator profiles, presets (Switch included, Flatpaks found on Linux) and ROM folders | Done; Flatpak detection untested |
-| Launch options for Steam games | Done; not yet tried with a game |
-| Steam friends in your games, Join, borrowed-game warning (5.6) | Done; not yet tried with a key |
-| Steam account switcher, and the library limited to what the account can play (5.7) | Done on Windows; Linux untested |
-| Steam folder and "not a game" Steam apps in Settings | Done |
-| GOG games: GOG Galaxy and offline installers (Windows), Heroic (Linux), keyless artwork | Done; not yet tried with a real GOG install on either platform |
-| Battle.net and Microsoft Store / Xbox app games (Windows): found, started through Battle.net or Windows, watched by their folder | Done; found on a real install, not yet started from Moonglass |
-| Steam's own playtime for the signed-in account, shown with Moonglass's (5.1) | Done on Windows |
-| Now Playing shows the time, controller battery and total playtime | Done |
-| Quick Menu on Now Playing: save a clip or screenshot through Xbox Game Bar, NVIDIA or AMD (Windows) or gpu-screen-recorder (Linux), the game's own volume, Stop (5.8) | Done on Windows; not yet tried with a game, Linux untested |
-| Turning any store off, in Settings → Stores and in first-time setup | Done |
-| Display: fullscreen with a resolution (Windows), borderless window, or a window | Done; resolution change not yet tried on a second display |
-| Library database checked on every start, backed up, repaired from the backup when damaged, closed cleanly; SQLite 3.51.3 (spec 6) | Done on Windows |
-| Releasing images that are no longer drawn | Done |
-| Packaging: Windows `.exe` and zip, Linux tarball and AppImage, release workflow | Done; the Linux packaging and the workflow have not run yet |
+</div>
 
-### Performance (spec 7)
+> [!NOTE]
+> Moonglass is in **beta**. It is used daily on Windows; the Linux build is
+> a preview that compiles and is packaged but has not yet been tried on real
+> hardware. See [what has been tested](docs/STATUS.md).
 
-Measured on Windows 11 with the release build and a library of 36 games:
+## Features
 
-| Measure | Target | Measured |
+- **Every store, one shelf.** Steam, Epic, GOG, Battle.net and Microsoft
+  Store games are found on their own, along with your emulators' ROM folders
+  and any program you add. Turn off the stores you don't want to see.
+- **Made for a controller.** Every screen works with a gamepad, setup and
+  search included, with an on-screen keyboard. Keyboard and mouse work too,
+  and the button hints follow what you hold.
+- **The stores stay in charge.** Games start through Steam, Epic, GOG Galaxy
+  or Battle.net, so achievements, cloud saves and Steam Input keep working.
+- **Quiet while you play.** Nothing is drawn while a game runs. Quit and
+  Moonglass is back in about a second, or call it up mid-game with a held
+  button combination for the Quick Menu: clips, screenshots, the game's
+  volume, stop.
+- **Artwork without effort.** Covers come from your stores' own caches and
+  catalogs, Switch and retro game databases, or SteamGridDB with a free key.
+  Set your own for any game.
+- **Steam extras.** See which friends are in your games and join them,
+  switch Steam accounts, and keep Steam's own playtime.
+- **Set it up your way.** Posters, banners or squares; each game's colors,
+  its art behind everything, or pure black for OLED screens. Interface
+  sounds and background music from your own folder.
+- **One file, no account.** Nothing to install and nothing left running once
+  you close it. Updates install from inside the app.
+
+## Install
+
+Download the latest build from the
+[releases page](https://github.com/hxpe-dev/moonglass-launcher/releases).
+
+| Platform | Download | |
 | --- | --- | --- |
-| Cold start to the first carousel frame | Under 2 s | About 0.62 s |
-| Memory, idle on the carousel | | 83 MB |
-| Memory after scrolling the whole library | | 169 MB, back to 100 MB once unused images are released |
-| Memory while a game runs | Under 150 MB | 80-88 MB |
-| CPU while a game runs | Under 0.5% of one core | 1.4-2.4%, all of it GPUI's vsync thread (spec 9) |
-| Frames rendered while a game runs | Zero | None drawn (the window is minimized) |
-| Back in front after the game exits | Under 2 s after the 5 s grace period | 0.2-1.1 s after it |
+| Windows 10 and 11, 64-bit | `moonglass-…-windows-x86_64.exe` | Run it; there is no installer. A `.zip` with the same program is also attached. |
+| Linux, 64-bit, X11 and Wayland (preview) | `moonglass-…-linux-x86_64.AppImage` | `chmod +x` it and run it. A `.tar.gz` with a desktop entry is also attached. |
 
-Scrolling smoothness and search latency have not been measured with a
-frame-time tool. Linux has not been measured.
+The first start scans your stores and walks you through optional extras
+(emulators, a SteamGridDB key). Updates are offered in
+**Settings → System → Updates**, and checked for shortly after each start.
 
-Not done yet:
+Moonglass keeps its library and settings in `%APPDATA%\Moonglass` on Windows
+and `~/.local/share/moonglass` on Linux; run `moonglass paths` to see every
+folder it uses.
 
-* Checks that need hardware: Linux X11 and Wayland, focus on GNOME and KDE,
-  Proton detection, and Steam's registry running-state signal (use
-  `moonglass steam-signal <game>` while playing).
-* Linux: the keyboard restore hotkey, the X11 launcher-window close request,
-  and Epic artwork without a SteamGridDB key.
-* Extra helper processes to ignore can be stored but not edited in Settings.
-* A ROM folder added in Settings is scanned at once but only watched for
-  changes from the next start.
-* Epic's namespaced-URI fallback is manual (`moonglass launch --epic-fallback`).
-* The CPU target while a game runs needs a change in GPUI (spec 9).
-* GOG with a real install: Galaxy's `/command=runGame` launch, the Galaxy
-  window title used to send it to the tray ("GOG Galaxy"), and Heroic's GOG
-  files. GOG games installed while Moonglass runs on Windows appear after the
-  next game or a rescan (the registry is not watched).
-* Epic, GOG, Battle.net and Microsoft Store playtime is not imported: they
-  keep it on their servers only.
-* Battle.net games start from a table of Battle.net's product codes; a game
-  outside it starts through its own `<Game> Launcher.exe`. Starting a game
-  through Battle.net and Battle.net's window title ("Battle.net"), used to
-  send it to the tray, have not been tried yet.
-* Only Store games built with Microsoft's game kit (`MicrosoftGame.config`)
-  are found; older UWP games are not. Store and Battle.net games have no
-  keyless artwork: they use SteamGridDB (with a key) or the placeholder.
+## Controls
 
-## Releases
+| | Controller | Keyboard | Mouse |
+| --- | --- | --- | --- |
+| Move between games | D-pad or left stick | ← → | Wheel, or click a card |
+| Play | A | Enter | Click the focused card |
+| Search | X | Just start typing | Click the search box |
+| Game options | Y | Ctrl + O | Right-click a card |
+| Switch filter | LB / RB | Tab / Shift + Tab | Click a filter |
+| Settings | Menu | Ctrl + , | Click the gear |
+| Back | B | Esc | |
+| Exit | Hold B | Hold Esc, or Ctrl + Q | |
+| Back to Moonglass during a game | Hold both sticks in (configurable) | Ctrl + Alt + Home | |
 
-```bash
-cargo build --release -p moonglass-launcher
-powershell -File scripts\package-windows.ps1   # Windows: dist\*.exe and *.zip
-scripts/package-linux.sh                         # Linux: dist/*.tar.gz and *.AppImage
-```
+The [user guide](site/docs.html) covers everything else: filters, per-game
+options, emulators, the Quick Menu and every setting.
 
-Pushing a tag such as `v0.2.0` builds both on GitHub and attaches them to a
-release.
+## Performance
 
-### Development
+Measured against other multi-store launchers on the same Windows PC
+(medians of 5 runs; [method and raw data](BENCH.md)):
 
-`MOONGLASS_WINDOWED=1` opens a window instead of full screen.
-`MOONGLASS_DEV_SECOND_INSTANCE=1` lets a test window run next to a normal
-one (it shares the database).
-`MOONGLASS_DEV_SCREEN=settings` (or `search`) opens on that screen;
-`MOONGLASS_DEV_SCREEN=quick` opens the Quick Menu over the first game
-without starting it, and `MOONGLASS_DEV_PIDS=1234,5678` lets its volume row
-control those processes.
-The log records how long startup took (`startup: first frame ms=…`).
+| | Moonglass | One Game Launcher | Playnite (Desktop) |
+| --- | --- | --- | --- |
+| Time until loaded | **1.7 s** | 2.1 s | 3.6 s |
+| Memory in use, idle | **79 MB** | 172 MB | 668 MB |
+| Install size | **28 MB** | 41 MB | 433 MB |
 
-## Layout
+Moonglass is written in Rust and drawn on the GPU with
+[GPUI](https://www.gpui.rs/), the UI framework behind the Zed editor; there
+is no web view or JavaScript runtime.
 
-```
-crates/
-  moonglass-core      IDs, title normalization, ordering/filters/search,
-                      launch templates, launch state machine (pure, no OS)
-  moonglass-scan      Steam / Epic / GOG / Battle.net / Microsoft Store /
-                      Heroic / ROM file parsing
-  moonglass-db        sqlx + SQLite, migrations, reconciliation, settings
-  moonglass-platform  everything OS-specific (windows.rs / linux.rs)
-  moonglass-art       artwork sources and ingestion
-  moonglass-launcher  the app: GPUI interface (src/ui) plus a debug CLI
-```
+## Building from source
 
-Only `moonglass-platform` contains platform conditionals.
-
-## Building
+You need a recent stable Rust (1.94 or later). On Linux, also the system
+libraries GPUI and the gamepad library build against:
 
 ```bash
-cargo build --release
+sudo apt install libudev-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+  libx11-xcb-dev libxcb1-dev libvulkan-dev libfontconfig-dev libfreetype-dev \
+  libasound2-dev pkg-config
+```
+
+Then:
+
+```bash
+cargo build --release      # target/release/moonglass(.exe)
 cargo test --workspace
 ```
 
-Queries are compile-time checked against the metadata in `.sqlx/`, so no
-database is needed to build (`SQLX_OFFLINE=true` is set in
-`.cargo/config.toml`). After changing a query or migration, install
-`sqlx-cli` 0.9 (`cargo install sqlx-cli --version "^0.9" --no-default-features --features sqlite`)
-and run `scripts/sqlx-prepare.sh`.
+Database queries are checked at compile time against the metadata in
+`.sqlx/`, so no database is needed to build. After changing a query or a
+migration, install `sqlx-cli` 0.9 and run `scripts/sqlx-prepare.sh`.
 
-## Releasing
+<details>
+<summary><b>Development tips and the debug command line</b></summary>
 
-Change `version` in the root `Cargo.toml` (for example `0.1.0-beta.2` or
-`0.2.0`) and push to `main`. The release workflow sees a version with no
-`v<version>` tag yet, tests and builds both platforms, and publishes release
-`v<version>` with the executables attached; a version with a suffix such as
-`-beta.2` is marked as a pre-release. Pushes that keep the version release
-nothing. Installed copies find it
-in Settings → System → Updates (and with a check shortly after startup),
-download the file for their platform, verify its SHA-256, and swap it in on
-the next start.
+Environment variables:
 
-## Using the debug build
+| Variable | Effect |
+| --- | --- |
+| `MOONGLASS_WINDOWED=1` | Open in a window instead of full screen |
+| `MOONGLASS_DEV_SECOND_INSTANCE=1` | Let a test window run next to a normal one (they share the database) |
+| `MOONGLASS_DEV_SCREEN=settings` / `search` / `quick` | Open on that screen; `quick` opens the Quick Menu over the first game without starting it |
+| `MOONGLASS_DEV_PIDS=1234,5678` | Processes the Quick Menu's volume row controls in that mode |
+| `MOONGLASS_LOG=debug` | Verbose logs (the log also records startup timings) |
+
+With arguments, `moonglass` is a command line that drives the same library
+and launch code without the window:
 
 ```bash
 moonglass list                       # scan, then list in carousel order
-moonglass list --filter steam
-moonglass list --search "half life"
+moonglass list --filter steam --search "half life"
 moonglass launch 3                   # by list number or id, e.g. steam:620
 moonglass add-exe "C:\Games\Foo\Foo.exe"
 moonglass add-emulator dolphin Dolphin "C:\Emu\Dolphin.exe" "-b -e \"{rom}\"" ".iso,.rvz,.gcm"
 moonglass add-rom-dir "D:\ROMs\GameCube" dolphin GameCube
 moonglass options 3 --watch RealGame.exe --track-folder
-moonglass autostart on
 moonglass steam-accounts             # remembered Steam accounts, what the signed-in one can play
-moonglass steam-switch 2             # sign Steam in with account 2 (restarts Steam)
-moonglass update --check             # is there a newer GitHub release?
+moonglass update --check             # is there a newer release?
+moonglass paths                      # where the database, cache and logs are
+moonglass --help                     # everything else
 ```
 
-Set `MOONGLASS_LOG=debug` for verbose logs; `moonglass paths` shows where they are.
+</details>
+
+### Project layout
+
+```
+crates/
+  moonglass-core      IDs, title normalization, ordering, filters and search,
+                      launch templates, the launch state machine (no OS code)
+  moonglass-scan      Steam, Epic, GOG, Battle.net, Microsoft Store, Heroic
+                      and ROM folder scanners
+  moonglass-db        SQLite through sqlx: migrations, reconciliation, settings
+  moonglass-platform  everything OS-specific (windows.rs and linux.rs)
+  moonglass-art       artwork sources and processing
+  moonglass-launcher  the app: the GPUI interface (src/ui) and the command line
+docs/                 the design (SPEC.md) and feature status (STATUS.md)
+site/                 the project website and user guide
+scripts/              packaging and sqlx helpers
+```
+
+Only `moonglass-platform` contains platform conditionals; everything else is
+shared between Windows and Linux.
+
+### Releasing
+
+Change `version` in the root `Cargo.toml` (for example `0.1.0-beta.2` or
+`0.2.0`) and push to `main`. The release workflow notices a version that has
+no `v<version>` tag yet, runs the tests, builds both platforms and publishes
+the release with the executables attached. A version with a suffix such as
+`-beta.2` is published as a pre-release, which only beta builds are offered.
+
+## License
+
+Licensed under either of the [MIT license](https://opensource.org/licenses/MIT)
+or the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0),
+at your option.
+
+Moonglass is not affiliated with Valve, Epic Games, GOG, Blizzard or
+Microsoft. Store names are used only to say which games Moonglass can find.
