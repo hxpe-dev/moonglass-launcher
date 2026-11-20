@@ -369,7 +369,7 @@ impl LauncherView {
                     ("setup-store", store_name(s)),
                     on(self.prefs.store_enabled(s)),
                 );
-                row = row.child(toggle_switch(k, u));
+                row = row.child(toggle_switch(k, lit, u));
             }
             list = list.child(row);
         }

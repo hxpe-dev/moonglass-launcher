@@ -339,10 +339,24 @@ pub async fn run_to_completion(
     }
 }
 
+/// The note shown when a launch is slow. A store game may be waiting on its
+/// store (an update, a sign-in), so it names that store; an executable or
+/// ROM has no store to blame.
+pub fn still_waiting_text(source: Source) -> String {
+    if source.is_launcher() {
+        format!(
+            "Still waiting… {} may be updating the game.",
+            crate::ui::prefs::store_name(source)
+        )
+    } else {
+        "Still waiting…".to_string()
+    }
+}
+
 fn report(game: &Game, e: Effect) {
     let msg = match e {
         Effect::ShowLaunching => format!("Launching {}…", game.title),
-        Effect::ShowStillWaiting => "Still waiting… (Steam may be updating the game)".to_string(),
+        Effect::ShowStillWaiting => still_waiting_text(game.source),
         Effect::EnterRunning => format!("{} is running", game.title),
         Effect::LaunchAbandoned { reason } => {
             format!("Gave up launching {} ({reason:?})", game.title)

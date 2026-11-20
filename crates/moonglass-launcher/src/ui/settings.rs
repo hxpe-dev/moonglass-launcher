@@ -349,24 +349,30 @@ fn toggle_on(item: Item, prefs: &Prefs, value: &str) -> bool {
     }
 }
 
-/// An on/off switch; `t` goes from 0 (off) to 1 (on). Shared with setup.
-pub(super) fn toggle_switch(t: f32, u: f32) -> Div {
+/// An on/off switch; `t` goes from 0 (off) to 1 (on). `lit` is how far its
+/// row is highlighted: the highlight is white, so the switch turns black on
+/// it, or it would vanish. Shared with setup.
+pub(super) fn toggle_switch(t: f32, lit: f32, u: f32) -> Div {
+    // Monochrome, as on the site: an outline when off, solid when on, in
+    // white on the dark rows and in black on the highlighted one.
+    let tone = |a: f32| mix(white(a), black(a), lit);
+    let knob_off = mix(white(0.6), black(0.45), lit);
+    let knob_on = mix(rgb(INK).into(), gpui::white(), lit);
     div()
         .flex_none()
         .w(px(52.0 * u))
         .h(px(28.0 * u))
         .rounded_full()
         .p(px(3.0 * u))
-        // Monochrome, as on the site: an outline when off, solid when on.
         .border_1()
-        .border_color(white(0.45 + 0.55 * t))
-        .bg(white(t))
+        .border_color(tone(0.45 + 0.55 * t))
+        .bg(tone(t))
         .child(
             div()
                 .ml(px(24.0 * u * t))
                 .size(px(20.0 * u))
                 .rounded_full()
-                .bg(mix(white(0.6), rgb(INK).into(), t)),
+                .bg(mix(knob_off, knob_on, t)),
         )
 }
 
@@ -831,7 +837,7 @@ impl LauncherView {
                     // The knob slides and the track changes color.
                     let is_on = toggle_on(item, prefs, &v);
                     let t = self.glide(("settings-toggle", st.section, i), on(is_on));
-                    let switch = toggle_switch(t, u);
+                    let switch = toggle_switch(t, lit, u);
                     match item {
                         // A store's number of games sits beside its switch.
                         Item::Store(_) => div()

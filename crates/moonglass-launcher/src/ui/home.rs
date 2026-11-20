@@ -1219,6 +1219,11 @@ impl LauncherView {
             ("Enter", "Esc")
         };
         let title = self.session_title();
+        let waiting_note = self
+            .session
+            .as_ref()
+            .map(|s| crate::launch::still_waiting_text(s.game.source))
+            .unwrap_or_default();
         let button = |id: &'static str,
                       key: &str,
                       label: String,
@@ -1263,7 +1268,7 @@ impl LauncherView {
                         .child(
                             div()
                                 .text_color(white(TEXT_2))
-                                .child("Still waiting… Steam may be updating the game."),
+                                .child(waiting_note.clone()),
                         )
                         .child(button(
                             "ov-cancel",
