@@ -17,7 +17,7 @@ It starts in under a second, and while you play, it does nothing at all.
 
 [**Download**](https://github.com/hxpe-dev/moonglass-launcher/releases) ·
 [User guide](site/docs.html) ·
-[Benchmarks](BENCH.md) ·
+[Benchmarks](docs/BENCH.md) ·
 [Design](docs/SPEC.md)
 
 </div>
@@ -90,7 +90,7 @@ options, emulators, the Quick Menu and every setting.
 ## Performance
 
 Measured against other multi-store launchers on the same Windows PC
-(medians of 5 runs; [method and raw data](BENCH.md)):
+(medians of 5 runs; [method and raw data](docs/BENCH.md)):
 
 | | Moonglass | One Game Launcher | Playnite (Desktop) |
 | --- | --- | --- | --- |
@@ -168,7 +168,7 @@ crates/
   moonglass-platform  everything OS-specific (windows.rs and linux.rs)
   moonglass-art       artwork sources and processing
   moonglass-launcher  the app: the GPUI interface (src/ui) and the command line
-docs/                 the design (SPEC.md) and feature status (STATUS.md)
+docs/                 the design (SPEC.md), feature status (STATUS.md), benchmarks (BENCH.md)
 site/                 the project website and user guide
 scripts/              packaging and sqlx helpers
 ```
