@@ -1,0 +1,9 @@
+// Cloudflare Workers config for the static website in site/ (moonglass.hoainam.dev).
+// No server code: Cloudflare serves the files in site/ as static assets.
+{
+  "name": "moonglass",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site"
+  }
+}
