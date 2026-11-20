@@ -1,41 +1,65 @@
 name: Release
 
-# Spec 4.5: Windows .exe and zip; Linux tarball and AppImage. A tag such as
-# v0.2.0 builds them and attaches them to a GitHub release; running the
-# workflow by hand builds them as artifacts only.
+# Spec 4.5: Windows .exe and zip; Linux tarball and AppImage, published as
+# a GitHub release that installed copies update from.
+#
+# Releasing is changing `version` in the root Cargo.toml and pushing to
+# main: when no tag `v<version>` exists yet, this tests and builds both
+# platforms, then publishes release `v<version>` (made a pre-release when
+# the version has a suffix, such as 0.1.0-beta.1). Pushes that leave the
+# version alone release nothing. Running the workflow by hand on main
+# retries a release that failed; on another branch it only builds.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: [Cargo.toml]
   workflow_dispatch:
+
+# Two pushes in a row must not race to publish the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   SQLX_OFFLINE: "true"
 
 jobs:
-  # The in-app updater compares the tag with the version the program was
-  # built with; they must agree, or the new build would keep offering
-  # itself as an update.
-  tag:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v5
-      - name: Tag matches Cargo.toml
-        if: startsWith(github.ref, 'refs/tags/')
+      - id: v
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version (expected v$version)"
-            exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released"
+            publish=false
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            publish=true
+          else
+            publish=false
           fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version $version, publish $publish, pre-release $pre"
 
   windows:
-    needs: tag
+    needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --workspace --release
       - name: Build
         run: cargo build --release -p moonglass-launcher
       - name: Package
@@ -46,7 +70,8 @@ jobs:
           path: dist/*
 
   linux:
-    needs: tag
+    needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -63,6 +88,8 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x "$RUNNER_TEMP/appimagetool"
+      - name: Test
+        run: cargo test --workspace --release
       - name: Build
         run: cargo build --release -p moonglass-launcher
       - name: Package
@@ -73,8 +100,8 @@ jobs:
           path: dist/*
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows, linux]
+    needs: [version, windows, linux]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,5 +112,11 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          # Creates the tag on the commit that was built.
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Moonglass ${{ needs.version.outputs.version }}
+          prerelease: ${{ needs.version.outputs.prerelease }}
           files: dist/*
           generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -140,14 +140,12 @@ and run `scripts/sqlx-prepare.sh`.
 
 ## Releasing
 
-Bump `version` in the root `Cargo.toml`, commit, then push a matching tag:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-The release workflow refuses a tag that does not match `Cargo.toml`, builds
-both platforms, and publishes the GitHub release. Installed copies find it
+Change `version` in the root `Cargo.toml` (for example `0.1.0-beta.2` or
+`0.2.0`) and push to `main`. The release workflow sees a version with no
+`v<version>` tag yet, tests and builds both platforms, and publishes release
+`v<version>` with the executables attached; a version with a suffix such as
+`-beta.2` is marked as a pre-release. Pushes that keep the version release
+nothing. Installed copies find it
 in Settings → System → Updates (and with a check shortly after startup),
 download the file for their platform, verify its SHA-256, and swap it in on
 the next start.
