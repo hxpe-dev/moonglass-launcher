@@ -16,6 +16,7 @@
 //! | Start at login | [`start_at_login`], [`set_start_at_login`] |
 //! | Single-instance guard | [`InstanceGuard`] |
 //! | Updating Moonglass itself | [`update_target`], [`install_update`], [`clean_after_update`] |
+//! | Command-line output, startup errors | [`attach_console`], [`show_error`] |
 //! | Store discovery | [`steam_root`], [`epic_source`], [`gog_source`], [`battlenet_source`], [`msstore_packages`] |
 //! | File locations | [`AppPaths`] |
 
@@ -901,6 +902,23 @@ pub fn start_at_login() -> Result<bool> {
 
 pub fn set_start_at_login(enabled: bool) -> Result<()> {
     imp::set_start_at_login(enabled)
+}
+
+// ----------------------------------------------- console and error dialog
+
+/// Makes `println!` reach the terminal Moonglass was started from. A
+/// Windows release build is a windowed program, which Windows starts with
+/// no console (so no terminal pops up next to the window); the command line
+/// calls this first. Elsewhere it does nothing.
+pub fn attach_console() {
+    imp::attach_console()
+}
+
+/// Shows an error in a dialog, for a failure before the window exists
+/// (nobody would see a terminal message). Windows: a message box. Linux:
+/// zenity or kdialog, when one is installed.
+pub fn show_error(title: &str, message: &str) {
+    imp::show_error(title, message)
 }
 
 // ------------------------------------------------------- self-update

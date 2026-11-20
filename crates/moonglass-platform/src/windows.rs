@@ -850,6 +850,24 @@ pub fn request_close(pids: &[u32]) {
     }
 }
 
+// ------------------------------------------------ console and error dialog
+
+pub fn attach_console() {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // Fails when there is no parent console (started from Explorer): then
+    // there is nobody to print to anyway.
+    let _ = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+}
+
+pub fn show_error(title: &str, message: &str) {
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let title = HSTRING::from(title);
+    let message = HSTRING::from(message);
+    unsafe {
+        MessageBoxW(None, &message, &title, MB_OK | MB_ICONERROR);
+    }
+}
+
 // ------------------------------------------------------------ self-update
 
 /// The replaced program, kept until the next start: Windows will not

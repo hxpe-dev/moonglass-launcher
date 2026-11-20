@@ -478,3 +478,46 @@ async fn store_playtime_is_kept_apart_and_replaced() {
     assert_eq!(g.store_playtime_seconds, 0);
     assert_eq!(g.total_playtime(), 600);
 }
+
+/// A database whose migrations were recorded from CRLF files (a build from
+/// a Windows checkout) opens in a build with LF files, and the other way
+/// round; a migration that really changed is still refused.
+#[tokio::test]
+async fn migrations_recorded_with_other_line_endings() {
+    use sha2::{Digest, Sha384};
+    let db = Db::open_in_memory().await.unwrap();
+    let record = |version: i64, checksum: Vec<u8>| {
+        let pool = db.pool.clone();
+        async move {
+            sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = ?")
+                .bind(checksum)
+                .bind(version)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    let recorded = |version: i64| {
+        let pool = db.pool.clone();
+        async move {
+            let c: Vec<u8> =
+                sqlx::query_scalar("SELECT checksum FROM _sqlx_migrations WHERE version = ?")
+                    .bind(version)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            c
+        }
+    };
+    for m in MIGRATOR.iter() {
+        let lf = m.sql.as_str().replace("\r\n", "\n");
+        for variant in [lf.replace('\n', "\r\n"), lf] {
+            record(m.version, Sha384::digest(variant.as_bytes()).to_vec()).await;
+            migrate(&db.pool).await.unwrap();
+            assert_eq!(recorded(m.version).await, *m.checksum);
+        }
+    }
+    let first = MIGRATOR.iter().next().unwrap();
+    record(first.version, Sha384::digest(b"something else").to_vec()).await;
+    assert!(migrate(&db.pool).await.is_err());
+}

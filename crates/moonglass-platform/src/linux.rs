@@ -633,6 +633,31 @@ mod quick_menu_tests {
     }
 }
 
+// ------------------------------------------------ console and error dialog
+
+/// A Linux program always has its terminal, when started from one.
+pub fn attach_console() {}
+
+pub fn show_error(title: &str, message: &str) {
+    let tries: [(&str, Vec<&str>); 2] = [
+        (
+            "zenity",
+            vec!["--error", "--title", title, "--text", message],
+        ),
+        ("kdialog", vec!["--title", title, "--error", message]),
+    ];
+    for (program, args) in tries {
+        let shown = Command::new(program)
+            .args(&args)
+            .stdin(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if shown {
+            return;
+        }
+    }
+}
+
 // ------------------------------------------------------------ self-update
 
 pub fn update_target() -> Result<crate::UpdateTarget> {

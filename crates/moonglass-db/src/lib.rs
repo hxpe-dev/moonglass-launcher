@@ -20,6 +20,62 @@ use thiserror::Error;
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
+/// Applies the migrations.
+///
+/// sqlx refuses a database whose recorded checksum of an applied migration
+/// differs from the build's. The same migration file with other line
+/// endings has another checksum: a database made by a build from a Windows
+/// checkout (CRLF files) would not open in a release build (LF files), or
+/// the other way round. Such a migration is the same one, so its recorded
+/// checksum is replaced by this build's first. Any other difference is
+/// still refused.
+pub(crate) async fn migrate(pool: &SqlitePool) -> Result<()> {
+    adopt_line_ending_checksums(pool).await?;
+    MIGRATOR.run(pool).await?;
+    Ok(())
+}
+
+async fn adopt_line_ending_checksums(pool: &SqlitePool) -> Result<()> {
+    use sha2::{Digest, Sha384};
+    let tracked: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if tracked.is_none() {
+        return Ok(());
+    }
+    let applied: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT version, checksum FROM _sqlx_migrations")
+            .fetch_all(pool)
+            .await?;
+    for (version, recorded) in applied {
+        let Some(m) = MIGRATOR.iter().find(|m| m.version == version) else {
+            continue;
+        };
+        if recorded == *m.checksum {
+            continue;
+        }
+        let lf = m.sql.as_str().replace("\r\n", "\n");
+        let crlf = lf.replace('\n', "\r\n");
+        let same = [lf, crlf]
+            .iter()
+            .any(|sql| Sha384::digest(sql.as_bytes()).as_slice() == recorded.as_slice());
+        if same {
+            sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = ?")
+                .bind(&*m.checksum)
+                .bind(version)
+                .execute(pool)
+                .await?;
+            tracing::info!(
+                version,
+                "migration recorded with other line endings; checksum updated"
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error)]
 pub enum DbError {
     #[error(transparent)]
@@ -114,7 +170,7 @@ impl Db {
     /// from damage.
     pub async fn open(path: &Path) -> Result<Self> {
         let db = Self::connect_file(path).await?;
-        MIGRATOR.run(&db.pool).await?;
+        migrate(&db.pool).await?;
         Ok(db)
     }
 
@@ -146,7 +202,7 @@ impl Db {
             .max_connections(1)
             .connect_with(opts)
             .await?;
-        MIGRATOR.run(&pool).await?;
+        migrate(&pool).await?;
         Ok(Self { pool })
     }
 

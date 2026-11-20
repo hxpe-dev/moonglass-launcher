@@ -4,6 +4,12 @@
 //! lifecycle so detection, grace periods and timeouts can be exercised
 //! without the window.
 
+// A release build is a windowed program on Windows, so starting it opens no
+// terminal next to the window; the command line attaches to the terminal it
+// was started from instead (`attach_console`). Ignored on other systems;
+// debug builds keep their console for the logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod artwork;
 mod audio;
 mod friends;
@@ -575,16 +581,24 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let result = if args.is_empty() {
-        run_ui(&rt, false)
-    } else if args.len() == 1 && args[0] == AFTER_UPDATE_ARG {
-        run_ui(&rt, true)
+    let ui = args.is_empty() || (args.len() == 1 && args[0] == AFTER_UPDATE_ARG);
+    if !ui {
+        moonglass_platform::attach_console();
+    }
+    let result = if ui {
+        run_ui(&rt, !args.is_empty())
     } else {
         rt.block_on(run(args))
     };
     if let Err(e) = result {
-        tracing::error!("{e:#}");
         eprintln!("error: {e:#}");
+        if ui {
+            // There is no window yet, and no terminal to read: say it.
+            let logs = AppPaths::discover()
+                .map(|p| format!("\n\nThe log is in {}", p.log_dir.display()))
+                .unwrap_or_default();
+            moonglass_platform::show_error("Moonglass could not start", &format!("{e:#}{logs}"));
+        }
         std::process::exit(1);
     }
 }
@@ -631,7 +645,7 @@ fn run_ui(rt: &tokio::runtime::Runtime, after_update: bool) -> anyhow::Result<()
         anyhow::Ok((db, loaded))
     });
     let rt = rt.handle().clone();
-    ui::run(
+    let result = ui::run(
         move || {
             let (db, loaded) = rt.block_on(loading)??;
             let backend = ui::Backend {
@@ -643,7 +657,12 @@ fn run_ui(rt: &tokio::runtime::Runtime, after_update: bool) -> anyhow::Result<()
             Ok((backend, loaded))
         },
         splash,
-    )
+    );
+    // Logged here, while the log is still open.
+    if let Err(e) = &result {
+        tracing::error!("{e:#}");
+    }
+    result
 }
 
 /// The single-instance guard. After an update the old version is still

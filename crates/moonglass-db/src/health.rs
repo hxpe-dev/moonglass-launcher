@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{Db, DbError, Result, MIGRATOR};
+use crate::{Db, DbError, Result};
 
 /// How [`Db::open_checked`] found the library.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +120,7 @@ async fn open_sound(path: &Path) -> std::result::Result<Db, Fail> {
         if !problems.is_empty() {
             return Err(Fail::Damage(problems));
         }
-        MIGRATOR.run(&db.pool).await.map_err(DbError::from)?;
+        crate::migrate(&db.pool).await.map_err(Fail::from)?;
         // A log left by a process that did not close the library (killed,
         // crashed) goes into the file now rather than growing further.
         db.checkpoint().await?;
