@@ -5,7 +5,7 @@
 A console-style, controller-first PC game launcher for Windows and Linux.
 The repository and workspace are named `moonglass-launcher`; the app and its
 executable are `Moonglass` / `moonglass`.
-The full design is in [SPEC.md](SPEC.md).
+The full design is in [docs/SPEC.md](docs/SPEC.md).
 
 ## Status
 
