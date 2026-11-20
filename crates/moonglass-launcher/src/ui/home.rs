@@ -1265,11 +1265,7 @@ impl LauncherView {
                     );
                 if *still_waiting {
                     c = c
-                        .child(
-                            div()
-                                .text_color(white(TEXT_2))
-                                .child(waiting_note.clone()),
-                        )
+                        .child(div().text_color(white(TEXT_2)).child(waiting_note.clone()))
                         .child(button(
                             "ov-cancel",
                             k_back,
