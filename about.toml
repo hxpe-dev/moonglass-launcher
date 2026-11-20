@@ -1,0 +1,34 @@
+# cargo-about: the licenses of the libraries built into Moonglass, collected
+# into THIRD-PARTY-NOTICES.html by scripts/third-party-notices.sh.
+#
+# Only the licenses below are accepted; a new dependency under any other
+# license stops the release until it is looked at and added here.
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "Unicode-3.0",
+    # webpki-roots: the list of trusted certificate authorities.
+    "CDLA-Permissive-2.0",
+    # File-level copyleft: symphonia (music decoding, through rodio),
+    # dwrote (Windows fonts, through GPUI) and option-ext. Used unmodified;
+    # the notices name each crate and link to its source, as MPL asks.
+    "MPL-2.0",
+]
+
+# Crates whose license files cargo-about needs help finding.
+workarounds = ["ring", "rustls"]
+
+# The two platforms Moonglass is released for.
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+
+# Only what ends up in the program.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Moonglass's own crates are not third-party.
+private = { ignore = true }

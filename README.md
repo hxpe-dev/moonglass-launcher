@@ -12,7 +12,7 @@ It starts in under a second, and while you play, it does nothing at all.
 
 [![Release](https://img.shields.io/github/v/release/hxpe-dev/moonglass-launcher?include_prereleases&label=release)](https://github.com/hxpe-dev/moonglass-launcher/releases)
 [![CI](https://github.com/hxpe-dev/moonglass-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/hxpe-dev/moonglass-launcher/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Platforms: Windows, Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
 [**Download**](https://github.com/hxpe-dev/moonglass-launcher/releases) ·
@@ -186,9 +186,10 @@ the release with the executables attached. A version with a suffix such as
 
 ## License
 
-Licensed under either of the [MIT license](https://opensource.org/licenses/MIT)
-or the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0),
-at your option.
+Copyright 2026 hxpe-dev. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Release downloads also contain `THIRD-PARTY-NOTICES.html`, the licenses of
+the libraries and fonts built into Moonglass.
 
 Moonglass is not affiliated with Valve, Epic Games, GOG, Blizzard or
 Microsoft. Store names are used only to say which games Moonglass can find.

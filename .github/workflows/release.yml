@@ -50,8 +50,26 @@ jobs:
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "version $version, publish $publish, pre-release $pre"
 
-  windows:
+  # The licenses of everything built into the program, shipped with it.
+  notices:
     needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Third-party notices
+        run: scripts/third-party-notices.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notices
+          path: dist/THIRD-PARTY-NOTICES.html
+
+  windows:
+    needs: [version, notices]
     if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
@@ -62,6 +80,10 @@ jobs:
         run: cargo test --workspace --release
       - name: Build
         run: cargo build --release -p moonglass-launcher
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: dist
       - name: Package
         run: powershell -File scripts\package-windows.ps1
       - uses: actions/upload-artifact@v4
@@ -70,7 +92,7 @@ jobs:
           path: dist/*
 
   linux:
-    needs: version
+    needs: [version, notices]
     if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
@@ -92,6 +114,10 @@ jobs:
         run: cargo test --workspace --release
       - name: Build
         run: cargo build --release -p moonglass-launcher
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: dist
       - name: Package
         run: APPIMAGETOOL="$RUNNER_TEMP/appimagetool" scripts/package-linux.sh
       - uses: actions/upload-artifact@v4

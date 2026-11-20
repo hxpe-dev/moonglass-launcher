@@ -4,6 +4,7 @@ description = "Artwork pipeline (spec 5.2): Steam local cache, SteamGridDB, plac
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 rust-version.workspace = true
 
 [dependencies]

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moonglass third-party notices</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1b1b1f; --bg: #fafafa; --muted: #5f6068; --line: #d9d9de; --panel: #f0f0f3; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #e9e9ee; --bg: #101014; --muted: #a0a0aa; --line: #2c2c34; --panel: #18181e; } }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-weight: 500; margin: 0 0 8px; }
+    h2 { font-weight: 500; margin: 40px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+    h3 { font-weight: 500; margin: 28px 0 6px; }
+    p, .used-by { color: var(--muted); }
+    a { color: inherit; }
+    ul.overview { columns: 2; padding-left: 18px; }
+    ul.used-by { padding-left: 18px; margin: 4px 0 10px; font-size: 14px; }
+    pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; white-space: pre-wrap; font-size: 12.5px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Third-party notices</h1>
+  <p>Moonglass is licensed under the Apache License, Version 2.0. It is built
+  with the fonts and Rust libraries below, each under its own license, whose
+  notices and terms are reproduced here.</p>
+
+  <h2>Licenses used</h2>
+  <ul class="overview">
+    <li><a href="#fonts">SIL Open Font License 1.1</a> (2 fonts)</li>
+    {{#each overview}}<li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+    {{/each}}
+  </ul>
+
+  <h2 id="fonts">Fonts</h2>
+  <!--FONTS-->
+
+  <h2>Libraries</h2>
+  {{#each licenses}}
+  <h3 id="{{id}}">{{name}}</h3>
+  <ul class="used-by">
+    {{#each used_by}}<li><a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a></li>
+    {{/each}}
+  </ul>
+  <pre>{{text}}</pre>
+  {{/each}}
+</main>
+</body>
+</html>

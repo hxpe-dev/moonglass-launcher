@@ -12,7 +12,9 @@ members = [
 [workspace.package]
 version = "0.1.0-beta.1"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
+# An application, not a library: never published to crates.io.
+publish = false
 # Releases are published here; Settings → System → Updates reads them.
 repository = "https://github.com/hxpe-dev/moonglass-launcher"
 rust-version = "1.94"
