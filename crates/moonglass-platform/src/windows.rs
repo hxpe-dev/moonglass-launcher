@@ -1531,6 +1531,9 @@ pub mod hotkey {
 
     pub struct RestoreHotkey {
         armed: Arc<AtomicBool>,
+        /// Whether the keyboard thread holds Ctrl+Alt+Home right now.
+        #[cfg_attr(not(test), allow(dead_code))]
+        held: Arc<AtomicBool>,
         availability: Availability,
         /// The keyboard thread, when the combination is available.
         keyboard_thread: Option<u32>,
@@ -1556,13 +1559,18 @@ pub mod hotkey {
             }
 
             let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::Builder::new()
-                .name("moonglass-hotkey".into())
-                .spawn(move || keyboard_loop(&*cb, tx))
-                .ok();
+            let held = Arc::new(AtomicBool::new(false));
+            {
+                let held = held.clone();
+                std::thread::Builder::new()
+                    .name("moonglass-hotkey".into())
+                    .spawn(move || keyboard_loop(&*cb, &held, tx))
+                    .ok();
+            }
             let keyboard_thread = rx.recv_timeout(Duration::from_secs(1)).ok().flatten();
             Self {
                 armed,
+                held,
                 availability: Availability {
                     gamepad: true,
                     keyboard: keyboard_thread.is_some(),
@@ -1585,6 +1593,12 @@ pub mod hotkey {
 
         pub fn availability(&self) -> Availability {
             self.availability
+        }
+
+        /// Whether the keyboard combination is registered right now.
+        #[cfg(test)]
+        fn holding(&self) -> bool {
+            self.held.load(Ordering::Acquire)
         }
     }
 
@@ -1671,7 +1685,11 @@ pub mod hotkey {
     /// Reports this thread's ID through `ready` (`None` if the combination
     /// is taken), then registers the hotkey while armed and unregisters it
     /// otherwise.
-    fn keyboard_loop(cb: &(dyn Fn() + Send + Sync), ready: std::sync::mpsc::Sender<Option<u32>>) {
+    fn keyboard_loop(
+        cb: &(dyn Fn() + Send + Sync),
+        held: &AtomicBool,
+        ready: std::sync::mpsc::Sender<Option<u32>>,
+    ) {
         let mut msg = MSG::default();
         // Creates this thread's message queue, so `set_armed` can post to it.
         unsafe {
@@ -1699,10 +1717,12 @@ pub mod hotkey {
                     if !registered {
                         tracing::warn!("Ctrl+Alt+Home could not be registered for this game");
                     }
+                    held.store(registered, Ordering::Release);
                 }
                 WM_DISARM if registered => {
                     unregister();
                     registered = false;
+                    held.store(false, Ordering::Release);
                 }
                 WM_HOTKEY => cb(),
                 _ => {}
@@ -1723,12 +1743,15 @@ pub mod hotkey {
             free
         }
 
-        fn wait_until(want_free: bool) -> bool {
-            for _ in 0..40 {
-                if combination_is_free() == want_free {
+        /// Waits for the keyboard thread to act on an arm or disarm. The test
+        /// must not probe the combination meanwhile: a probe at the moment
+        /// the thread registers would take it from the thread.
+        fn wait_holding(hotkey: &RestoreHotkey, want: bool) -> bool {
+            for _ in 0..200 {
+                if hotkey.holding() == want {
                     return true;
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(25));
             }
             false
         }
@@ -1744,9 +1767,11 @@ pub mod hotkey {
             }
             assert!(combination_is_free(), "free before a game");
             hotkey.set_armed(true);
-            assert!(wait_until(false), "held while a game runs");
+            assert!(wait_holding(&hotkey, true), "registered while a game runs");
+            assert!(!combination_is_free(), "held while a game runs");
             hotkey.set_armed(false);
-            assert!(wait_until(true), "released after the game");
+            assert!(wait_holding(&hotkey, false), "unregistered after the game");
+            assert!(combination_is_free(), "released after the game");
         }
     }
 }
